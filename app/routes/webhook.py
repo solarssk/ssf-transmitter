@@ -16,7 +16,9 @@ router = APIRouter()
 
 
 def _verify_signature(raw_body: bytes, signature: str | None) -> bool:
-    if not signature or not signature.startswith("sha256="):
+    if not signature:
+        return False
+    if not signature.startswith("sha256="):
         return False
     expected = hmac.new(
         settings.ssf_webhook_secret.encode("utf-8"),
@@ -31,9 +33,15 @@ def _verify_signature(raw_body: bytes, signature: str | None) -> bool:
 async def authentik_webhook(request: Request) -> dict:
     raw_body = await request.body()
     signature = request.headers.get("X-Authentik-Signature")
-    if not _verify_signature(raw_body, signature):
-        logger.warning("Rejected Authentik webhook due to invalid signature")
-        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    if signature:
+        # Signature present — verify it; reject if invalid
+        if not _verify_signature(raw_body, signature):
+            logger.warning("Rejected Authentik webhook due to invalid signature")
+            raise HTTPException(status_code=401, detail="Unauthorized")
+    else:
+        # No signature — accept but warn (Authentik generic webhook does not sign requests)
+        logger.warning("Authentik webhook received without HMAC signature — accepted on internal network trust")
 
     payload = await request.json()
     action = extract_action(payload)
@@ -63,4 +71,3 @@ async def authentik_webhook(request: Request) -> dict:
                 failed += 1
 
     return {"status": "ok", "delivered": delivered, "failed": failed}
-
