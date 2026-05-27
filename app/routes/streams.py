@@ -26,13 +26,22 @@ def _stream_response(stream) -> dict[str, Any]:
 @router.post("/streams", status_code=201)
 async def create_stream_endpoint(payload: dict[str, Any]) -> dict[str, Any]:
     delivery = payload.get("delivery") or {}
-    logger.info("Stream create request payload_keys=%s delivery_keys=%s", sorted(payload.keys()), sorted(delivery.keys()))
+    logger.info(
+        "Stream create request payload_keys=%s delivery_keys=%s",
+        sorted(payload.keys()),
+        sorted(delivery.keys()),
+    )
     logger.debug("Stream create payload=%s", payload)
     try:
         stream = await create_stream(payload)
     except ValueError as exc:
-        delivery = payload.get("delivery") or {}
-    logger.warning("Stream create rejected reason=%s payload_keys=%s delivery_keys=%s delivery=%s", exc, sorted(payload.keys()), sorted(delivery.keys()), delivery)
+        logger.warning(
+            "Stream create rejected reason=%s payload_keys=%s delivery_keys=%s delivery=%s",
+            exc,
+            sorted(payload.keys()),
+            sorted(delivery.keys()),
+            delivery,
+        )
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return _stream_response(stream)
 
