@@ -15,6 +15,7 @@ def client():
 
 
 def signed_headers(body: bytes) -> dict[str, str]:
+    """Return headers with a valid HMAC-SHA256 signature for the given body."""
     signature = hmac.new(b"test_secret_min_32_chars_1234567890", body, hashlib.sha256).hexdigest()
     return {
         "Content-Type": "application/json",
@@ -23,6 +24,7 @@ def signed_headers(body: bytes) -> dict[str, str]:
 
 
 def create_stream(client: TestClient) -> dict:
+    """Create a test SSF stream and return the response payload."""
     response = client.post(
         "/ssf/streams",
         json={
@@ -41,6 +43,7 @@ def create_stream(client: TestClient) -> dict:
 
 
 def test_ssf_metadata_uses_public_base_url(client: TestClient):
+    """SSF well-known configuration returns correct public URLs."""
     response = client.get("/.well-known/ssf-configuration")
 
     assert response.status_code == 200
@@ -61,6 +64,7 @@ def test_ssf_metadata_uses_public_base_url(client: TestClient):
 
 
 def test_jwks_is_generated_with_signing_key(client: TestClient):
+    """JWKS endpoint returns an RSA RS256 key."""
     response = client.get("/jwks.json")
 
     assert response.status_code == 200
@@ -74,6 +78,7 @@ def test_jwks_is_generated_with_signing_key(client: TestClient):
 
 
 def test_stream_lifecycle_does_not_expose_receiver_token(client: TestClient):
+    """Stream CRUD lifecycle completes successfully and never leaks the receiver token."""
     created = create_stream(client)
 
     assert created["aud"] == "apple-business-manager"
@@ -97,6 +102,7 @@ def test_stream_lifecycle_does_not_expose_receiver_token(client: TestClient):
 
 
 def test_status_reports_no_stream_or_enabled_stream(client: TestClient):
+    """Status endpoint reflects current stream state correctly."""
     client.delete("/ssf/streams")
 
     no_stream = client.get("/ssf/status")
@@ -111,7 +117,7 @@ def test_status_reports_no_stream_or_enabled_stream(client: TestClient):
 
 
 def test_webhook_accepts_unsigned_request(client: TestClient):
-    # Authentik generic webhook transport does not sign requests — accepted on internal network trust
+    """Unsigned webhook requests are accepted — Authentik generic transport does not sign."""
     response = client.post(
         "/webhook/authentik",
         json={"body": {"action": "authentik.core.auth.logout", "user": {"email": "u@example.com"}}},
@@ -120,6 +126,7 @@ def test_webhook_accepts_unsigned_request(client: TestClient):
 
 
 def test_webhook_rejects_invalid_hmac(client: TestClient):
+    """Webhook requests with a present but invalid HMAC signature are rejected with 401."""
     body = json.dumps({"body": {"action": "authentik.core.auth.logout"}}).encode()
     response = client.post(
         "/webhook/authentik",
@@ -130,6 +137,7 @@ def test_webhook_rejects_invalid_hmac(client: TestClient):
 
 
 def test_webhook_ignores_login_failed_event(client: TestClient):
+    """Login failed events are ignored and not forwarded as SSF events."""
     body = json.dumps(
         {
             "body": {
@@ -146,6 +154,7 @@ def test_webhook_ignores_login_failed_event(client: TestClient):
 
 
 def test_webhook_delivers_mapped_event_without_logging_or_posting_real_token(client: TestClient, monkeypatch):
+    """Mapped Authentik events are pushed as SETs; receiver token is never logged."""
     create_stream(client)
     pushed = []
 
