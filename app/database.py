@@ -66,14 +66,14 @@ async def create_stream(payload: dict[str, Any]) -> Stream:
         delivery.get("endpoint_url_token")
         or payload.get("endpoint_token")
         or (auth_header.removeprefix("Bearer ") if auth_header else None)
+        or ""
     )
-    aud = payload.get("aud") or payload.get("audience") or payload.get("receiver") or payload.get("iss")
+    _aud = payload.get("aud") or payload.get("audience") or payload.get("receiver") or payload.get("iss")
+    aud = _aud[0] if isinstance(_aud, list) else _aud
     events_requested = payload.get("events_requested") or payload.get("events_supported") or []
 
     if not endpoint_url:
         raise ValueError("Missing delivery.endpoint_url")
-    if not endpoint_token:
-        raise ValueError("Missing delivery.endpoint_url_token")
     if not aud:
         raise ValueError("Missing aud")
     if not isinstance(events_requested, list):
