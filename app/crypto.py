@@ -52,7 +52,7 @@ def ensure_keys() -> None:
         logger.info("Loaded existing SSF signing key and JWKS from %s", keys_dir)
         return
 
-    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    private_key = rsa.generate_private_key(public_exponent=65537, key_size=4096)
     private_pem = private_key.private_bytes(
         encoding=serialization.Encoding.PEM,
         format=serialization.PrivateFormat.PKCS8,
