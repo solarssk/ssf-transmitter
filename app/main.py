@@ -1,4 +1,5 @@
 import logging
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
@@ -10,15 +11,17 @@ from app.routes import jwks, streams, webhook, wellknown
 configure_logging()
 logger = logging.getLogger(__name__)
 
-app = FastAPI(root_path=settings.ssf_root_path, title="SSF Transmitter")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info("Starting SSF Transmitter config=%s", settings.safe_log_dict())
+    ensure_keys()
+    await init_db()
+    yield
+
+
+app = FastAPI(root_path=settings.ssf_root_path, title="SSF Transmitter", lifespan=lifespan)
 app.include_router(wellknown.router)
 app.include_router(jwks.router)
 app.include_router(streams.router)
 app.include_router(webhook.router)
-
-
-@app.on_event("startup")
-async def startup() -> None:
-    logger.info("Starting SSF Transmitter config=%s", settings.safe_log_dict())
-    ensure_keys()
-    await init_db()

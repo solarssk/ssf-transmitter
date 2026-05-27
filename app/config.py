@@ -21,7 +21,7 @@ class Settings:
     keys_dir: str = "/app/keys"
 
     @classmethod
-    def from_env(cls) -> "Settings":
+    def from_env(cls) -> Settings:
         required = {
             "SSF_ISSUER": os.getenv("SSF_ISSUER"),
             "SSF_BASE_URL": os.getenv("SSF_BASE_URL"),

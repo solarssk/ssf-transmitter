@@ -1,5 +1,7 @@
 # SSF Transmitter
 
+[![CI](https://github.com/solarssk/ssf-transmitter/actions/workflows/ci.yml/badge.svg)](https://github.com/solarssk/ssf-transmitter/actions/workflows/ci.yml)
+
 Standalone FastAPI service that provides Shared Signals Framework endpoints next to a free Authentik installation.
 
 ## Public URLs
@@ -52,3 +54,22 @@ If you change `SSF_CONTAINER_PORT`, update the internal webhook URL port.
 
 The service logs to stdout/stderr only, so logs are visible in Portainer and `docker logs`.
 Secrets, bearer tokens, and full SET JWT payloads are not logged.
+
+## Development
+
+Install runtime and development dependencies:
+
+```bash
+python -m venv .venv
+. .venv/bin/activate
+pip install -r requirements-dev.txt
+```
+
+Run the local checks:
+
+```bash
+ruff check .
+pytest
+```
+
+GitHub Actions runs linting, tests, and a Docker image build on pushes to `main` and pull requests.
