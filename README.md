@@ -43,7 +43,7 @@ For Docker Compose on Synology, add the variables from `.env.example` next to yo
 
 ## Nginx Proxy Manager
 
-Add this custom location to the existing `idp.example.com` proxy host:
+Add this custom location to your existing IdP proxy host:
 
 ```nginx
 location ^~ /shared-signals/ {
