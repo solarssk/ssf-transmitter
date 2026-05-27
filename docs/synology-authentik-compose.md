@@ -79,7 +79,7 @@ Add this service under `services:` in your Authentik compose file:
       SSF_ROOT_PATH: "${SSF_ROOT_PATH:-/shared-signals}"
       SSF_CONTAINER_PORT: "${SSF_CONTAINER_PORT:-8000}"
       LOG_LEVEL: "${SSF_LOG_LEVEL:-INFO}"
-      AUTHENTIK_WEBHOOK_SECRET: "${SSF_WEBHOOK_SECRET:?SSF webhook secret required}"
+      SSF_WEBHOOK_SECRET: "${SSF_WEBHOOK_SECRET:?SSF webhook secret required}"
       TZ: Europe/Warsaw
     volumes:
       - /volume2/docker/authentik/ssf-keys:/app/keys
@@ -141,3 +141,4 @@ Every push to `main` builds and publishes:
 - `ghcr.io/solarssk/ssf-transmitter:sha-<short_sha>`
 
 In Portainer, redeploy the stack and enable image pulling when you want to update to the newest `latest` image.
+
