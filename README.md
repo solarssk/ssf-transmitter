@@ -2,7 +2,24 @@
 
 [![CI](https://github.com/solarssk/ssf-transmitter/actions/workflows/ci.yml/badge.svg)](https://github.com/solarssk/ssf-transmitter/actions/workflows/ci.yml)
 
-Standalone FastAPI service that provides Shared Signals Framework endpoints next to a free Authentik installation.
+Standalone FastAPI service that provides OpenID Shared Signals Framework endpoints next to a free Authentik installation.
+It is designed for deployments where Authentik handles OIDC and this service handles SSF/CAEP/RISC event delivery.
+
+## Features
+
+- SSF configuration metadata and JWKS endpoints.
+- Stream create/read/update/delete endpoints for push delivery receivers.
+- Authentik webhook receiver with HMAC-SHA256 signature verification.
+- CAEP/RISC event mapping for logout, credential change, account disabled/enabled, and account purged events.
+- RS256-signed Security Event Token push delivery.
+- SQLite persistence for stream configuration.
+- Docker-first deployment with configurable host and container ports.
+- Stdout/stderr logging suitable for Portainer and `docker logs`.
+
+## Project Status
+
+MVP implementation for self-hosted Authentik deployments.
+There is no admin panel; configuration is handled through environment variables, Docker Compose, reverse proxy rules, and receiver-managed stream setup.
 
 ## Public URLs
 
