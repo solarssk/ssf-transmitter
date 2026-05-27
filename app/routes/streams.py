@@ -35,12 +35,17 @@ async def create_stream_endpoint(payload: dict[str, Any]) -> dict[str, Any]:
     try:
         stream = await create_stream(payload)
     except ValueError as exc:
+        _REDACTED = "[redacted]"
+        safe_delivery = {
+            k: (_REDACTED if k in {"endpoint_url_token", "authorization_header"} else v)
+            for k, v in delivery.items()
+        }
         logger.warning(
             "Stream create rejected reason=%s payload_keys=%s delivery_keys=%s delivery=%s",
             exc,
             sorted(payload.keys()),
             sorted(delivery.keys()),
-            delivery,
+            safe_delivery,
         )
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return _stream_response(stream)
