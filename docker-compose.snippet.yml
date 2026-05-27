@@ -1,0 +1,18 @@
+ssf-transmitter:
+  build: ./ssf-transmitter
+  container_name: authentik-ssf
+  restart: unless-stopped
+  ports:
+    - "127.0.0.1:${SSF_HOST_PORT:-62107}:${SSF_CONTAINER_PORT:-8000}"
+  environment:
+    SSF_ISSUER: "https://idp.example.com/application/o/apple-id/"
+    SSF_BASE_URL: "https://idp.example.com/shared-signals"
+    SSF_ROOT_PATH: "/shared-signals"
+    SSF_CONTAINER_PORT: "${SSF_CONTAINER_PORT:-8000}"
+    LOG_LEVEL: "${SSF_LOG_LEVEL:-INFO}"
+    AUTHENTIK_WEBHOOK_SECRET: "${SSF_WEBHOOK_SECRET}"
+  volumes:
+    - ./ssf-keys:/app/keys
+    - ./ssf-data:/app/data
+  networks:
+    - authentik_default

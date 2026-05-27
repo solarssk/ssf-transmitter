@@ -1,0 +1,7 @@
+fastapi
+uvicorn[standard]
+aiosqlite
+python-jose[cryptography]
+cryptography
+httpx
+python-dotenv

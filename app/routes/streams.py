@@ -1,0 +1,82 @@
+import logging
+from typing import Any
+
+from fastapi import APIRouter, HTTPException, Response
+
+from app.database import create_stream, delete_stream, get_first_stream, update_stream
+
+logger = logging.getLogger(__name__)
+router = APIRouter(prefix="/ssf")
+
+
+def _stream_response(stream) -> dict[str, Any]:
+    return {
+        "stream_id": stream.stream_id,
+        "aud": stream.aud,
+        "delivery": {
+            "method": "https://schemas.openid.net/secevent/risc/delivery-method/push",
+            "endpoint_url": stream.endpoint_url,
+        },
+        "events_requested": stream.events_requested,
+        "status": stream.status,
+        "created_at": stream.created_at,
+    }
+
+
+@router.post("/streams", status_code=201)
+async def create_stream_endpoint(payload: dict[str, Any]) -> dict[str, Any]:
+    try:
+        stream = await create_stream(payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return _stream_response(stream)
+
+
+@router.get("/streams")
+async def get_stream_endpoint() -> dict[str, Any]:
+    stream = await get_first_stream()
+    if not stream:
+        raise HTTPException(status_code=404, detail="No stream configured")
+    return _stream_response(stream)
+
+
+@router.patch("/streams")
+async def patch_stream_endpoint(payload: dict[str, Any]) -> dict[str, Any]:
+    try:
+        stream = await update_stream(payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not stream:
+        raise HTTPException(status_code=404, detail="No stream configured")
+    return _stream_response(stream)
+
+
+@router.delete("/streams", status_code=204)
+async def delete_stream_endpoint() -> Response:
+    await delete_stream()
+    return Response(status_code=204)
+
+
+@router.post("/streams/subjects:add")
+async def add_subject(payload: dict[str, Any]) -> dict[str, str]:
+    logger.info("Registered SSF subject payload_keys=%s", sorted(payload.keys()))
+    return {"status": "ok"}
+
+
+@router.post("/streams/subjects:remove")
+async def remove_subject(payload: dict[str, Any]) -> dict[str, str]:
+    logger.info("Removed SSF subject payload_keys=%s", sorted(payload.keys()))
+    return {"status": "ok"}
+
+
+@router.get("/status")
+async def stream_status() -> dict[str, Any]:
+    stream = await get_first_stream()
+    if not stream:
+        return {"status": "disabled", "reason": "no_stream"}
+    return {
+        "status": stream.status,
+        "stream_id": stream.stream_id,
+        "aud": stream.aud,
+        "events_requested": stream.events_requested,
+    }

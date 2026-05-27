@@ -1,0 +1,8 @@
+.venv/
+.local/
+.pycache/
+__pycache__/
+*.py[cod]
+.DS_Store
+ssf-keys/
+ssf-data/
