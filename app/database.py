@@ -61,7 +61,12 @@ async def init_db() -> None:
 async def create_stream(payload: dict[str, Any]) -> Stream:
     delivery = payload.get("delivery") or {}
     endpoint_url = delivery.get("endpoint_url") or payload.get("endpoint_url")
-    endpoint_token = delivery.get("endpoint_url_token") or payload.get("endpoint_token")
+    auth_header = delivery.get("authorization_header", "")
+    endpoint_token = (
+        delivery.get("endpoint_url_token")
+        or payload.get("endpoint_token")
+        or (auth_header.removeprefix("Bearer ") if auth_header else None)
+    )
     aud = payload.get("aud") or payload.get("audience") or payload.get("receiver") or payload.get("iss")
     events_requested = payload.get("events_requested") or payload.get("events_supported") or []
 
@@ -128,7 +133,13 @@ async def update_stream(payload: dict[str, Any]) -> Stream | None:
 
     delivery = payload.get("delivery") or {}
     endpoint_url = delivery.get("endpoint_url") or payload.get("endpoint_url") or stream.endpoint_url
-    endpoint_token = delivery.get("endpoint_url_token") or payload.get("endpoint_token") or stream.endpoint_token
+    auth_header = delivery.get("authorization_header", "")
+    endpoint_token = (
+        delivery.get("endpoint_url_token")
+        or payload.get("endpoint_token")
+        or (auth_header.removeprefix("Bearer ") if auth_header else None)
+        or stream.endpoint_token
+    )
     events_requested = payload.get("events_requested", stream.events_requested)
     status = payload.get("status", stream.status)
     aud = payload.get("aud") or payload.get("audience") or payload.get("receiver") or stream.aud
