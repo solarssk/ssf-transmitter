@@ -19,7 +19,7 @@ def _verify_signature(raw_body: bytes, signature: str | None) -> bool:
     if not signature or not signature.startswith("sha256="):
         return False
     expected = hmac.new(
-        settings.authentik_webhook_secret.encode("utf-8"),
+        settings.ssf_webhook_secret.encode("utf-8"),
         raw_body,
         hashlib.sha256,
     ).hexdigest()
@@ -63,3 +63,4 @@ async def authentik_webhook(request: Request) -> dict:
                 failed += 1
 
     return {"status": "ok", "delivered": delivered, "failed": failed}
+
