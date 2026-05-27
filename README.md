@@ -36,12 +36,12 @@ SSF_ISSUER=https://idp.example.com/application/o/apple-id/
 SSF_BASE_URL=https://idp.example.com/shared-signals
 SSF_ROOT_PATH=/shared-signals
 SSF_CONTAINER_PORT=8000
-AUTHENTIK_WEBHOOK_SECRET=change_me_to_random_string_min_32_chars
+SSF_WEBHOOK_SECRET=change_me_to_random_string_min_32_chars
 LOG_LEVEL=INFO
 ```
 
-For Docker Compose on Synology, add the variables from `.env.example` next to your Authentik compose file.
-See [Synology Authentik Compose Integration](docs/synology-authentik-compose.md) for a full service block.
+See `.env.example` for the full list of variables including optional ones.
+For Docker Compose on Synology, see [Synology Authentik Compose Integration](docs/synology-authentik-compose.md).
 
 ## Container Image
 
@@ -50,8 +50,6 @@ The `main` branch publishes a multi-architecture image to GitHub Container Regis
 ```text
 ghcr.io/solarssk/ssf-transmitter:latest
 ```
-
-For private repositories, configure Portainer or Docker with GHCR credentials that can read packages.
 
 ## Nginx Proxy Manager
 
@@ -79,10 +77,52 @@ Configure a Generic Webhook transport in Authentik:
 
 If you change `SSF_CONTAINER_PORT`, update the internal webhook URL port.
 
+## Event Mapping
+
+| Authentik event | Condition | SSF/CAEP/RISC event |
+|---|---|---|
+| `authentik.core.auth.logout` | — | `caep/session-revoked` |
+| `authentik.core.user.write` | `changed_fields` contains `password` | `caep/credential-change` |
+| `authentik.core.user.write` | `is_active` set to `false` | `risc/account-disabled` |
+| `authentik.core.user.write` | `is_active` set to `true` | `risc/account-enabled` |
+| `authentik.core.user.delete` | — | `risc/account-purged` |
+| `authentik.core.auth.login_failed` | — | *(ignored)* |
+
+A single `user.write` event can emit multiple SSF events (e.g. password change + account disabled simultaneously).
+
+## Key Management
+
+On first startup the service generates an RS256 4096-bit private key and JWKS file in the `SSF_KEYS_DIR` directory (default: `/app/keys`).
+
+- **Backup `/app/keys/private.pem`** — if lost, all previously issued SET JWTs become unverifiable by receivers.
+- The key is never regenerated automatically as long as both `private.pem` and `jwks.json` exist.
+- To rotate: stop the service, remove `/app/keys/`, restart. Receivers will need to re-fetch JWKS.
+
+## API Reference
+
+See [docs/API.md](docs/API.md) for full endpoint documentation with request and response examples.
+
 ## Logging
 
 The service logs to stdout/stderr only, so logs are visible in Portainer and `docker logs`.
 Secrets, bearer tokens, and full SET JWT payloads are not logged.
+
+## Troubleshooting
+
+**`unauthorized` when pulling the image**
+The GHCR package visibility must be set to public separately from the repository.
+Go to `https://github.com/users/<owner>/packages/container/ssf-transmitter/settings` and change visibility to Public,
+or run `docker login ghcr.io` on the host before pulling.
+
+**Portainer deploy fails with status 500**
+Usually caused by a missing or misnamed environment variable. Check that all required variables (`SSF_ISSUER`, `SSF_BASE_URL`, `SSF_WEBHOOK_SECRET`) are present in `stack.env`. The `:?` syntax in the compose file causes a hard failure if a variable is unset.
+
+**Container exits immediately on startup**
+Run `docker logs authentik-ssf` to see the error. Missing required env vars are reported as:
+`RuntimeError: Missing required environment variables: SSF_ISSUER, ...`
+
+**Webhook returns 401**
+The `X-Authentik-Signature` header does not match. Verify that `SSF_WEBHOOK_SECRET` in the service matches the HMAC secret configured in the Authentik webhook transport.
 
 ## Development
 
