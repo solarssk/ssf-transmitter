@@ -12,9 +12,10 @@ ssf-transmitter:
     SSF_ROOT_PATH: "${SSF_ROOT_PATH:-/shared-signals}"
     SSF_CONTAINER_PORT: "${SSF_CONTAINER_PORT:-8000}"
     LOG_LEVEL: "${SSF_LOG_LEVEL:-INFO}"
-    AUTHENTIK_WEBHOOK_SECRET: "${SSF_WEBHOOK_SECRET:?SSF webhook secret required}"
+    SSF_WEBHOOK_SECRET: "${SSF_WEBHOOK_SECRET:?SSF webhook secret required}"
   volumes:
     - ./ssf-keys:/app/keys
     - ./ssf-data:/app/data
   networks:
     - authentik_network
+
