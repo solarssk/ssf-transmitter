@@ -14,6 +14,7 @@ It is designed for deployments where Authentik handles OIDC and this service han
 - RS256-signed Security Event Token push delivery.
 - SQLite persistence for stream configuration.
 - Docker-first deployment with configurable host and container ports.
+- Prebuilt multi-architecture container image published to GitHub Container Registry.
 - Stdout/stderr logging suitable for Portainer and `docker logs`.
 
 ## Project Status
@@ -41,6 +42,16 @@ LOG_LEVEL=INFO
 
 For Docker Compose on Synology, add the variables from `.env.example` next to your Authentik compose file.
 See [Synology Authentik Compose Integration](docs/synology-authentik-compose.md) for a full service block.
+
+## Container Image
+
+The `main` branch publishes a multi-architecture image to GitHub Container Registry:
+
+```text
+ghcr.io/solarssk/ssf-transmitter:latest
+```
+
+For private repositories, configure Portainer or Docker with GHCR credentials that can read packages.
 
 ## Nginx Proxy Manager
 

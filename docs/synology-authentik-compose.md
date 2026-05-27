@@ -17,13 +17,30 @@ Recommended layout on Synology:
 └── ssf-keys/
 ```
 
-Clone this repository into:
+If you want Portainer/Synology to build locally, clone this repository into:
 
 ```text
 /volume2/docker/authentik/ssf-transmitter
 ```
 
-Because this repository is private, configure Git access on the NAS/Portainer side before using `build: ./ssf-transmitter`.
+The recommended setup is to avoid local builds and pull the prebuilt GHCR image instead.
+
+## Private GHCR Access
+
+Because the repository is private, the container package is private too unless you explicitly change its visibility.
+Configure Portainer with GitHub Container Registry credentials:
+
+- Registry URL: `ghcr.io`
+- Username: your GitHub username
+- Password/token: a GitHub personal access token with `read:packages`
+
+Alternatively, log in once on the Synology host:
+
+```bash
+docker login ghcr.io
+```
+
+Use your GitHub username and a personal access token with `read:packages`.
 
 ## `stack.env`
 
@@ -47,7 +64,7 @@ Add this service under `services:` in your Authentik compose file:
 
 ```yaml
   ssf-transmitter:
-    build: ./ssf-transmitter
+    image: ghcr.io/solarssk/ssf-transmitter:latest
     container_name: authentik-ssf
     restart: unless-stopped
     networks:
@@ -115,3 +132,12 @@ Use these URLs with the SSF receiver:
 - OpenID Config URL: `https://idp.example.com/application/o/apple-id/.well-known/openid-configuration`
 
 Replace `idp.example.com` in the receiver UI with your real IdP hostname.
+
+## Image Updates
+
+Every push to `main` builds and publishes:
+
+- `ghcr.io/solarssk/ssf-transmitter:latest`
+- `ghcr.io/solarssk/ssf-transmitter:sha-<short_sha>`
+
+In Portainer, redeploy the stack and enable image pulling when you want to update to the newest `latest` image.

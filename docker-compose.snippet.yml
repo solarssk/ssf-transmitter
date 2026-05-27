@@ -1,5 +1,5 @@
 ssf-transmitter:
-  build: ./ssf-transmitter
+  image: ghcr.io/solarssk/ssf-transmitter:latest
   container_name: authentik-ssf
   restart: unless-stopped
   env_file:
