@@ -25,10 +25,9 @@ async def push_set(stream: Stream, event_uri: str, email: str) -> bool:
         logger.exception("Failed to sign SET event_uri=%s aud=%s", event_uri, stream.aud)
         return False
 
-    headers = {
-        "Authorization": f"Bearer {stream.endpoint_token}",
-        "Content-Type": "application/secevent+jwt",
-    }
+    headers: dict[str, str] = {"Content-Type": "application/secevent+jwt"}
+    if stream.endpoint_token:
+        headers["Authorization"] = f"Bearer {stream.endpoint_token}"
 
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
