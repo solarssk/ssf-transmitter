@@ -40,6 +40,7 @@ LOG_LEVEL=INFO
 ```
 
 For Docker Compose on Synology, add the variables from `.env.example` next to your Authentik compose file.
+See [Synology Authentik Compose Integration](docs/synology-authentik-compose.md) for a full service block.
 
 ## Nginx Proxy Manager
 
