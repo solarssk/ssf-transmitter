@@ -3,7 +3,7 @@ from urllib.parse import urlparse
 
 import httpx
 
-from app.crypto import sign_set
+from app.crypto import sign_set, sign_verification_set
 from app.database import Stream
 
 logger = logging.getLogger(__name__)
@@ -56,6 +56,47 @@ async def push_set(stream: Stream, event_uri: str, email: str) -> bool:
     logger.info(
         "Pushed SET event_uri=%s aud=%s endpoint_host=%s status_code=%s",
         event_uri,
+        stream.aud,
+        _safe_host(stream.endpoint_url),
+        response.status_code,
+    )
+    return True
+
+
+async def push_verification_set(stream: "Stream", state: str) -> bool:
+    """Push a verification SET to confirm push delivery is working."""
+    try:
+        token = sign_verification_set(audience=stream.aud, state=state)
+    except Exception:
+        logger.exception("Failed to sign verification SET aud=%s", stream.aud)
+        return False
+
+    headers: dict[str, str] = {"Content-Type": "application/secevent+jwt"}
+    if stream.endpoint_token:
+        headers["Authorization"] = f"Bearer {stream.endpoint_token}"
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(stream.endpoint_url, content=token, headers=headers)
+    except httpx.HTTPError:
+        logger.exception(
+            "Failed to push verification SET aud=%s endpoint_host=%s",
+            stream.aud,
+            _safe_host(stream.endpoint_url),
+        )
+        return False
+
+    if response.status_code >= 400:
+        logger.warning(
+            "Receiver rejected verification SET aud=%s endpoint_host=%s status_code=%s",
+            stream.aud,
+            _safe_host(stream.endpoint_url),
+            response.status_code,
+        )
+        return False
+
+    logger.info(
+        "Pushed verification SET aud=%s endpoint_host=%s status_code=%s",
         stream.aud,
         _safe_host(stream.endpoint_url),
         response.status_code,
