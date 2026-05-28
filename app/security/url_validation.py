@@ -26,6 +26,13 @@ from urllib.parse import urlparse
 logger = logging.getLogger(__name__)
 
 # IP networks that are never acceptable as receiver targets
+# Hostnames that are always blocked regardless of DNS resolution
+_BLOCKED_HOSTNAMES = {
+    "localhost",
+    "metadata.google.internal",  # GCE metadata
+    "169.254.169.254",            # also caught as bare IP, belt-and-suspenders
+}
+
 _BLOCKED_NETWORKS = [
     ipaddress.ip_network("0.0.0.0/8"),          # "This" network
     ipaddress.ip_network("10.0.0.0/8"),          # RFC1918 private
@@ -112,6 +119,9 @@ def validate_receiver_endpoint_url(url: str, allowed_hosts: list[str] | None = N
     host = parsed.hostname
     if not host:
         raise ValueError("endpoint_url has no host")
+
+    if host.lower() in _BLOCKED_HOSTNAMES:
+        raise ValueError(f"endpoint_url host {host!r} is not allowed")
 
     # Reject bare IP literals that are in blocked ranges
     try:
