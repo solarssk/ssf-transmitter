@@ -27,6 +27,7 @@ def _stream_response(stream) -> dict[str, Any]:
 
 @router.post("/streams", status_code=201)
 async def create_stream_endpoint(payload: dict[str, Any]) -> dict[str, Any]:
+    """Create a new SSF stream and confirm delivery by pushing a verification SET."""
     delivery = payload.get("delivery") or {}
     logger.info(
         "Stream create request payload_keys=%s delivery_keys=%s",
@@ -50,19 +51,27 @@ async def create_stream_endpoint(payload: dict[str, Any]) -> dict[str, Any]:
             safe_delivery,
         )
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     verification_state = str(uuid.uuid4())
     pushed = await push_verification_set(stream, state=verification_state)
     if not pushed:
         logger.warning(
-            "Verification SET delivery failed stream_id=%s aud=%s",
+            "Verification SET delivery failed; rolling back stream_id=%s aud=%s",
             stream.stream_id,
             stream.aud,
         )
+        await delete_stream()
+        raise HTTPException(
+            status_code=502,
+            detail="Verification SET delivery failed; stream registration was not confirmed.",
+        )
+
     return _stream_response(stream)
 
 
 @router.get("/streams")
 async def get_stream_endpoint() -> dict[str, Any]:
+    """Return the current SSF stream configuration."""
     stream = await get_first_stream()
     if not stream:
         raise HTTPException(status_code=404, detail="No stream configured")
@@ -71,6 +80,7 @@ async def get_stream_endpoint() -> dict[str, Any]:
 
 @router.patch("/streams")
 async def patch_stream_endpoint(payload: dict[str, Any]) -> dict[str, Any]:
+    """Update the current SSF stream configuration."""
     try:
         stream = await update_stream(payload)
     except ValueError as exc:
@@ -82,24 +92,28 @@ async def patch_stream_endpoint(payload: dict[str, Any]) -> dict[str, Any]:
 
 @router.delete("/streams", status_code=204)
 async def delete_stream_endpoint() -> Response:
+    """Delete the current SSF stream."""
     await delete_stream()
     return Response(status_code=204)
 
 
 @router.post("/streams/subjects:add")
 async def add_subject(payload: dict[str, Any]) -> dict[str, str]:
+    """Register a subject on the current SSF stream."""
     logger.info("Registered SSF subject payload_keys=%s", sorted(payload.keys()))
     return {"status": "ok"}
 
 
 @router.post("/streams/subjects:remove")
 async def remove_subject(payload: dict[str, Any]) -> dict[str, str]:
+    """Remove a subject from the current SSF stream."""
     logger.info("Removed SSF subject payload_keys=%s", sorted(payload.keys()))
     return {"status": "ok"}
 
 
 @router.get("/status")
 async def stream_status() -> dict[str, Any]:
+    """Return the current SSF stream status."""
     stream = await get_first_stream()
     if not stream:
         return {"status": "disabled", "reason": "no_stream"}
