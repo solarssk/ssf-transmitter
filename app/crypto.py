@@ -92,8 +92,7 @@ def _load_signing_material() -> tuple[str, str]:
 def sign_set(event_uri: str, audience: str, email: str) -> str:
     """Sign a Security Event Token (SET) JWT for the given event and subject email.
 
-    The ``aud`` claim is encoded as a single-element array per RFC 7519 §4.1.3
-    ("In the general case, the 'aud' value is an array of case-sensitive strings").
+    ``aud`` is encoded as a single-element array per RFC 7519 §4.1.3.
     """
     private_pem, kid = _load_signing_material()
     payload = {
@@ -113,10 +112,13 @@ def sign_set(event_uri: str, audience: str, email: str) -> str:
     return jwt.encode(payload, private_pem, algorithm="RS256", headers={"kid": kid, "typ": "secevent+jwt"})
 
 
-def sign_verification_set(audience: str, state: str) -> str:
+def sign_verification_set(audience: str, state: str, stream_id: str) -> str:
     """Sign a verification SET JWT as defined in the SSF specification.
 
-    The ``aud`` claim is encoded as a single-element array per RFC 7519 §4.1.3.
+    Follows Authentik's reference implementation:
+    - ``aud`` encoded as single-element array (RFC 7519 §4.1.3)
+    - ``sub_id`` with ``format: opaque`` and the stream UUID as identifier
+    - ``typ: secevent+jwt`` header (RFC 8417 §2.3)
     """
     private_pem, kid = _load_signing_material()
     payload = {
@@ -124,6 +126,7 @@ def sign_verification_set(audience: str, state: str) -> str:
         "iat": int(time.time()),
         "jti": str(uuid.uuid4()),
         "aud": [audience],
+        "sub_id": {"format": "opaque", "id": stream_id},
         "events": {
             "https://schemas.openid.net/secevent/risc/event-type/verification": {
                 "state": state,
