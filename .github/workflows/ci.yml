@@ -32,5 +32,8 @@ jobs:
       - name: Test
         run: pytest
 
+      - name: Audit dependencies for known vulnerabilities
+        run: pip-audit -r requirements.txt -r requirements-dev.txt
+
       - name: Build Docker image
         run: docker build -t ssf-transmitter:ci .
