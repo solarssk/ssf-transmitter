@@ -106,11 +106,6 @@ async def push_verification_set(stream: "Stream") -> bool:
     if not _revalidate_endpoint(stream.endpoint_url):
         return False
 
-    # WARNING: DEBUG logs the full JWT — do NOT enable DEBUG in production or ship
-    # logs to untrusted systems.  Token is only logged to allow jwt.io inspection
-    # when diagnosing receiver rejections.
-    logger.debug("Verification SET JWT (paste at jwt.io to inspect): %s", token)
-
     headers: dict[str, str] = {"Content-Type": "application/secevent+jwt"}
     if stream.endpoint_token:
         headers["Authorization"] = f"Bearer {stream.endpoint_token}"

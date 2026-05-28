@@ -92,7 +92,11 @@ def _load_signing_material() -> tuple[str, str]:
 def sign_set(event_uri: str, audience: str, email: str) -> str:
     """Sign a Security Event Token (SET) JWT for the given event and subject email.
 
-    ``aud`` is encoded as a single-element array per RFC 7519 §4.1.3.
+    Conforms to SSF Framework 1.0 (final):
+    - ``sub_id`` at top level with ``format: email`` (SSF §5.1)
+    - ``aud`` as single-element array (RFC 7519 §4.1.3)
+    - ``typ: secevent+jwt`` header (RFC 8417 §2.3)
+    - No ``exp`` or ``sub`` claims
     """
     private_pem, kid = _load_signing_material()
     payload = {
@@ -100,6 +104,10 @@ def sign_set(event_uri: str, audience: str, email: str) -> str:
         "iat": int(time.time()),
         "jti": str(uuid.uuid4()),
         "aud": [audience],
+        "sub_id": {
+            "format": "email",
+            "email": email,
+        },
         "events": {
             event_uri: {
                 "subject": {
