@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 import uuid
 from dataclasses import dataclass
@@ -57,6 +58,21 @@ async def init_db() -> None:
         settings.database_path,
         str(db_path.parent),
     )
+    # Pre-create the file with 0600 permissions before SQLite opens it.
+    # Using os.open with O_CREAT|O_WRONLY and mode=0o600 sets the permission
+    # atomically, closing the TOCTOU window that exists when creating first
+    # and chmod-ing afterwards.  The fd is closed immediately; SQLite then
+    # opens the already-existing file and inherits its permissions.
+    if not db_path.exists():
+        fd = os.open(str(db_path), os.O_CREAT | os.O_WRONLY, 0o600)
+        os.close(fd)
+    else:
+        # File already exists (restart) — enforce permissions in case they
+        # were changed by a previous deployment or volume remount.
+        try:
+            db_path.chmod(0o600)
+        except OSError as exc:
+            logger.warning("Could not set 0600 permissions on DB file %s: %s", settings.database_path, exc)
     async with aiosqlite.connect(settings.database_path) as db:
         await db.execute(
             """
@@ -83,12 +99,6 @@ async def init_db() -> None:
             """
         )
         await db.commit()
-    # Restrict DB file permissions so only the owning process can read/write it.
-    # Receiver tokens stored here must not be readable by group or other users.
-    try:
-        db_path.chmod(0o600)
-    except OSError as exc:
-        logger.warning("Could not set 0600 permissions on DB file %s: %s", settings.database_path, exc)
     logger.info("Initialized SQLite database at %s", settings.database_path)
 
 
