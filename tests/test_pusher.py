@@ -5,13 +5,15 @@ from app.events import pusher
 
 
 class FakeResponse:
-    def __init__(self, status_code: int):
+    def __init__(self, status_code: int, text: str = ""):
         self.status_code = status_code
+        self.text = text
 
 
 class FakeAsyncClient:
     requests = []
     status_code = 202
+    response_text = ""
 
     def __init__(self, timeout: float):
         self.timeout = timeout
@@ -24,7 +26,7 @@ class FakeAsyncClient:
 
     async def post(self, url, content, headers):
         self.requests.append((url, content, headers))
-        return FakeResponse(self.status_code)
+        return FakeResponse(self.status_code, self.response_text)
 
 
 @pytest.fixture()
@@ -67,9 +69,11 @@ async def test_push_set_posts_signed_set_as_plain_secevent_jwt(monkeypatch, stre
 
 
 @pytest.mark.anyio
-async def test_push_set_reports_receiver_error(monkeypatch, stream):
+async def test_push_set_reports_receiver_error(monkeypatch, stream, caplog):
+    """Failed push logs the response body so errors are diagnosable."""
     FakeAsyncClient.requests = []
     FakeAsyncClient.status_code = 500
+    FakeAsyncClient.response_text = "Internal Server Error"
     monkeypatch.setattr(pusher, "sign_set", lambda event_uri, audience, email: "signed.jwt")
     monkeypatch.setattr(pusher.httpx, "AsyncClient", FakeAsyncClient)
 
@@ -80,6 +84,7 @@ async def test_push_set_reports_receiver_error(monkeypatch, stream):
     )
 
     assert delivered is False
+    assert "Internal Server Error" in caplog.text
 
 
 @pytest.mark.anyio
