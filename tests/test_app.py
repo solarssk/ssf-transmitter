@@ -55,7 +55,7 @@ def test_ssf_metadata_uses_public_base_url(client: TestClient):
         "issuer": "https://idp.example.com/application/o/apple-id/",
         "jwks_uri": "https://idp.example.com/shared-signals/jwks.json",
         "delivery_methods_supported": [
-            "https://schemas.openid.net/secevent/risc/delivery-method/push",
+            "urn:ietf:rfc:8935",
         ],
         "configuration_endpoint": "https://idp.example.com/shared-signals/ssf/streams",
         "add_subject_endpoint": "https://idp.example.com/shared-signals/ssf/streams/subjects:add",
@@ -63,7 +63,7 @@ def test_ssf_metadata_uses_public_base_url(client: TestClient):
         "status_endpoint": "https://idp.example.com/shared-signals/ssf/status",
         "supported_scopes": ["openid"],
         "critical_subject_members": [],
-        "spec_version": "1_0-ID2",
+        "spec_version": "1_0",
     }
 
 
