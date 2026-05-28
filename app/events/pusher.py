@@ -76,6 +76,8 @@ async def push_verification_set(stream: "Stream") -> bool:
         logger.exception("Failed to sign verification SET aud=%s", stream.aud)
         return False
 
+    logger.debug("Verification SET JWT (paste at jwt.io to inspect): %s", token)
+
     headers: dict[str, str] = {"Content-Type": "application/secevent+jwt"}
     if stream.endpoint_token:
         headers["Authorization"] = f"Bearer {stream.endpoint_token}"

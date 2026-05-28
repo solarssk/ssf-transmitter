@@ -115,7 +115,10 @@ def sign_set(event_uri: str, audience: str, email: str) -> str:
 def sign_verification_set(audience: str, stream_id: str, state: str | None = None) -> str:
     """Sign a verification SET JWT as defined in the SSF specification.
 
-    Follows Authentik's reference implementation:
+    Event type URI follows SSF Framework §6.2:
+    ``https://schemas.openid.net/secevent/ssf/event-type/verification``
+
+    Other conformance notes:
     - ``aud`` encoded as single-element array (RFC 7519 §4.1.3)
     - ``sub_id`` with ``format: opaque`` and the stream UUID as identifier
     - ``typ: secevent+jwt`` header (RFC 8417 §2.3)
@@ -133,7 +136,7 @@ def sign_verification_set(audience: str, stream_id: str, state: str | None = Non
         "aud": [audience],
         "sub_id": {"format": "opaque", "id": stream_id},
         "events": {
-            "https://schemas.openid.net/secevent/risc/event-type/verification": event_payload,
+            "https://schemas.openid.net/secevent/ssf/event-type/verification": event_payload,
         },
     }
     return jwt.encode(payload, private_pem, algorithm="RS256", headers={"kid": kid, "typ": "secevent+jwt"})
