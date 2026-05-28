@@ -150,17 +150,7 @@ def test_webhook_secret_not_logged_on_invalid_hmac(client: TestClient, caplog):
     assert _WEBHOOK_SECRET.decode() not in _app_log_text(caplog)
 
 
-# ---------------------------------------------------------------------------
-# Email is masked in logs by default
-# ---------------------------------------------------------------------------
-
-
-def test_user_email_not_logged_in_webhook_processing(client: TestClient, caplog):
-    """Email addresses must not appear in app log records when SSF_LOG_PII=false (default)."""
-    target_email = "sensitiveuser@example.com"
-    body = json.dumps(
-        {"body": {"action": "authentik.core.auth.logout", "user": {"email": target_email}}}
-    ).encode()
-    with caplog.at_level(logging.INFO, logger="app.routes.webhook"):
-        client.post("/webhook/authentik", content=body, headers=_signed_headers(body))
-    assert target_email not in _app_log_text(caplog)
+# Note: the "email never appears in logs" regression test lives in
+# tests/test_pii_and_body_limit.py (PR: PII masking + webhook body limit),
+# which adds SSF_LOG_PII support and the mask_email() call to webhook.py.
+# It is not included here because the feature is not yet on main.
