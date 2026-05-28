@@ -102,14 +102,8 @@ async def create_stream(payload: dict[str, Any]) -> Stream:
         or (auth_header.removeprefix("Bearer ") if auth_header else None)
         or ""
     )
-    _aud = payload.get("aud") or payload.get("audience") or payload.get("receiver") or payload.get("iss")
-    if isinstance(_aud, list):
-        if len(_aud) != 1:
-            raise ValueError(f"aud must be a single value, got {len(_aud)}")
-        aud = _aud[0]
-    else:
-        aud = _aud
-    events_requested = payload.get("events_requested") or payload.get("events_supported") or []
+    aud = payload.get("aud")
+    events_requested = payload.get("events_requested") or []
 
     if not endpoint_url:
         raise ValueError("Missing delivery.endpoint_url")
@@ -184,7 +178,7 @@ async def update_stream(payload: dict[str, Any]) -> Stream | None:
     )
     events_requested = payload.get("events_requested", stream.events_requested)
     status = payload.get("status", stream.status)
-    aud = payload.get("aud") or payload.get("audience") or payload.get("receiver") or stream.aud
+    aud = payload.get("aud") or stream.aud
 
     if not isinstance(events_requested, list):
         raise ValueError("events_requested must be a list when provided")

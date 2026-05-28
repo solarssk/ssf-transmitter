@@ -45,6 +45,40 @@ class StreamStatus(StrEnum):
 
 
 # ---------------------------------------------------------------------------
+# Helpers (shared by both request models to avoid duplication)
+# ---------------------------------------------------------------------------
+
+
+def _coerce_aud(v: object) -> str:
+    """Normalise an *aud* value from a request body to a plain string.
+
+    Accepts a single string or a one-element list containing a string.
+    Raises ``ValueError`` for multi-element lists, non-string types, or
+    empty/whitespace-only strings.
+    """
+    if isinstance(v, list):
+        if len(v) != 1:
+            raise ValueError(f"aud must be a single string value, got list of {len(v)}")
+        v = v[0]
+    if not isinstance(v, str):
+        raise ValueError(f"aud must be a string, got {type(v).__name__}")
+    if not v.strip():
+        raise ValueError("aud must not be empty")
+    return v
+
+
+def _validate_event_uris(uris: list[str]) -> list[str]:
+    """Raise ``ValueError`` if any URI is not in the supported set."""
+    unsupported = [e for e in uris if e not in SUPPORTED_EVENT_URIS]
+    if unsupported:
+        raise ValueError(
+            f"Unsupported event URI(s): {unsupported}. "
+            f"Supported: {sorted(SUPPORTED_EVENT_URIS)}"
+        )
+    return uris
+
+
+# ---------------------------------------------------------------------------
 # Nested models
 # ---------------------------------------------------------------------------
 
@@ -88,26 +122,12 @@ class StreamCreateRequest(BaseModel):
     @field_validator("aud", mode="before")
     @classmethod
     def _normalize_aud(cls, v: object) -> str:
-        if isinstance(v, list):
-            if len(v) != 1:
-                raise ValueError(f"aud must be a single string value, got list of {len(v)}")
-            v = v[0]
-        if not isinstance(v, str):
-            raise ValueError(f"aud must be a string, got {type(v).__name__}")
-        if not v.strip():
-            raise ValueError("aud must not be empty")
-        return v
+        return _coerce_aud(v)
 
     @field_validator("events_requested")
     @classmethod
     def _validate_events(cls, v: list[str]) -> list[str]:
-        unsupported = [e for e in v if e not in SUPPORTED_EVENT_URIS]
-        if unsupported:
-            raise ValueError(
-                f"Unsupported event URI(s): {unsupported}. "
-                f"Supported: {sorted(SUPPORTED_EVENT_URIS)}"
-            )
-        return v
+        return _validate_event_uris(v)
 
 
 class StreamPatchRequest(BaseModel):
@@ -123,27 +143,9 @@ class StreamPatchRequest(BaseModel):
     @field_validator("aud", mode="before")
     @classmethod
     def _normalize_aud(cls, v: object) -> str | None:
-        if v is None:
-            return None
-        if isinstance(v, list):
-            if len(v) != 1:
-                raise ValueError(f"aud must be a single string value, got list of {len(v)}")
-            v = v[0]
-        if not isinstance(v, str):
-            raise ValueError(f"aud must be a string, got {type(v).__name__}")
-        if not v.strip():
-            raise ValueError("aud must not be empty")
-        return v
+        return None if v is None else _coerce_aud(v)
 
     @field_validator("events_requested")
     @classmethod
     def _validate_events(cls, v: list[str] | None) -> list[str] | None:
-        if v is None:
-            return None
-        unsupported = [e for e in v if e not in SUPPORTED_EVENT_URIS]
-        if unsupported:
-            raise ValueError(
-                f"Unsupported event URI(s): {unsupported}. "
-                f"Supported: {sorted(SUPPORTED_EVENT_URIS)}"
-            )
-        return v
+        return None if v is None else _validate_event_uris(v)
