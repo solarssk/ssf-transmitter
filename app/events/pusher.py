@@ -67,8 +67,8 @@ async def push_set(stream: Stream, event_uri: str, email: str) -> bool:
 async def push_verification_set(stream: "Stream") -> bool:
     """Push a transmitter-initiated verification SET to confirm push delivery is working.
 
-    Per RFC 8417, when the transmitter initiates verification, ``state`` is omitted.
-    Follows Authentik's reference implementation.
+    Event type URI follows SSF Framework §6.2.  Per RFC 8417, when the transmitter
+    initiates verification, ``state`` is omitted.
     """
     try:
         token = sign_verification_set(audience=stream.aud, stream_id=stream.stream_id)
@@ -76,6 +76,9 @@ async def push_verification_set(stream: "Stream") -> bool:
         logger.exception("Failed to sign verification SET aud=%s", stream.aud)
         return False
 
+    # WARNING: DEBUG logs the full JWT — do NOT enable DEBUG in production or ship
+    # logs to untrusted systems.  Token is only logged to allow jwt.io inspection
+    # when diagnosing receiver rejections.
     logger.debug("Verification SET JWT (paste at jwt.io to inspect): %s", token)
 
     headers: dict[str, str] = {"Content-Type": "application/secevent+jwt"}
