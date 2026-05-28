@@ -4,7 +4,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Response
 
-from app.database import create_stream, delete_stream, get_first_stream, update_stream
+from app.database import create_stream, delete_stream, delete_stream_by_id, get_first_stream, update_stream
 from app.events.pusher import push_verification_set
 
 logger = logging.getLogger(__name__)
@@ -60,7 +60,7 @@ async def create_stream_endpoint(payload: dict[str, Any]) -> dict[str, Any]:
             stream.stream_id,
             stream.aud,
         )
-        await delete_stream()
+        await delete_stream_by_id(stream.stream_id)
         raise HTTPException(
             status_code=502,
             detail="Verification SET delivery failed; stream registration was not confirmed.",
