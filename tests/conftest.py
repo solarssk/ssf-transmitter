@@ -25,3 +25,16 @@ def mock_push_verification_set(monkeypatch):
         return True
 
     monkeypatch.setattr("app.routes.streams.push_verification_set", _always_ok)
+
+
+@pytest.fixture(autouse=True)
+def mock_dns_resolve(monkeypatch):
+    """Return a public IP for all DNS lookups so SSRF validation passes in tests.
+
+    Tests in test_url_validation.py override this with their own mocks to
+    exercise specific rejection paths (private IPs, unresolvable hosts, etc.).
+    """
+    monkeypatch.setattr(
+        "app.security.url_validation._resolve_host",
+        lambda host: ["93.184.216.34"],  # example.com public IP
+    )
