@@ -124,6 +124,31 @@ Run `docker logs authentik-ssf` to see the error. Missing required env vars are 
 **Webhook returns 401**
 The `X-Authentik-Signature` header does not match. Verify that `SSF_WEBHOOK_SECRET` in the service matches the HMAC secret configured in the Authentik webhook transport.
 
+**Apple returns `invalid_request` / `Invalid security event token` for normal events, but verification SET was accepted (202)**
+
+This means the verification SET passed (JWKS, stream registration, and endpoint delivery all work), but the event SET payload is malformed.
+Inspect the event SET claims — the most common cause is a missing top-level `sub_id`:
+
+```json
+{
+  "sub_id": { "format": "email", "email": "user@example.com" },
+  "events": {
+    "https://schemas.openid.net/secevent/caep/event-type/session-revoked": {
+      "subject": { "format": "email", "email": "user@example.com" }
+    }
+  }
+}
+```
+
+SSF 1.0 requires `sub_id` at the top level of the JWT payload (§5.1).
+Also verify: `typ: secevent+jwt`, `kid` present, `aud` is a single-element array, `iss` matches your registered issuer, and `exp` is **absent**.
+
+If you are running an older container image (before PR #11 / SSF 1.0 compliance), pull the latest image and restart:
+
+```bash
+docker compose pull && docker compose up -d
+```
+
 ## Development
 
 Install runtime and development dependencies:
