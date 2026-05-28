@@ -34,19 +34,48 @@ def _verify_signature(raw_body: bytes, signature: str | None) -> bool:
     return hmac.compare_digest(expected, provided)
 
 
+def _pii_key() -> str:
+    """Return the HMAC key for email pseudonymisation.
+
+    Uses SSF_PII_PEPPER when set; falls back to the management token so there
+    is always *some* keying even without a dedicated pepper.
+    """
+    return settings.pii_pepper or settings.ssf_management_token
+
+
 @router.post("/webhook/authentik")
 async def authentik_webhook(request: Request) -> dict:
     # ------------------------------------------------------------------ #
-    # 1. Body size guard — read raw bytes first to enforce the limit.      #
+    # 1. Body size guard — check Content-Length header first for a fast   #
+    #    rejection without reading the body, then cap streaming reads.     #
     # ------------------------------------------------------------------ #
-    raw_body = await request.body()
-    if len(raw_body) > _MAX_BODY_BYTES:
-        logger.warning(
-            "Rejected Authentik webhook: body too large bytes=%d limit=%d",
-            len(raw_body),
-            _MAX_BODY_BYTES,
-        )
-        raise HTTPException(status_code=413, detail="Request body too large")
+    content_length = request.headers.get("Content-Length")
+    if content_length is not None:
+        try:
+            if int(content_length) > _MAX_BODY_BYTES:
+                logger.warning(
+                    "Rejected Authentik webhook: Content-Length %s exceeds limit %d",
+                    content_length,
+                    _MAX_BODY_BYTES,
+                )
+                raise HTTPException(status_code=413, detail="Request body too large")
+        except ValueError:
+            pass  # malformed Content-Length — proceed; streaming check will catch oversized bodies
+
+    # Stream-accumulate so we never materialise more than _MAX_BODY_BYTES in RAM.
+    chunks: list[bytes] = []
+    size = 0
+    async for chunk in request.stream():
+        size += len(chunk)
+        if size > _MAX_BODY_BYTES:
+            logger.warning(
+                "Rejected Authentik webhook: streamed body exceeded limit bytes=>%d limit=%d",
+                size,
+                _MAX_BODY_BYTES,
+            )
+            raise HTTPException(status_code=413, detail="Request body too large")
+        chunks.append(chunk)
+    raw_body = b"".join(chunks)
 
     # ------------------------------------------------------------------ #
     # 2. Signature verification.                                           #
@@ -72,13 +101,16 @@ async def authentik_webhook(request: Request) -> dict:
         )
 
     # ------------------------------------------------------------------ #
-    # 3. JSON parsing — return 400 on malformed JSON.                      #
+    # 3. JSON parsing — return 400 on malformed or non-object JSON.        #
     # ------------------------------------------------------------------ #
     try:
         payload = json.loads(raw_body)
-    except json.JSONDecodeError as exc:
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
         logger.warning("Rejected Authentik webhook: malformed JSON error=%s", exc)
         raise HTTPException(status_code=400, detail="Invalid JSON body") from exc
+    if not isinstance(payload, dict):
+        logger.warning("Rejected Authentik webhook: JSON body is not an object type=%s", type(payload).__name__)
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
 
     # ------------------------------------------------------------------ #
     # 4. Event processing.                                                 #
@@ -86,7 +118,7 @@ async def authentik_webhook(request: Request) -> dict:
     action = extract_action(payload)
     email = extract_email(payload)
     events = map_authentik_event(payload)
-    safe_email = mask_email(email, log_pii=settings.log_pii)
+    safe_email = mask_email(email, log_pii=settings.log_pii, pii_key=_pii_key())
     logger.info(
         "Received Authentik webhook action=%s email=%s mapped_events=%s",
         action,

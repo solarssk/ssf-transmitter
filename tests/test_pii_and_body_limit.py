@@ -12,6 +12,8 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.security.pii import mask_email
 
+_PII_KEY = "test-pepper-key"
+
 
 # ---------------------------------------------------------------------------
 # PII masking unit tests
@@ -19,43 +21,50 @@ from app.security.pii import mask_email
 
 
 def test_mask_email_log_pii_true_returns_email():
-    assert mask_email("alice@example.com", log_pii=True) == "alice@example.com"
+    assert mask_email("alice@example.com", log_pii=True, pii_key=_PII_KEY) == "alice@example.com"
 
 
 def test_mask_email_log_pii_false_hides_address():
-    result = mask_email("alice@example.com", log_pii=False)
+    result = mask_email("alice@example.com", log_pii=False, pii_key=_PII_KEY)
     assert result.startswith("[pii:")
     assert "alice" not in result
     assert "example" not in result
 
 
 def test_mask_email_log_pii_false_is_consistent():
-    """Same email always produces the same hash token."""
-    a = mask_email("alice@example.com", log_pii=False)
-    b = mask_email("alice@example.com", log_pii=False)
+    """Same email + same key always produces the same token."""
+    a = mask_email("alice@example.com", log_pii=False, pii_key=_PII_KEY)
+    b = mask_email("alice@example.com", log_pii=False, pii_key=_PII_KEY)
     assert a == b
 
 
 def test_mask_email_log_pii_false_different_emails_differ():
-    a = mask_email("alice@example.com", log_pii=False)
-    b = mask_email("bob@example.com", log_pii=False)
+    a = mask_email("alice@example.com", log_pii=False, pii_key=_PII_KEY)
+    b = mask_email("bob@example.com", log_pii=False, pii_key=_PII_KEY)
+    assert a != b
+
+
+def test_mask_email_different_keys_produce_different_tokens():
+    """Different HMAC keys produce different tokens for the same email."""
+    a = mask_email("alice@example.com", log_pii=False, pii_key="key-one")
+    b = mask_email("alice@example.com", log_pii=False, pii_key="key-two")
     assert a != b
 
 
 def test_mask_email_none_returns_pii_none():
-    assert mask_email(None, log_pii=False) == "[pii:none]"
+    assert mask_email(None, log_pii=False, pii_key=_PII_KEY) == "[pii:none]"
 
 
 def test_mask_email_none_log_pii_true_returns_sentinel():
-    # Even with PII logging on, None should not blow up
-    result = mask_email(None, log_pii=True)
+    result = mask_email(None, log_pii=True, pii_key=_PII_KEY)
     assert result == "[pii:none]"
 
 
-def test_mask_email_hash_matches_sha256():
+def test_mask_email_hash_matches_hmac():
     email = "test@example.com"
-    expected_hex = hashlib.sha256(email.encode()).hexdigest()[:8]
-    assert mask_email(email, log_pii=False) == f"[pii:{expected_hex}]"
+    key = _PII_KEY
+    expected_hex = hmac.new(key.encode(), email.encode(), hashlib.sha256).hexdigest()[:8]
+    assert mask_email(email, log_pii=False, pii_key=key) == f"[pii:{expected_hex}]"
 
 
 # ---------------------------------------------------------------------------
@@ -93,20 +102,16 @@ def test_webhook_body_over_64kb_rejected(client: TestClient):
     assert resp.status_code == 413
 
 
-def test_webhook_exactly_64kb_accepted(client: TestClient):
-    """A payload at exactly the limit should be accepted (boundary condition)."""
-    # Build a body that is exactly 64 * 1024 bytes
-    base = json.dumps({"body": {"action": "authentik.core.auth.login_failed", "user": {"email": "u@ex.com"}, "p": ""}})
-    # Pad 'p' so total encoded length == _MAX_BODY_BYTES
-    target = 64 * 1024
-    current = len(base.encode())
-    padding = "X" * max(0, target - current - len('"p": ""') + len('"p": "' + "" + '"'))
-    payload = {"body": {"action": "authentik.core.auth.login_failed", "user": {"email": "u@ex.com"}, "p": padding}}
-    body = json.dumps(payload).encode()
-    # Adjust if slightly off due to JSON serialisation variation
-    assert len(body) <= target, f"Test setup error: body is {len(body)} > {target}"
-    resp = client.post("/webhook/authentik", content=body, headers=_signed_headers(body))
-    assert resp.status_code == 200
+def test_webhook_content_length_header_triggers_fast_rejection(client: TestClient):
+    """A signed request with Content-Length > 64 KiB should be rejected before the body is read."""
+    # Send a small body but lie about Content-Length to trigger the header check
+    body = b'{"body":{}}'
+    headers = {
+        **_signed_headers(body),
+        "Content-Length": str(64 * 1024 + 1),
+    }
+    resp = client.post("/webhook/authentik", content=body, headers=headers)
+    assert resp.status_code == 413
 
 
 def test_webhook_malformed_json_rejected(client: TestClient):
@@ -115,6 +120,20 @@ def test_webhook_malformed_json_rejected(client: TestClient):
     resp = client.post("/webhook/authentik", content=body, headers=_signed_headers(body))
     assert resp.status_code == 400
     assert "json" in resp.json()["detail"].lower()
+
+
+def test_webhook_json_array_rejected(client: TestClient):
+    """A signed request with a JSON array (not object) returns 400."""
+    body = json.dumps([1, 2, 3]).encode()
+    resp = client.post("/webhook/authentik", content=body, headers=_signed_headers(body))
+    assert resp.status_code == 400
+
+
+def test_webhook_invalid_utf8_rejected(client: TestClient):
+    """A signed request with invalid UTF-8 bytes returns 400."""
+    body = b"\xff\xfe invalid utf-8"
+    resp = client.post("/webhook/authentik", content=body, headers=_signed_headers(body))
+    assert resp.status_code == 400
 
 
 # ---------------------------------------------------------------------------
@@ -134,5 +153,4 @@ def test_email_not_in_logs_by_default(client: TestClient, caplog):
 
     combined = " ".join(r.message for r in caplog.records)
     assert "secret@example.com" not in combined, "Email leaked into logs despite SSF_LOG_PII=false"
-    # The pseudonymous hash should be present instead
     assert "[pii:" in combined
