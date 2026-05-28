@@ -69,7 +69,8 @@ async def test_push_set_posts_signed_set_as_plain_secevent_jwt(monkeypatch, stre
 
 
 @pytest.mark.anyio
-async def test_push_set_reports_receiver_error(monkeypatch, stream):
+async def test_push_set_reports_receiver_error(monkeypatch, stream, caplog):
+    """Failed push logs the response body so errors are diagnosable."""
     FakeAsyncClient.requests = []
     FakeAsyncClient.status_code = 500
     FakeAsyncClient.response_text = "Internal Server Error"
@@ -83,6 +84,7 @@ async def test_push_set_reports_receiver_error(monkeypatch, stream):
     )
 
     assert delivered is False
+    assert "Internal Server Error" in caplog.text
 
 
 @pytest.mark.anyio
