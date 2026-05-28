@@ -33,7 +33,7 @@ jobs:
         run: pytest
 
       - name: Audit dependencies for known vulnerabilities
-        run: pip install pip-audit && pip-audit -r requirements.txt
+        run: pip-audit -r requirements.txt
 
       - name: Build Docker image
         run: docker build -t ssf-transmitter:ci .
