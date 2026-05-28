@@ -119,6 +119,8 @@ def test_webhook_does_not_require_management_token(client: TestClient):
 
 def test_valid_token_reaches_handler(client: TestClient):
     """GET /ssf/status with valid token passes auth and reaches the actual handler."""
+    # Ensure no stream left over from other tests
+    client.delete("/ssf/streams", headers=VALID_HEADERS)
     resp = client.get("/ssf/status", headers=VALID_HEADERS)
     # 200 even with no stream — auth passed, handler returned its normal response
     assert resp.status_code == 200

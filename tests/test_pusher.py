@@ -15,8 +15,9 @@ class FakeAsyncClient:
     status_code = 202
     response_text = ""
 
-    def __init__(self, timeout: float):
+    def __init__(self, timeout: float, follow_redirects: bool = True):
         self.timeout = timeout
+        self.follow_redirects = follow_redirects
 
     async def __aenter__(self):
         return self
