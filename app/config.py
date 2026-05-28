@@ -127,8 +127,17 @@ settings = Settings.from_env()
 
 
 def configure_logging() -> None:
-    """Configure the root logger using the level from :data:`settings`."""
+    """Configure the root logger using the level from :data:`settings`.
+
+    Third-party libraries that are excessively chatty at DEBUG level are
+    capped at WARNING regardless of the global log level:
+    - ``aiosqlite``: emits raw SQL statements and internal threading details
+    - ``httpx`` / ``httpcore``: logs full request/response bodies
+    """
     logging.basicConfig(
         level=getattr(logging, settings.log_level, logging.INFO),
         format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
     )
+    # Suppress noisy third-party loggers even when DEBUG is enabled globally.
+    for noisy in ("aiosqlite", "httpx", "httpcore"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
