@@ -74,7 +74,18 @@ def load_jwks() -> dict[str, Any]:
 def _load_signing_material() -> tuple[str, str]:
     """Return (private_pem, kid) for JWT signing."""
     private_pem = (Path(settings.keys_dir) / PRIVATE_KEY_PATH).read_text(encoding="utf-8")
-    kid = load_jwks()["keys"][0]["kid"]
+    jwks = load_jwks()
+    if not jwks.get("keys"):
+        raise RuntimeError(
+            f"JWKS at {settings.keys_dir}/{JWKS_PATH} contains no keys — "
+            "delete the keys directory and restart to regenerate"
+        )
+    kid = jwks["keys"][0].get("kid")
+    if not kid:
+        raise RuntimeError(
+            f"First key in JWKS at {settings.keys_dir}/{JWKS_PATH} is missing 'kid' — "
+            "delete the keys directory and restart to regenerate"
+        )
     return private_pem, kid
 
 
