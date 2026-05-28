@@ -120,13 +120,13 @@ def test_status_reports_no_stream_or_enabled_stream(client: TestClient):
     assert status.json()["stream_id"] == created["stream_id"]
 
 
-def test_webhook_accepts_unsigned_request(client: TestClient):
-    """Unsigned webhook requests are accepted — Authentik generic transport does not sign."""
+def test_webhook_rejects_unsigned_request_by_default(client: TestClient):
+    """Unsigned webhook requests are rejected with 401 (fail-closed by default)."""
     response = client.post(
         "/webhook/authentik",
         json={"body": {"action": "authentik.core.auth.logout", "user": {"email": "u@example.com"}}},
     )
-    assert response.status_code == 200
+    assert response.status_code == 401
 
 
 def test_webhook_rejects_invalid_hmac(client: TestClient):

@@ -40,8 +40,17 @@ async def authentik_webhook(request: Request) -> dict:
             logger.warning("Rejected Authentik webhook due to invalid signature")
             raise HTTPException(status_code=401, detail="Unauthorized")
     else:
-        # No signature — accept but warn (Authentik generic webhook does not sign requests)
-        logger.warning("Authentik webhook received without HMAC signature — accepted on internal network trust")
+        # No signature — fail-closed by default; opt out via SSF_ALLOW_UNSIGNED_WEBHOOK=true
+        if not settings.allow_unsigned_webhook:
+            logger.warning(
+                "Rejected Authentik webhook: missing X-Authentik-Signature. "
+                "Set SSF_ALLOW_UNSIGNED_WEBHOOK=true to accept unsigned requests (unsafe)."
+            )
+            raise HTTPException(status_code=401, detail="Unauthorized")
+        logger.warning(
+            "Authentik webhook accepted without HMAC signature "
+            "(SSF_ALLOW_UNSIGNED_WEBHOOK=true — ensure endpoint is internal-network only)"
+        )
 
     payload = await request.json()
     action = extract_action(payload)
