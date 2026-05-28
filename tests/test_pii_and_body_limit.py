@@ -6,8 +6,8 @@ import hashlib
 import hmac
 import json
 
-import pytest
 from fastapi.testclient import TestClient
+import pytest
 
 from app.main import app
 from app.security.pii import mask_email
@@ -100,6 +100,27 @@ def test_webhook_body_over_64kb_rejected(client: TestClient):
     oversized = json.dumps({"body": {"action": "x", "padding": "A" * (64 * 1024)}}).encode()
     resp = client.post("/webhook/authentik", content=oversized, headers=_signed_headers(oversized))
     assert resp.status_code == 413
+
+
+def test_webhook_exactly_64kb_accepted(client: TestClient):
+    """A payload at exactly 64 KiB must be accepted (boundary condition)."""
+    target = 64 * 1024
+    # Build a body whose JSON encoding is exactly target bytes.
+    # The wrapper contributes a fixed overhead; fill the rest with a padding string.
+    wrapper = '{"body":{"action":"authentik.core.auth.login_failed","user":{"email":"u@ex.com"},"p":""}}'
+    overhead = len(wrapper.encode())
+    padding = "X" * (target - overhead)
+    payload = {"body": {"action": "authentik.core.auth.login_failed", "user": {"email": "u@ex.com"}, "p": padding}}
+    body = json.dumps(payload, separators=(",", ":")).encode()
+    # Trim or extend to hit exactly target bytes (account for key/value serialisation differences)
+    if len(body) > target:
+        # Reduce padding until we're at target
+        excess = len(body) - target
+        payload["body"]["p"] = "X" * max(0, len(padding) - excess)
+        body = json.dumps(payload, separators=(",", ":")).encode()
+    assert len(body) <= target, f"Test setup produced body of {len(body)} bytes, expected <= {target}"
+    resp = client.post("/webhook/authentik", content=body, headers=_signed_headers(body))
+    assert resp.status_code == 200
 
 
 def test_webhook_content_length_header_triggers_fast_rejection(client: TestClient):
