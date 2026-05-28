@@ -105,20 +105,16 @@ def test_webhook_body_over_64kb_rejected(client: TestClient):
 def test_webhook_exactly_64kb_accepted(client: TestClient):
     """A payload at exactly 64 KiB must be accepted (boundary condition)."""
     target = 64 * 1024
-    # Build a body whose JSON encoding is exactly target bytes.
-    # The wrapper contributes a fixed overhead; fill the rest with a padding string.
-    wrapper = '{"body":{"action":"authentik.core.auth.login_failed","user":{"email":"u@ex.com"},"p":""}}'
-    overhead = len(wrapper.encode())
-    padding = "X" * (target - overhead)
-    payload = {"body": {"action": "authentik.core.auth.login_failed", "user": {"email": "u@ex.com"}, "p": padding}}
-    body = json.dumps(payload, separators=(",", ":")).encode()
-    # Trim or extend to hit exactly target bytes (account for key/value serialisation differences)
-    if len(body) > target:
-        # Reduce padding until we're at target
-        excess = len(body) - target
-        payload["body"]["p"] = "X" * max(0, len(padding) - excess)
-        body = json.dumps(payload, separators=(",", ":")).encode()
-    assert len(body) <= target, f"Test setup produced body of {len(body)} bytes, expected <= {target}"
+    # Construct a JSON body whose encoded size is exactly `target` bytes.
+    # json.dumps with separators=(",", ":") produces the most compact form.
+    # We fill a padding field and then trim to hit the exact byte count.
+    base = {"body": {"action": "authentik.core.auth.login_failed", "user": {"email": "u@ex.com"}, "p": ""}}
+    base_len = len(json.dumps(base, separators=(",", ":")).encode())
+    padding_len = target - base_len
+    assert padding_len >= 0, "Base payload already exceeds 64 KiB — test needs rework"
+    base["body"]["p"] = "X" * padding_len
+    body = json.dumps(base, separators=(",", ":")).encode()
+    assert len(body) == target, f"Test setup error: body is {len(body)} bytes, expected {target}"
     resp = client.post("/webhook/authentik", content=body, headers=_signed_headers(body))
     assert resp.status_code == 200
 

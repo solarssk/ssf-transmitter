@@ -21,6 +21,7 @@ _MAX_BODY_BYTES = 64 * 1024  # 64 KiB
 
 
 def _verify_signature(raw_body: bytes, signature: str | None) -> bool:
+    """Return True iff the X-Authentik-Signature header is a valid HMAC-SHA256 of *raw_body*."""
     if not signature:
         return False
     if not signature.startswith("sha256="):
@@ -45,6 +46,13 @@ def _pii_key() -> str:
 
 @router.post("/webhook/authentik")
 async def authentik_webhook(request: Request) -> dict:
+    """Receive an Authentik webhook event, verify its HMAC signature, and push
+    matching Security Event Tokens to all enabled SSF streams.
+
+    Returns a JSON object with ``status`` and optional ``delivered``/``failed``
+    counts.  Non-fatal conditions (no stream, unmapped event) return
+    ``{"status": "ignored", "reason": "..."}``.
+    """
     # ------------------------------------------------------------------ #
     # 1. Body size guard — check Content-Length header first for a fast   #
     #    rejection without reading the body, then cap streaming reads.     #

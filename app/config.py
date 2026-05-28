@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 
 def _strip_trailing_slash(value: str) -> str:
+    """Remove any trailing slashes from *value*."""
     return value.rstrip("/")
 
 
@@ -69,6 +70,10 @@ class Settings:
 
     @classmethod
     def from_env(cls) -> Settings:
+        """Build a :class:`Settings` instance from environment variables.
+
+        Raises :class:`RuntimeError` if any required variable is missing or invalid.
+        """
         required = {
             "SSF_ISSUER": os.getenv("SSF_ISSUER"),
             "SSF_BASE_URL": os.getenv("SSF_BASE_URL"),
@@ -100,10 +105,12 @@ class Settings:
         )
 
     def public_url(self, path: str) -> str:
+        """Return the fully-qualified public URL for *path* (e.g. ``/jwks.json``)."""
         normalized_path = path if path.startswith("/") else f"/{path}"
         return f"{self.ssf_base_url}{normalized_path}"
 
     def safe_log_dict(self) -> dict[str, str | int | bool]:
+        """Return a dict of non-sensitive settings suitable for startup logging."""
         return {
             "ssf_issuer": self.ssf_issuer,
             "ssf_base_url": self.ssf_base_url,
@@ -120,6 +127,7 @@ settings = Settings.from_env()
 
 
 def configure_logging() -> None:
+    """Configure the root logger using the level from :data:`settings`."""
     logging.basicConfig(
         level=getattr(logging, settings.log_level, logging.INFO),
         format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
