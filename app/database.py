@@ -27,6 +27,7 @@ class Stream:
 
 
 def _row_to_stream(row: aiosqlite.Row) -> Stream:
+    """Convert a database row to a Stream dataclass."""
     return Stream(
         stream_id=row["stream_id"],
         aud=row["aud"],
@@ -39,6 +40,7 @@ def _row_to_stream(row: aiosqlite.Row) -> Stream:
 
 
 async def init_db() -> None:
+    """Create the streams table if it does not already exist."""
     Path(settings.database_path).parent.mkdir(parents=True, exist_ok=True)
     async with aiosqlite.connect(settings.database_path) as db:
         await db.execute(
@@ -59,6 +61,7 @@ async def init_db() -> None:
 
 
 async def create_stream(payload: dict[str, Any]) -> Stream:
+    """Create a new SSF stream from a registration payload, replacing any existing stream."""
     delivery = payload.get("delivery") or {}
     endpoint_url = delivery.get("endpoint_url") or payload.get("endpoint_url")
     auth_header = delivery.get("authorization_header", "")
@@ -69,7 +72,12 @@ async def create_stream(payload: dict[str, Any]) -> Stream:
         or ""
     )
     _aud = payload.get("aud") or payload.get("audience") or payload.get("receiver") or payload.get("iss")
-    aud = _aud[0] if isinstance(_aud, list) else _aud
+    if isinstance(_aud, list):
+        if len(_aud) != 1:
+            raise ValueError(f"aud must be a single value, got {len(_aud)}")
+        aud = _aud[0]
+    else:
+        aud = _aud
     events_requested = payload.get("events_requested") or payload.get("events_supported") or []
 
     if not endpoint_url:
@@ -114,6 +122,7 @@ async def create_stream(payload: dict[str, Any]) -> Stream:
 
 
 async def list_streams() -> list[Stream]:
+    """Return all configured streams ordered by creation time."""
     async with aiosqlite.connect(settings.database_path) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute("SELECT * FROM streams ORDER BY created_at DESC")
@@ -122,11 +131,13 @@ async def list_streams() -> list[Stream]:
 
 
 async def get_first_stream() -> Stream | None:
+    """Return the most recently created stream, or None if no stream is configured."""
     streams = await list_streams()
     return streams[0] if streams else None
 
 
 async def update_stream(payload: dict[str, Any]) -> Stream | None:
+    """Update fields on the existing stream; returns None if no stream exists."""
     stream = await get_first_stream()
     if not stream:
         return None
@@ -164,6 +175,7 @@ async def update_stream(payload: dict[str, Any]) -> Stream | None:
 
 
 async def delete_stream() -> bool:
+    """Delete the current stream; returns True if a stream was deleted, False if none existed."""
     stream = await get_first_stream()
     if not stream:
         return False
