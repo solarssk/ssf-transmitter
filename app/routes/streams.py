@@ -1,9 +1,8 @@
 import logging
+import uuid
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Response
-
-import uuid
 
 from app.database import create_stream, delete_stream, get_first_stream, update_stream
 from app.events.pusher import push_verification_set
