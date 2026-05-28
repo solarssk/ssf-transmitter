@@ -25,6 +25,9 @@ def _revalidate_endpoint(url: str) -> bool:
     """
     host = urlparse(url).hostname or ""
     ips = _resolve_host(host)
+    if not ips:
+        logger.warning("Blocked outbound push: endpoint_url host %r failed to resolve", host)
+        return False
     for ip in ips:
         if _is_blocked_ip(ip):
             logger.warning(
