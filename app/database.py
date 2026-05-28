@@ -179,8 +179,15 @@ async def delete_stream() -> bool:
     stream = await get_first_stream()
     if not stream:
         return False
+    return await delete_stream_by_id(stream.stream_id)
+
+
+async def delete_stream_by_id(stream_id: str) -> bool:
+    """Delete a specific stream by ID; returns True if deleted, False if not found."""
     async with aiosqlite.connect(settings.database_path) as db:
-        await db.execute("DELETE FROM streams WHERE stream_id = ?", (stream.stream_id,))
+        cursor = await db.execute("DELETE FROM streams WHERE stream_id = ?", (stream_id,))
         await db.commit()
-    logger.info("Deleted SSF stream stream_id=%s aud=%s", stream.stream_id, stream.aud)
-    return True
+        deleted = cursor.rowcount > 0
+    if deleted:
+        logger.info("Deleted SSF stream stream_id=%s", stream_id)
+    return deleted
