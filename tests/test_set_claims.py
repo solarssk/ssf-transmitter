@@ -180,28 +180,32 @@ def test_verification_jwt_not_logged(caplog):
     from app.database import Stream
     from app.events.pusher import push_verification_set
 
-    stream = Stream(
-        stream_id=STREAM_ID,
-        aud=AUDIENCE,
-        endpoint_url="https://receiver.example.test/events",
-        endpoint_token="tok",
-        events_requested=[],
-        status="enabled",
-        created_at=0,
-    )
+    async def run_test():
+        stream = Stream(
+            stream_id=STREAM_ID,
+            aud=AUDIENCE,
+            endpoint_url="https://receiver.example.test/events",
+            endpoint_token="tok",
+            events_requested=[],
+            status="enabled",
+            created_at=0,
+        )
 
-    mock_response = MagicMock()
-    mock_response.status_code = 200
+        mock_response = MagicMock()
+        mock_response.status_code = 200
 
-    mock_client = AsyncMock()
-    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-    mock_client.__aexit__ = AsyncMock(return_value=None)
-    mock_client.post = AsyncMock(return_value=mock_response)
+        mock_client = AsyncMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+        mock_client.post = AsyncMock(return_value=mock_response)
 
-    with caplog.at_level(logging.DEBUG), patch("app.events.pusher.httpx.AsyncClient", return_value=mock_client):
-        result = asyncio.get_event_loop().run_until_complete(push_verification_set(stream))
+        with caplog.at_level(logging.DEBUG), patch("app.events.pusher.httpx.AsyncClient", return_value=mock_client):
+            result = await push_verification_set(stream)
 
-    assert result is True
+        assert result is True
+
+    asyncio.run(run_test())
+
     # JWT header is a stable base64 fingerprint — must not appear anywhere in logs
     token = sign_verification_set(audience=AUDIENCE, stream_id=STREAM_ID)
     assert token.split(".")[0] not in caplog.text
