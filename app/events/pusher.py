@@ -65,9 +65,13 @@ async def push_set(stream: Stream, event_uri: str, email: str) -> bool:
 
 
 async def push_verification_set(stream: "Stream", state: str) -> bool:
-    """Push a verification SET to confirm push delivery is working."""
+    """Push a verification SET to confirm push delivery is working.
+
+    Follows Authentik's reference implementation: includes ``sub_id`` with
+    ``format: opaque`` and the stream UUID so receivers can correlate the event.
+    """
     try:
-        token = sign_verification_set(audience=stream.aud, state=state)
+        token = sign_verification_set(audience=stream.aud, state=state, stream_id=stream.stream_id)
     except Exception:
         logger.exception("Failed to sign verification SET aud=%s", stream.aud)
         return False
