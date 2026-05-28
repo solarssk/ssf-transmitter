@@ -52,9 +52,10 @@ async def init_db() -> None:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     logger.warning(
         "Receiver tokens are stored in plaintext in SQLite at %s — "
-        "ensure the /app/data volume is protected (host path restricted to root, "
+        "ensure the %s volume is protected (host path restricted to root, "
         "encrypted volume if required by your threat model).",
         settings.database_path,
+        str(db_path.parent),
     )
     async with aiosqlite.connect(settings.database_path) as db:
         await db.execute(

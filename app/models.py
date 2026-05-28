@@ -5,7 +5,7 @@ Extra fields are forbidden on all models to prevent parameter smuggling.
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
@@ -38,7 +38,7 @@ SUPPORTED_DELIVERY_METHODS: frozenset[str] = frozenset(
 # ---------------------------------------------------------------------------
 
 
-class StreamStatus(str, Enum):
+class StreamStatus(StrEnum):
     enabled = "enabled"
     paused = "paused"
     disabled = "disabled"
@@ -92,9 +92,11 @@ class StreamCreateRequest(BaseModel):
             if len(v) != 1:
                 raise ValueError(f"aud must be a single string value, got list of {len(v)}")
             v = v[0]
-        if not v or not str(v).strip():
+        if not isinstance(v, str):
+            raise ValueError(f"aud must be a string, got {type(v).__name__}")
+        if not v.strip():
             raise ValueError("aud must not be empty")
-        return str(v)
+        return v
 
     @field_validator("events_requested")
     @classmethod
@@ -127,9 +129,11 @@ class StreamPatchRequest(BaseModel):
             if len(v) != 1:
                 raise ValueError(f"aud must be a single string value, got list of {len(v)}")
             v = v[0]
-        if not v or not str(v).strip():
+        if not isinstance(v, str):
+            raise ValueError(f"aud must be a string, got {type(v).__name__}")
+        if not v.strip():
             raise ValueError("aud must not be empty")
-        return str(v)
+        return v
 
     @field_validator("events_requested")
     @classmethod
