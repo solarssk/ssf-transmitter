@@ -199,7 +199,9 @@ def test_verification_jwt_not_logged(caplog):
         mock_client.__aexit__ = AsyncMock(return_value=None)
         mock_client.post = AsyncMock(return_value=mock_response)
 
-        with caplog.at_level(logging.DEBUG), patch("app.events.pusher.httpx.AsyncClient", return_value=mock_client):
+        with caplog.at_level(logging.DEBUG), patch(
+            "app.events.pusher.httpx.AsyncClient", return_value=mock_client
+        ), patch("app.events.pusher._revalidate_endpoint", return_value=True):
             result = await push_verification_set(stream)
 
         assert result is True
