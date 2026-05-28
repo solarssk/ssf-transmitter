@@ -9,6 +9,14 @@ def _strip_trailing_slash(value: str) -> str:
     return value.rstrip("/")
 
 
+def _parse_sync_interval(value: str) -> int:
+    """Parse APPLE_SCIM_SYNC_INTERVAL and raise if the result is less than 1."""
+    interval = int(value)
+    if interval < 1:
+        raise ValueError(f"APPLE_SCIM_SYNC_INTERVAL must be >= 1 second, got {interval}")
+    return interval
+
+
 @dataclass(frozen=True)
 class Settings:
     ssf_issuer: str
@@ -19,6 +27,24 @@ class Settings:
     log_level: str
     database_path: str = "/app/data/ssf.db"
     keys_dir: str = "/app/keys"
+    # Apple SCIM sync — all optional; sync is disabled when any required field is unset.
+    # Set these to enable automatic user provisioning from Authentik to Apple Business Manager.
+    apple_scim_client_id: str | None = None
+    apple_scim_client_secret: str | None = None
+    authentik_url: str | None = None
+    authentik_token: str | None = None
+    apple_scim_group_id: str | None = None  # sync only members of this Authentik group UUID
+    apple_scim_sync_interval: int = 3600    # seconds between automatic syncs (default: 1 hour)
+
+    @property
+    def apple_scim_enabled(self) -> bool:
+        """True when all required Apple SCIM variables are configured."""
+        return bool(
+            self.apple_scim_client_id
+            and self.apple_scim_client_secret
+            and self.authentik_url
+            and self.authentik_token
+        )
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -40,13 +66,19 @@ class Settings:
             log_level=os.getenv("LOG_LEVEL", "INFO").upper(),
             database_path=os.getenv("SSF_DATABASE_PATH", "/app/data/ssf.db"),
             keys_dir=os.getenv("SSF_KEYS_DIR", "/app/keys"),
+            apple_scim_client_id=os.getenv("APPLE_SCIM_CLIENT_ID") or None,
+            apple_scim_client_secret=os.getenv("APPLE_SCIM_CLIENT_SECRET") or None,
+            authentik_url=_strip_trailing_slash(os.getenv("AUTHENTIK_URL", "")),
+            authentik_token=os.getenv("AUTHENTIK_TOKEN") or None,
+            apple_scim_group_id=os.getenv("APPLE_SCIM_GROUP_ID") or None,
+            apple_scim_sync_interval=_parse_sync_interval(os.getenv("APPLE_SCIM_SYNC_INTERVAL", "3600")),
         )
 
     def public_url(self, path: str) -> str:
         normalized_path = path if path.startswith("/") else f"/{path}"
         return f"{self.ssf_base_url}{normalized_path}"
 
-    def safe_log_dict(self) -> dict[str, str | int]:
+    def safe_log_dict(self) -> dict[str, str | int | bool]:
         return {
             "ssf_issuer": self.ssf_issuer,
             "ssf_base_url": self.ssf_base_url,
@@ -55,6 +87,7 @@ class Settings:
             "database_path": self.database_path,
             "keys_dir": self.keys_dir,
             "log_level": self.log_level,
+            "apple_scim_enabled": self.apple_scim_enabled,
         }
 
 
@@ -66,4 +99,3 @@ def configure_logging() -> None:
         level=getattr(logging, settings.log_level, logging.INFO),
         format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
     )
-
