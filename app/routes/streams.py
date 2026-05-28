@@ -1,13 +1,14 @@
 import logging
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Response
 
+from app.auth import require_management_auth
 from app.database import create_stream, delete_stream, delete_stream_by_id, get_first_stream, update_stream
 from app.events.pusher import push_verification_set
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/ssf")
+router = APIRouter(prefix="/ssf", dependencies=[Depends(require_management_auth)])
 
 
 def _stream_response(stream) -> dict[str, Any]:
