@@ -29,7 +29,7 @@ async def _apple_scim_sync_loop() -> None:
                 logger.warning("Apple SCIM: skipping sync — no valid token; visit /apple-scim/authorize")
                 continue
             users = await get_users()
-            if users:
+            if users is not None:
                 await sync_users(token, users)
         except Exception:
             logger.exception("Apple SCIM: unhandled error in sync loop")
@@ -41,9 +41,10 @@ async def lifespan(app: FastAPI):
     ensure_keys()
     await init_db()
 
+    apple_scim_task: asyncio.Task | None = None
     if settings.apple_scim_enabled:
         logger.info("Apple SCIM sync enabled — background sync every %ds", settings.apple_scim_sync_interval)
-        asyncio.create_task(_apple_scim_sync_loop())
+        apple_scim_task = asyncio.create_task(_apple_scim_sync_loop())
     else:
         logger.info(
             "Apple SCIM sync disabled "
@@ -51,6 +52,13 @@ async def lifespan(app: FastAPI):
         )
 
     yield
+
+    if apple_scim_task is not None:
+        apple_scim_task.cancel()
+        try:
+            await apple_scim_task
+        except asyncio.CancelledError:
+            logger.info("Apple SCIM: sync loop stopped")
 
 
 app = FastAPI(root_path=settings.ssf_root_path, title="SSF Transmitter", lifespan=lifespan)

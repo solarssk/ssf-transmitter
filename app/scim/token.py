@@ -96,10 +96,26 @@ async def _refresh(refresh_token: str | None) -> str | None:
         logger.error("Apple SCIM: token refresh failed status=%s body=%r", resp.status_code, resp.text[:300])
         return None
 
-    data = resp.json()
+    try:
+        data = resp.json()
+    except Exception:
+        logger.error("Apple SCIM: token refresh response is not valid JSON body=%r", resp.text[:300])
+        return None
+
     access_token = data.get("access_token")
     new_refresh = data.get("refresh_token")  # Apple may rotate the refresh token
-    expires_in = data.get("expires_in", 3600)
+    raw_expires = data.get("expires_in")
+
+    if not access_token or not isinstance(access_token, str):
+        logger.error("Apple SCIM: token refresh response missing access_token body=%r", data)
+        return None
+    try:
+        expires_in = int(raw_expires)
+        if expires_in <= 0:
+            raise ValueError("expires_in must be > 0")
+    except (TypeError, ValueError):
+        logger.error("Apple SCIM: token refresh response has invalid expires_in=%r — defaulting to 3600", raw_expires)
+        expires_in = 3600
 
     await save_tokens(access_token, new_refresh, expires_in)
     logger.info("Apple SCIM: access token refreshed successfully")

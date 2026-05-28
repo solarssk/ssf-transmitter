@@ -9,6 +9,14 @@ def _strip_trailing_slash(value: str) -> str:
     return value.rstrip("/")
 
 
+def _parse_sync_interval(value: str) -> int:
+    """Parse APPLE_SCIM_SYNC_INTERVAL and raise if the result is less than 1."""
+    interval = int(value)
+    if interval < 1:
+        raise ValueError(f"APPLE_SCIM_SYNC_INTERVAL must be >= 1 second, got {interval}")
+    return interval
+
+
 @dataclass(frozen=True)
 class Settings:
     ssf_issuer: str
@@ -63,7 +71,7 @@ class Settings:
             authentik_url=_strip_trailing_slash(os.getenv("AUTHENTIK_URL", "")),
             authentik_token=os.getenv("AUTHENTIK_TOKEN") or None,
             apple_scim_group_id=os.getenv("APPLE_SCIM_GROUP_ID") or None,
-            apple_scim_sync_interval=int(os.getenv("APPLE_SCIM_SYNC_INTERVAL", "3600")),
+            apple_scim_sync_interval=_parse_sync_interval(os.getenv("APPLE_SCIM_SYNC_INTERVAL", "3600")),
         )
 
     def public_url(self, path: str) -> str:

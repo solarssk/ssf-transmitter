@@ -6,6 +6,10 @@ Requires:
                     Admin → Directory → Tokens → Create, type "API")
   APPLE_SCIM_GROUP_ID — (optional) Authentik group UUID; only members of this
                         group will be synced.  Leave unset to sync all active users.
+
+Return values:
+  list[dict]  — SCIM-mapped users (may be empty if there are genuinely no users)
+  None        — upstream error (network failure, auth error, etc.)
 """
 
 from __future__ import annotations
@@ -50,27 +54,31 @@ def _map_to_scim(user: dict) -> dict:
     }
 
 
-async def get_users() -> list[dict]:
+async def get_users() -> list[dict] | None:
     """Return all eligible Authentik users mapped to SCIM format.
 
     If APPLE_SCIM_GROUP_ID is set only members of that group are returned.
-    Service accounts are always excluded.
+    Only internal accounts (type=internal) are included; service accounts are
+    excluded regardless of the group filter.
+
+    Returns:
+        list[dict]: SCIM-mapped users — may be an empty list if there are none.
+        None:       An upstream error occurred (misconfiguration, network, auth).
     """
     if not settings.authentik_url or not settings.authentik_token:
         logger.error("Authentik URL or token not configured")
-        return []
+        return None
 
     headers = {"Authorization": f"Bearer {settings.authentik_token}"}
     base = settings.authentik_url.rstrip("/")
 
-    # If a group filter is set, fetch members of that group only
     if settings.apple_scim_group_id:
-        url = f"{base}/api/v3/core/groups/{settings.apple_scim_group_id}/users_account_expiry/"
-        # Authentik doesn't have a direct group-members endpoint in all versions;
-        # fall back to filtering all users by group membership
-        url = f"{base}/api/v3/core/users/?groups_by_pk={settings.apple_scim_group_id}&is_active=true&page_size=500"
+        url = (
+            f"{base}/api/v3/core/users/"
+            f"?groups_by_pk={settings.apple_scim_group_id}&type=internal&page_size=500"
+        )
     else:
-        url = f"{base}/api/v3/core/users/?is_active=true&page_size=500&type=internal"
+        url = f"{base}/api/v3/core/users/?type=internal&page_size=500"
 
     all_users: list[dict] = []
     try:
@@ -78,14 +86,18 @@ async def get_users() -> list[dict]:
             while url:
                 resp = await client.get(url, headers=headers)
                 if resp.status_code != 200:
-                    logger.error("Authentik API error status=%s body=%r", resp.status_code, resp.text[:300])
-                    return []
+                    logger.error(
+                        "Authentik API error status=%s body=%r",
+                        resp.status_code,
+                        resp.text[:300],
+                    )
+                    return None
                 data = resp.json()
                 all_users.extend(data.get("results", []))
-                url = data.get("next")  # pagination
+                url = data.get("next")  # pagination — None when last page
     except httpx.HTTPError:
         logger.exception("Failed to fetch users from Authentik")
-        return []
+        return None
 
     logger.info("Fetched %d users from Authentik", len(all_users))
     return [_map_to_scim(u) for u in all_users]

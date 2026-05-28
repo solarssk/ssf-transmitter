@@ -6,11 +6,11 @@ OAuth 2.0 authorization_code flow (Apple is the authorization server):
      → browser is redirected to Apple's login page
 
   2. Admin approves the connection on Apple's side
-     → Apple redirects browser back to GET /apple-scim/callback?code=XXX
+     → Apple redirects browser back to GET /apple-scim/callback?code=XXX&state=XXX
 
-  3. We exchange the code for access_token + refresh_token and store them
-     → sync starts automatically on the next scheduled cycle, or immediately
-        via POST /apple-scim/sync
+  3. We validate the state, exchange the code for access_token + refresh_token
+     and store them.  Sync starts automatically on the next scheduled cycle, or
+     immediately via POST /apple-scim/sync.
 
 The client_secret set in ABM expires every 6/9/12 months.  When it does:
   1. Go to ABM → Settings → Directory Sync → generate a new Client Secret
@@ -21,6 +21,7 @@ The client_secret set in ABM expires every 6/9/12 months.  When it does:
 from __future__ import annotations
 
 import logging
+import secrets
 import time
 from urllib.parse import urlencode
 
@@ -39,8 +40,14 @@ APPLE_AUTH_URL = "https://appleaccount.apple.com/auth/oauth2/v2/authorize"
 
 router = APIRouter(prefix="/apple-scim", tags=["Apple SCIM"])
 
+# In-memory store for pending OAuth state values.  Single-use: consumed on
+# callback validation.  A container restart clears them, which is acceptable
+# since the admin simply re-visits /authorize.
+_pending_states: set[str] = set()
+
 
 def _require_scim_configured() -> None:
+    """Raise 503 when required Apple SCIM env vars are not set."""
     if not settings.apple_scim_enabled:
         raise HTTPException(
             status_code=503,
@@ -58,13 +65,18 @@ async def authorize() -> RedirectResponse:
 
     Visit this URL once after initial setup and once per year when the
     client secret expires and you have generated a new one in ABM.
+    A cryptographically-random ``state`` value is generated and stored
+    server-side to prevent CSRF attacks during the OAuth callback.
     """
     _require_scim_configured()
+    state = secrets.token_urlsafe(32)
+    _pending_states.add(state)
     callback_url = settings.public_url("/apple-scim/callback")
     params = {
         "client_id": settings.apple_scim_client_id,
         "redirect_uri": callback_url,
         "response_type": "code",
+        "state": state,
     }
     url = f"{APPLE_AUTH_URL}?{urlencode(params)}"
     logger.info("Apple SCIM: redirecting admin to Apple OAuth callback_url=%s", callback_url)
@@ -72,11 +84,17 @@ async def authorize() -> RedirectResponse:
 
 
 @router.get("/callback", summary="OAuth callback — Apple redirects here after admin approves")
-async def callback(code: str | None = None, error: str | None = None) -> dict:
+async def callback(
+    code: str | None = None,
+    state: str | None = None,
+    error: str | None = None,
+) -> dict:
     """Handle the redirect from Apple after the admin authorizes the connection.
 
-    Apple appends ?code=XXX to this URL.  We exchange the code for tokens
-    and store them.  You should not need to call this endpoint manually.
+    Apple appends ``?code=XXX&state=YYY`` to this URL.  The ``state`` is
+    validated against the value generated in ``/authorize`` to prevent CSRF.
+    On success the authorization code is exchanged for tokens which are
+    persisted to the database.
     """
     _require_scim_configured()
 
@@ -86,6 +104,12 @@ async def callback(code: str | None = None, error: str | None = None) -> dict:
 
     if not code:
         raise HTTPException(status_code=400, detail="Missing 'code' parameter in callback")
+
+    # CSRF check — state must match one we issued and be consumed immediately
+    if not state or state not in _pending_states:
+        logger.warning("Apple SCIM: invalid or missing OAuth state — possible CSRF attempt")
+        raise HTTPException(status_code=400, detail="Invalid or expired OAuth state parameter")
+    _pending_states.discard(state)
 
     callback_url = settings.public_url("/apple-scim/callback")
     try:
@@ -177,7 +201,7 @@ async def sync() -> dict:
         )
 
     users = await get_users()
-    if not users:
+    if users is None:
         raise HTTPException(status_code=502, detail="Could not fetch users from Authentik")
 
     result = await sync_users(access_token, users)
