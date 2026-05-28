@@ -8,7 +8,7 @@ This document covers the threat model, trust boundaries, and security properties
 
 ## Trust boundaries
 
-```
+```text
 [Internet / Receiver]
         │ HTTPS only, RS256-signed JWT
         ▼

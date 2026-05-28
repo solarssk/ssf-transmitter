@@ -83,7 +83,8 @@ async def init_db() -> None:
             """
         )
         await db.commit()
-    # Restrict DB file permissions so only the owning process can read it.
+    # Restrict DB file permissions so only the owning process can read/write it.
+    # Receiver tokens stored here must not be readable by group or other users.
     try:
         db_path.chmod(0o600)
     except OSError as exc:
