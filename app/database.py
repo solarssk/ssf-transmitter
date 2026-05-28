@@ -40,8 +40,23 @@ def _row_to_stream(row: aiosqlite.Row) -> Stream:
 
 
 async def init_db() -> None:
-    """Create all database tables if they do not already exist."""
-    Path(settings.database_path).parent.mkdir(parents=True, exist_ok=True)
+    """Create all database tables if they do not already exist.
+
+    Security note: receiver tokens (bearer tokens for push endpoints) are stored
+    in plaintext inside this SQLite database.  Protect the /app/data volume:
+    restrict container host-path mounts to root-only, use encrypted storage at
+    the volume level if your threat model requires it, and never expose the data
+    directory via network shares.
+    """
+    db_path = Path(settings.database_path)
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    logger.warning(
+        "Receiver tokens are stored in plaintext in SQLite at %s — "
+        "ensure the %s volume is protected (host path restricted to root, "
+        "encrypted volume if required by your threat model).",
+        settings.database_path,
+        str(db_path.parent),
+    )
     async with aiosqlite.connect(settings.database_path) as db:
         await db.execute(
             """
@@ -68,6 +83,11 @@ async def init_db() -> None:
             """
         )
         await db.commit()
+    # Restrict DB file permissions so only the owning process can read it.
+    try:
+        db_path.chmod(0o600)
+    except OSError as exc:
+        logger.warning("Could not set 0600 permissions on DB file %s: %s", settings.database_path, exc)
     logger.info("Initialized SQLite database at %s", settings.database_path)
 
 
@@ -82,14 +102,8 @@ async def create_stream(payload: dict[str, Any]) -> Stream:
         or (auth_header.removeprefix("Bearer ") if auth_header else None)
         or ""
     )
-    _aud = payload.get("aud") or payload.get("audience") or payload.get("receiver") or payload.get("iss")
-    if isinstance(_aud, list):
-        if len(_aud) != 1:
-            raise ValueError(f"aud must be a single value, got {len(_aud)}")
-        aud = _aud[0]
-    else:
-        aud = _aud
-    events_requested = payload.get("events_requested") or payload.get("events_supported") or []
+    aud = payload.get("aud")
+    events_requested = payload.get("events_requested") or []
 
     if not endpoint_url:
         raise ValueError("Missing delivery.endpoint_url")
@@ -164,7 +178,7 @@ async def update_stream(payload: dict[str, Any]) -> Stream | None:
     )
     events_requested = payload.get("events_requested", stream.events_requested)
     status = payload.get("status", stream.status)
-    aud = payload.get("aud") or payload.get("audience") or payload.get("receiver") or stream.aud
+    aud = payload.get("aud") or stream.aud
 
     if not isinstance(events_requested, list):
         raise ValueError("events_requested must be a list when provided")
