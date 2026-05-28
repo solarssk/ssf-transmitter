@@ -167,13 +167,42 @@ def test_wellknown_delivery_method_is_rfc8935():
 
 
 def test_verification_jwt_not_logged(caplog):
-    """The full verification SET JWT must never appear in logs (debug log removed)."""
-    import logging
+    """The full verification SET JWT must never appear in logs (debug log removed).
 
-    token = sign_verification_set(audience=AUDIENCE, stream_id=STREAM_ID)
+    Exercises the real push_verification_set code path with a mocked HTTP
+    client so that any accidental re-introduction of ``logger.debug(token)``
+    would be caught inside the capture scope.
+    """
+    import asyncio
+    import logging
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from app.database import Stream
+    from app.events.pusher import push_verification_set
+
+    stream = Stream(
+        stream_id=STREAM_ID,
+        aud=AUDIENCE,
+        endpoint_url="https://receiver.example.test/events",
+        endpoint_token="tok",
+        events_requested=[],
+        status="enabled",
+        created_at=0,
+    )
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+
+    mock_client = AsyncMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+    mock_client.post = AsyncMock(return_value=mock_response)
 
     with caplog.at_level(logging.DEBUG):
-        pass  # just ensure no stray log emission happens at module level
+        with patch("app.events.pusher.httpx.AsyncClient", return_value=mock_client):
+            result = asyncio.get_event_loop().run_until_complete(push_verification_set(stream))
 
-    # JWT header part is a stable fingerprint; must not appear in logs
+    assert result is True
+    # JWT header is a stable base64 fingerprint — must not appear anywhere in logs
+    token = sign_verification_set(audience=AUDIENCE, stream_id=STREAM_ID)
     assert token.split(".")[0] not in caplog.text
