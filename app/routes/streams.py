@@ -52,8 +52,7 @@ async def create_stream_endpoint(payload: dict[str, Any]) -> dict[str, Any]:
         )
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    verification_state = str(uuid.uuid4())
-    pushed = await push_verification_set(stream, state=verification_state)
+    pushed = await push_verification_set(stream)
     if not pushed:
         logger.warning(
             "Verification SET delivery failed; rolling back stream_id=%s aud=%s",
