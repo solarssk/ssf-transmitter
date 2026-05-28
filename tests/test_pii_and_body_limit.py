@@ -6,8 +6,8 @@ import hashlib
 import hmac
 import json
 
-from fastapi.testclient import TestClient
 import pytest
+from fastapi.testclient import TestClient
 
 from app.main import app
 from app.security.pii import mask_email
