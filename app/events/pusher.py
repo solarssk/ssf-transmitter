@@ -5,6 +5,7 @@ import httpx
 
 from app.crypto import sign_set, sign_verification_set
 from app.database import Stream
+from app.security.url_validation import _is_blocked_ip, _resolve_host
 
 logger = logging.getLogger(__name__)
 
@@ -15,10 +16,36 @@ def _safe_host(url: str) -> str:
     return parsed.netloc or "unknown-host"
 
 
+def _revalidate_endpoint(url: str) -> bool:
+    """Re-resolve endpoint hostname and verify it still points to a public IP.
+
+    Guards against DNS rebinding: a hostname may resolve to a public IP at
+    stream creation time and later rebind to a private/metadata address.
+    Returns False (and logs a warning) if any resolved IP is blocked.
+    """
+    host = urlparse(url).hostname or ""
+    ips = _resolve_host(host)
+    if not ips:
+        logger.warning("Blocked outbound push: endpoint_url host %r failed to resolve", host)
+        return False
+    for ip in ips:
+        if _is_blocked_ip(ip):
+            logger.warning(
+                "Blocked outbound push: endpoint_url host %r re-resolved to blocked IP %r",
+                host,
+                ip,
+            )
+            return False
+    return True
+
+
 async def push_set(stream: Stream, event_uri: str, email: str) -> bool:
     """Sign and push a Security Event Token to the stream's endpoint; returns True on success."""
     if stream.status != "enabled":
         logger.warning("Skipping disabled SSF stream stream_id=%s status=%s", stream.stream_id, stream.status)
+        return False
+
+    if not _revalidate_endpoint(stream.endpoint_url):
         return False
 
     try:
@@ -32,7 +59,7 @@ async def push_set(stream: Stream, event_uri: str, email: str) -> bool:
         headers["Authorization"] = f"Bearer {stream.endpoint_token}"
 
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=10.0, follow_redirects=False) as client:
             response = await client.post(stream.endpoint_url, content=token, headers=headers)
     except httpx.HTTPError:
         logger.exception(
@@ -76,6 +103,9 @@ async def push_verification_set(stream: "Stream") -> bool:
         logger.exception("Failed to sign verification SET aud=%s", stream.aud)
         return False
 
+    if not _revalidate_endpoint(stream.endpoint_url):
+        return False
+
     # WARNING: DEBUG logs the full JWT — do NOT enable DEBUG in production or ship
     # logs to untrusted systems.  Token is only logged to allow jwt.io inspection
     # when diagnosing receiver rejections.
@@ -86,7 +116,7 @@ async def push_verification_set(stream: "Stream") -> bool:
         headers["Authorization"] = f"Bearer {stream.endpoint_token}"
 
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=10.0, follow_redirects=False) as client:
             response = await client.post(stream.endpoint_url, content=token, headers=headers)
     except httpx.HTTPError:
         logger.exception(

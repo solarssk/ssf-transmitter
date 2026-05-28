@@ -26,9 +26,10 @@ import time
 from urllib.parse import urlencode
 
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import RedirectResponse
 
+from app.auth import require_management_auth
 from app.config import settings
 from app.scim.apple import sync_users
 from app.scim.authentik import get_users
@@ -185,7 +186,7 @@ async def status() -> dict:
 
 
 @router.post("/sync", summary="Trigger an immediate user sync to Apple Business Manager")
-async def sync() -> dict:
+async def sync(_auth: None = Depends(require_management_auth)) -> dict:
     """Fetch users from Authentik and push them to Apple Business Manager via SCIM.
 
     This runs automatically every APPLE_SCIM_SYNC_INTERVAL seconds (default 1h).

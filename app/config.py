@@ -17,6 +17,17 @@ def _parse_sync_interval(value: str) -> int:
     return interval
 
 
+def _parse_management_token(value: str | None) -> str:
+    """Validate SSF_MANAGEMENT_TOKEN — required, minimum 32 characters."""
+    if not value:
+        raise RuntimeError("Missing required environment variable: SSF_MANAGEMENT_TOKEN")
+    if len(value) < 32:
+        raise RuntimeError(
+            f"SSF_MANAGEMENT_TOKEN is too short ({len(value)} chars); minimum is 32 characters"
+        )
+    return value
+
+
 @dataclass(frozen=True)
 class Settings:
     ssf_issuer: str
@@ -24,9 +35,12 @@ class Settings:
     ssf_root_path: str
     ssf_container_port: int
     ssf_webhook_secret: str
+    ssf_management_token: str
     log_level: str
     database_path: str = "/app/data/ssf.db"
     keys_dir: str = "/app/keys"
+    # Webhook — opt-out of mandatory HMAC (unsafe, document clearly)
+    allow_unsigned_webhook: bool = False
     # Apple SCIM sync — all optional; sync is disabled when any required field is unset.
     # Set these to enable automatic user provisioning from Authentik to Apple Business Manager.
     apple_scim_client_id: str | None = None
@@ -63,6 +77,8 @@ class Settings:
             ssf_root_path=os.getenv("SSF_ROOT_PATH", ""),
             ssf_container_port=int(os.getenv("SSF_CONTAINER_PORT", "8000")),
             ssf_webhook_secret=required["SSF_WEBHOOK_SECRET"],
+            ssf_management_token=_parse_management_token(os.getenv("SSF_MANAGEMENT_TOKEN")),
+            allow_unsigned_webhook=os.getenv("SSF_ALLOW_UNSIGNED_WEBHOOK", "false").lower() == "true",
             log_level=os.getenv("LOG_LEVEL", "INFO").upper(),
             database_path=os.getenv("SSF_DATABASE_PATH", "/app/data/ssf.db"),
             keys_dir=os.getenv("SSF_KEYS_DIR", "/app/keys"),

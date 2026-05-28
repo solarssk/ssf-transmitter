@@ -23,6 +23,9 @@ def signed_headers(body: bytes) -> dict[str, str]:
     }
 
 
+MGMT_HEADERS = {"Authorization": "Bearer test_management_token_min_32_chars_1234"}
+
+
 def create_stream(client: TestClient) -> dict:
     """Create a test SSF stream and return the response payload."""
     response = client.post(
@@ -37,6 +40,7 @@ def create_stream(client: TestClient) -> dict:
                 "https://schemas.openid.net/secevent/caep/event-type/session-revoked",
             ],
         },
+        headers=MGMT_HEADERS,
     )
     assert response.status_code == 201, response.text
     return response.json()
@@ -86,43 +90,43 @@ def test_stream_lifecycle_does_not_expose_receiver_token(client: TestClient):
     assert "endpoint_url_token" not in json.dumps(created)
     assert "receiver-secret-token" not in json.dumps(created)
 
-    fetched = client.get("/ssf/streams")
+    fetched = client.get("/ssf/streams", headers=MGMT_HEADERS)
     assert fetched.status_code == 200
     assert fetched.json()["stream_id"] == created["stream_id"]
 
-    patched = client.patch("/ssf/streams", json={"status": "paused"})
+    patched = client.patch("/ssf/streams", json={"status": "paused"}, headers=MGMT_HEADERS)
     assert patched.status_code == 200
     assert patched.json()["status"] == "paused"
 
-    deleted = client.delete("/ssf/streams")
+    deleted = client.delete("/ssf/streams", headers=MGMT_HEADERS)
     assert deleted.status_code == 204
 
-    missing = client.get("/ssf/streams")
+    missing = client.get("/ssf/streams", headers=MGMT_HEADERS)
     assert missing.status_code == 404
 
 
 def test_status_reports_no_stream_or_enabled_stream(client: TestClient):
     """Status endpoint reflects current stream state correctly."""
-    client.delete("/ssf/streams")
+    client.delete("/ssf/streams", headers=MGMT_HEADERS)
 
-    no_stream = client.get("/ssf/status")
+    no_stream = client.get("/ssf/status", headers=MGMT_HEADERS)
     assert no_stream.status_code == 200
     assert no_stream.json() == {"status": "disabled", "reason": "no_stream"}
 
     created = create_stream(client)
-    status = client.get("/ssf/status")
+    status = client.get("/ssf/status", headers=MGMT_HEADERS)
     assert status.status_code == 200
     assert status.json()["status"] == "enabled"
     assert status.json()["stream_id"] == created["stream_id"]
 
 
-def test_webhook_accepts_unsigned_request(client: TestClient):
-    """Unsigned webhook requests are accepted — Authentik generic transport does not sign."""
+def test_webhook_rejects_unsigned_request_by_default(client: TestClient):
+    """Unsigned webhook requests are rejected with 401 (fail-closed by default)."""
     response = client.post(
         "/webhook/authentik",
         json={"body": {"action": "authentik.core.auth.logout", "user": {"email": "u@example.com"}}},
     )
-    assert response.status_code == 200
+    assert response.status_code == 401
 
 
 def test_webhook_rejects_invalid_hmac(client: TestClient):
@@ -155,7 +159,7 @@ def test_webhook_ignores_login_failed_event(client: TestClient):
 
 def test_webhook_delivers_mapped_event_without_logging_or_posting_real_token(client: TestClient, monkeypatch):
     """Mapped Authentik events are pushed as SETs; receiver token is never logged."""
-    create_stream(client)
+    create_stream(client)  # uses MGMT_HEADERS internally
     pushed = []
 
     async def fake_push_set(stream, event_uri, email):
