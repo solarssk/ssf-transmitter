@@ -36,20 +36,21 @@ async def _get_existing_users(client: httpx.AsyncClient, headers: dict) -> dict[
         if resp.status_code != 200:
             logger.error("Apple SCIM list users failed status=%s body=%r", resp.status_code, resp.text[:300])
             return users
-        data = resp.json()
+        try:
+            data = resp.json()
+        except Exception:
+            logger.error("Apple SCIM list users returned non-JSON body=%r", resp.text[:300])
+            return users
         for u in data.get("Resources", []):
             ext_id = u.get("externalId")
             if ext_id:
                 users[ext_id] = u
-        # SCIM pagination
-        next_start = None
-        # Apple uses startIndex/itemsPerPage pagination (not a next-link)
+        # Apple uses startIndex/itemsPerPage pagination (not cursor/next-link)
         total = data.get("totalResults", 0)
         start = data.get("startIndex", 1)
         per_page = data.get("itemsPerPage", len(data.get("Resources", [])))
         if start + per_page - 1 < total:
-            next_start = start + per_page
-            url = f"{APPLE_SCIM_BASE}/Users?count=200&startIndex={next_start}"
+            url = f"{APPLE_SCIM_BASE}/Users?count=200&startIndex={start + per_page}"
         else:
             url = None
     return users

@@ -92,7 +92,11 @@ async def get_users() -> list[dict] | None:
                         resp.text[:300],
                     )
                     return None
-                data = resp.json()
+                try:
+                    data = resp.json()
+                except Exception:
+                    logger.error("Authentik API returned non-JSON body=%r", resp.text[:300])
+                    return None
                 all_users.extend(data.get("results", []))
                 url = data.get("next")  # pagination — None when last page
     except httpx.HTTPError:
