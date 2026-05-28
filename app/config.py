@@ -41,6 +41,9 @@ class Settings:
     keys_dir: str = "/app/keys"
     # Webhook — opt-out of mandatory HMAC (unsafe, document clearly)
     allow_unsigned_webhook: bool = False
+    # Privacy — when False (default), emails are replaced by a pseudonymous hash in logs.
+    # Set SSF_LOG_PII=true only in controlled dev/debug environments.
+    log_pii: bool = False
     # Apple SCIM sync — all optional; sync is disabled when any required field is unset.
     # Set these to enable automatic user provisioning from Authentik to Apple Business Manager.
     apple_scim_client_id: str | None = None
@@ -79,6 +82,7 @@ class Settings:
             ssf_webhook_secret=required["SSF_WEBHOOK_SECRET"],
             ssf_management_token=_parse_management_token(os.getenv("SSF_MANAGEMENT_TOKEN")),
             allow_unsigned_webhook=os.getenv("SSF_ALLOW_UNSIGNED_WEBHOOK", "false").lower() == "true",
+            log_pii=os.getenv("SSF_LOG_PII", "false").lower() == "true",
             log_level=os.getenv("LOG_LEVEL", "INFO").upper(),
             database_path=os.getenv("SSF_DATABASE_PATH", "/app/data/ssf.db"),
             keys_dir=os.getenv("SSF_KEYS_DIR", "/app/keys"),
