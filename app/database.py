@@ -40,8 +40,22 @@ def _row_to_stream(row: aiosqlite.Row) -> Stream:
 
 
 async def init_db() -> None:
-    """Create all database tables if they do not already exist."""
-    Path(settings.database_path).parent.mkdir(parents=True, exist_ok=True)
+    """Create all database tables if they do not already exist.
+
+    Security note: receiver tokens (bearer tokens for push endpoints) are stored
+    in plaintext inside this SQLite database.  Protect the /app/data volume:
+    restrict container host-path mounts to root-only, use encrypted storage at
+    the volume level if your threat model requires it, and never expose the data
+    directory via network shares.
+    """
+    db_path = Path(settings.database_path)
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    logger.warning(
+        "Receiver tokens are stored in plaintext in SQLite at %s — "
+        "ensure the /app/data volume is protected (host path restricted to root, "
+        "encrypted volume if required by your threat model).",
+        settings.database_path,
+    )
     async with aiosqlite.connect(settings.database_path) as db:
         await db.execute(
             """
@@ -68,6 +82,11 @@ async def init_db() -> None:
             """
         )
         await db.commit()
+    # Restrict DB file permissions so only the owning process can read it.
+    try:
+        db_path.chmod(0o600)
+    except OSError as exc:
+        logger.warning("Could not set 0600 permissions on DB file %s: %s", settings.database_path, exc)
     logger.info("Initialized SQLite database at %s", settings.database_path)
 
 

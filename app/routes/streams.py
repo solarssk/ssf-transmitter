@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from app.auth import require_management_auth
 from app.database import create_stream, delete_stream, delete_stream_by_id, get_first_stream, update_stream
 from app.events.pusher import push_verification_set
+from app.models import StreamCreateRequest, StreamPatchRequest
 from app.security.url_validation import validate_receiver_endpoint_url
 
 logger = logging.getLogger(__name__)
@@ -17,7 +18,7 @@ def _stream_response(stream) -> dict[str, Any]:
         "stream_id": stream.stream_id,
         "aud": stream.aud,
         "delivery": {
-            "method": "https://schemas.openid.net/secevent/risc/delivery-method/push",
+            "method": "urn:ietf:rfc:8935",
             "endpoint_url": stream.endpoint_url,
         },
         "events_requested": stream.events_requested,
@@ -27,35 +28,35 @@ def _stream_response(stream) -> dict[str, Any]:
 
 
 @router.post("/streams", status_code=201)
-async def create_stream_endpoint(payload: dict[str, Any]) -> dict[str, Any]:
+async def create_stream_endpoint(request: StreamCreateRequest) -> dict[str, Any]:
     """Create a new SSF stream and confirm delivery by pushing a verification SET."""
-    delivery = payload.get("delivery") or {}
+    endpoint_url = request.delivery.endpoint_url
     logger.info(
-        "Stream create request payload_keys=%s delivery_keys=%s",
-        sorted(payload.keys()),
-        sorted(delivery.keys()),
+        "Stream create request aud=%s events_requested=%s",
+        request.aud,
+        request.events_requested,
     )
-    endpoint_url = delivery.get("endpoint_url") or payload.get("endpoint_url")
-    if endpoint_url:
-        try:
-            validate_receiver_endpoint_url(endpoint_url)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=f"Invalid endpoint_url: {exc}") from exc
+    try:
+        validate_receiver_endpoint_url(endpoint_url)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid endpoint_url: {exc}") from exc
+
+    # Build a normalised dict for the database layer
+    payload: dict[str, Any] = {
+        "aud": request.aud,
+        "delivery": {
+            "endpoint_url": endpoint_url,
+            "endpoint_url_token": request.delivery.endpoint_url_token or "",
+            "authorization_header": request.delivery.authorization_header or "",
+        },
+        "events_requested": request.events_requested,
+        "status": request.status.value,
+    }
+
     try:
         stream = await create_stream(payload)
     except ValueError as exc:
-        _REDACTED = "[redacted]"
-        safe_delivery = {
-            k: (_REDACTED if k in {"endpoint_url_token", "authorization_header"} else v)
-            for k, v in delivery.items()
-        }
-        logger.warning(
-            "Stream create rejected reason=%s payload_keys=%s delivery_keys=%s delivery=%s",
-            exc,
-            sorted(payload.keys()),
-            sorted(delivery.keys()),
-            safe_delivery,
-        )
+        logger.warning("Stream create rejected reason=%s aud=%s", exc, request.aud)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     pushed = await push_verification_set(stream)
@@ -84,17 +85,32 @@ async def get_stream_endpoint() -> dict[str, Any]:
 
 
 @router.patch("/streams")
-async def patch_stream_endpoint(payload: dict[str, Any]) -> dict[str, Any]:
+async def patch_stream_endpoint(request: StreamPatchRequest) -> dict[str, Any]:
     """Update the current SSF stream configuration."""
-    patch_delivery = payload.get("delivery") or {}
-    patch_endpoint_url = patch_delivery.get("endpoint_url") or payload.get("endpoint_url")
-    if patch_endpoint_url:
+    # Validate endpoint_url if delivery block is included in the patch
+    if request.delivery is not None:
         try:
-            validate_receiver_endpoint_url(patch_endpoint_url)
+            validate_receiver_endpoint_url(request.delivery.endpoint_url)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=f"Invalid endpoint_url: {exc}") from exc
+
+    # Build a sparse dict — only include fields that were explicitly set
+    patch: dict[str, Any] = {}
+    if request.aud is not None:
+        patch["aud"] = request.aud
+    if request.status is not None:
+        patch["status"] = request.status.value
+    if request.events_requested is not None:
+        patch["events_requested"] = request.events_requested
+    if request.delivery is not None:
+        patch["delivery"] = {
+            "endpoint_url": request.delivery.endpoint_url,
+            "endpoint_url_token": request.delivery.endpoint_url_token or "",
+            "authorization_header": request.delivery.authorization_header or "",
+        }
+
     try:
-        stream = await update_stream(payload)
+        stream = await update_stream(patch)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not stream:
