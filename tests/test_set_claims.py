@@ -198,9 +198,8 @@ def test_verification_jwt_not_logged(caplog):
     mock_client.__aexit__ = AsyncMock(return_value=None)
     mock_client.post = AsyncMock(return_value=mock_response)
 
-    with caplog.at_level(logging.DEBUG):
-        with patch("app.events.pusher.httpx.AsyncClient", return_value=mock_client):
-            result = asyncio.get_event_loop().run_until_complete(push_verification_set(stream))
+    with caplog.at_level(logging.DEBUG), patch("app.events.pusher.httpx.AsyncClient", return_value=mock_client):
+        result = asyncio.get_event_loop().run_until_complete(push_verification_set(stream))
 
     assert result is True
     # JWT header is a stable base64 fingerprint — must not appear anywhere in logs
