@@ -3,7 +3,10 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Response
 
+import uuid
+
 from app.database import create_stream, delete_stream, get_first_stream, update_stream
+from app.events.pusher import push_verification_set
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/ssf")
@@ -48,6 +51,14 @@ async def create_stream_endpoint(payload: dict[str, Any]) -> dict[str, Any]:
             safe_delivery,
         )
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    verification_state = str(uuid.uuid4())
+    pushed = await push_verification_set(stream, state=verification_state)
+    if not pushed:
+        logger.warning(
+            "Verification SET delivery failed stream_id=%s aud=%s",
+            stream.stream_id,
+            stream.aud,
+        )
     return _stream_response(stream)
 
 
