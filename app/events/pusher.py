@@ -43,7 +43,7 @@ async def push_set(stream: Stream, event_uri: str, email: str) -> bool:
         )
         return False
 
-    if response.status_code >= 400:
+    if not (200 <= response.status_code < 300):
         logger.warning(
             "Receiver returned error for SET event_uri=%s aud=%s endpoint_host=%s status_code=%s",
             event_uri,
@@ -86,7 +86,7 @@ async def push_verification_set(stream: "Stream", state: str) -> bool:
         )
         return False
 
-    if response.status_code >= 400:
+    if not (200 <= response.status_code < 300):
         logger.warning(
             "Receiver rejected verification SET aud=%s endpoint_host=%s status_code=%s",
             stream.aud,
