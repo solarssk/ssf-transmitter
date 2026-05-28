@@ -58,17 +58,17 @@ async def init_db() -> None:
         settings.database_path,
         str(db_path.parent),
     )
-    # Pre-create the file with 0600 permissions before SQLite opens it.
-    # Using os.open with O_CREAT|O_WRONLY and mode=0o600 sets the permission
-    # atomically, closing the TOCTOU window that exists when creating first
-    # and chmod-ing afterwards.  The fd is closed immediately; SQLite then
-    # opens the already-existing file and inherits its permissions.
-    if not db_path.exists():
-        fd = os.open(str(db_path), os.O_CREAT | os.O_WRONLY, 0o600)
+    # Pre-create the DB file with 0600 permissions before SQLite opens it.
+    # O_CREAT | O_WRONLY | O_EXCL is atomic: it either creates the file
+    # exclusively with the given mode, or raises FileExistsError if it
+    # already exists — eliminating the TOCTOU race that a preceding
+    # exists() check would introduce.
+    try:
+        fd = os.open(str(db_path), os.O_CREAT | os.O_WRONLY | os.O_EXCL, 0o600)
         os.close(fd)
-    else:
+    except FileExistsError:
         # File already exists (restart) — enforce permissions in case they
-        # were changed by a previous deployment or volume remount.
+        # drifted due to a previous deployment or volume remount.
         try:
             db_path.chmod(0o600)
         except OSError as exc:
