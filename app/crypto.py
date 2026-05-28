@@ -43,6 +43,7 @@ def _public_jwk(private_key: rsa.RSAPrivateKey) -> dict[str, str]:
 
 
 def ensure_keys() -> None:
+    """Generate RSA signing key and JWKS if they do not already exist."""
     keys_dir = Path(settings.keys_dir)
     keys_dir.mkdir(parents=True, exist_ok=True)
     private_path = keys_dir / PRIVATE_KEY_PATH
@@ -65,14 +66,21 @@ def ensure_keys() -> None:
 
 
 def load_jwks() -> dict[str, Any]:
+    """Load and return the JWKS from disk."""
     with open(Path(settings.keys_dir) / JWKS_PATH, encoding="utf-8") as jwks_file:
         return json.load(jwks_file)
 
 
-def sign_set(event_uri: str, audience: str, email: str) -> str:
-    private_path = Path(settings.keys_dir) / PRIVATE_KEY_PATH
-    private_pem = private_path.read_text(encoding="utf-8")
+def _load_signing_material() -> tuple[str, str]:
+    """Return (private_pem, kid) for JWT signing."""
+    private_pem = (Path(settings.keys_dir) / PRIVATE_KEY_PATH).read_text(encoding="utf-8")
     kid = load_jwks()["keys"][0]["kid"]
+    return private_pem, kid
+
+
+def sign_set(event_uri: str, audience: str, email: str) -> str:
+    """Sign a Security Event Token (SET) JWT for the given event and subject email."""
+    private_pem, kid = _load_signing_material()
     payload = {
         "iss": settings.ssf_issuer,
         "iat": int(time.time()),
@@ -87,14 +95,12 @@ def sign_set(event_uri: str, audience: str, email: str) -> str:
             }
         },
     }
-    return jwt.encode(payload, private_pem, algorithm="RS256", headers={"kid": kid})
+    return jwt.encode(payload, private_pem, algorithm="RS256", headers={"kid": kid, "typ": "secevent+jwt"})
 
 
 def sign_verification_set(audience: str, state: str) -> str:
     """Sign a verification SET JWT as defined in the SSF specification."""
-    private_path = Path(settings.keys_dir) / PRIVATE_KEY_PATH
-    private_pem = private_path.read_text(encoding="utf-8")
-    kid = load_jwks()["keys"][0]["kid"]
+    private_pem, kid = _load_signing_material()
     payload = {
         "iss": settings.ssf_issuer,
         "iat": int(time.time()),
@@ -106,4 +112,4 @@ def sign_verification_set(audience: str, state: str) -> str:
             }
         },
     }
-    return jwt.encode(payload, private_pem, algorithm="RS256", headers={"kid": kid})
+    return jwt.encode(payload, private_pem, algorithm="RS256", headers={"kid": kid, "typ": "secevent+jwt"})
