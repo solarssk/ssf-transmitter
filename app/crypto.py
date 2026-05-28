@@ -88,3 +88,22 @@ def sign_set(event_uri: str, audience: str, email: str) -> str:
         },
     }
     return jwt.encode(payload, private_pem, algorithm="RS256", headers={"kid": kid})
+
+
+def sign_verification_set(audience: str, state: str) -> str:
+    """Sign a verification SET JWT as defined in the SSF specification."""
+    private_path = Path(settings.keys_dir) / PRIVATE_KEY_PATH
+    private_pem = private_path.read_text(encoding="utf-8")
+    kid = load_jwks()["keys"][0]["kid"]
+    payload = {
+        "iss": settings.ssf_issuer,
+        "iat": int(time.time()),
+        "jti": str(uuid.uuid4()),
+        "aud": audience,
+        "events": {
+            "https://schemas.openid.net/secevent/risc/event-type/verification": {
+                "state": state,
+            }
+        },
+    }
+    return jwt.encode(payload, private_pem, algorithm="RS256", headers={"kid": kid})
