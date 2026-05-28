@@ -10,11 +10,13 @@ logger = logging.getLogger(__name__)
 
 
 def _safe_host(url: str) -> str:
+    """Extract the hostname from a URL for safe logging (no path or token)."""
     parsed = urlparse(url)
     return parsed.netloc or "unknown-host"
 
 
 async def push_set(stream: Stream, event_uri: str, email: str) -> bool:
+    """Sign and push a Security Event Token to the stream's endpoint; returns True on success."""
     if stream.status != "enabled":
         logger.warning("Skipping disabled SSF stream stream_id=%s status=%s", stream.stream_id, stream.status)
         return False
