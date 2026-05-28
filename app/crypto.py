@@ -112,15 +112,20 @@ def sign_set(event_uri: str, audience: str, email: str) -> str:
     return jwt.encode(payload, private_pem, algorithm="RS256", headers={"kid": kid, "typ": "secevent+jwt"})
 
 
-def sign_verification_set(audience: str, state: str, stream_id: str) -> str:
+def sign_verification_set(audience: str, stream_id: str, state: str | None = None) -> str:
     """Sign a verification SET JWT as defined in the SSF specification.
 
     Follows Authentik's reference implementation:
     - ``aud`` encoded as single-element array (RFC 7519 §4.1.3)
     - ``sub_id`` with ``format: opaque`` and the stream UUID as identifier
     - ``typ: secevent+jwt`` header (RFC 8417 §2.3)
+    - ``state`` is omitted when the transmitter initiates verification (RFC 8417:
+      "If the Transmitter is initiating the verification, SHOULD omit state")
     """
     private_pem, kid = _load_signing_material()
+    event_payload: dict = {}
+    if state is not None:
+        event_payload["state"] = state
     payload = {
         "iss": settings.ssf_issuer,
         "iat": int(time.time()),
@@ -128,9 +133,7 @@ def sign_verification_set(audience: str, state: str, stream_id: str) -> str:
         "aud": [audience],
         "sub_id": {"format": "opaque", "id": stream_id},
         "events": {
-            "https://schemas.openid.net/secevent/risc/event-type/verification": {
-                "state": state,
-            }
+            "https://schemas.openid.net/secevent/risc/event-type/verification": event_payload,
         },
     }
     return jwt.encode(payload, private_pem, algorithm="RS256", headers={"kid": kid, "typ": "secevent+jwt"})

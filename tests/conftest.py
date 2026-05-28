@@ -20,7 +20,7 @@ os.environ.setdefault("SSF_KEYS_DIR", str(TESTDATA / "keys"))
 def mock_push_verification_set(monkeypatch):
     """Prevent real outbound HTTP calls during stream creation tests."""
 
-    async def _always_ok(stream, state: str) -> bool:
+    async def _always_ok(stream) -> bool:
         return True
 
     monkeypatch.setattr("app.routes.streams.push_verification_set", _always_ok)
