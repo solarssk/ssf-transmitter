@@ -90,13 +90,17 @@ def _load_signing_material() -> tuple[str, str]:
 
 
 def sign_set(event_uri: str, audience: str, email: str) -> str:
-    """Sign a Security Event Token (SET) JWT for the given event and subject email."""
+    """Sign a Security Event Token (SET) JWT for the given event and subject email.
+
+    The ``aud`` claim is encoded as a single-element array per RFC 7519 §4.1.3
+    ("In the general case, the 'aud' value is an array of case-sensitive strings").
+    """
     private_pem, kid = _load_signing_material()
     payload = {
         "iss": settings.ssf_issuer,
         "iat": int(time.time()),
         "jti": str(uuid.uuid4()),
-        "aud": audience,
+        "aud": [audience],
         "events": {
             event_uri: {
                 "subject": {
@@ -110,13 +114,16 @@ def sign_set(event_uri: str, audience: str, email: str) -> str:
 
 
 def sign_verification_set(audience: str, state: str) -> str:
-    """Sign a verification SET JWT as defined in the SSF specification."""
+    """Sign a verification SET JWT as defined in the SSF specification.
+
+    The ``aud`` claim is encoded as a single-element array per RFC 7519 §4.1.3.
+    """
     private_pem, kid = _load_signing_material()
     payload = {
         "iss": settings.ssf_issuer,
         "iat": int(time.time()),
         "jti": str(uuid.uuid4()),
-        "aud": audience,
+        "aud": [audience],
         "events": {
             "https://schemas.openid.net/secevent/risc/event-type/verification": {
                 "state": state,
