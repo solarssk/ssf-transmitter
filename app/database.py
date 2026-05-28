@@ -40,7 +40,7 @@ def _row_to_stream(row: aiosqlite.Row) -> Stream:
 
 
 async def init_db() -> None:
-    """Create the streams table if it does not already exist."""
+    """Create all database tables if they do not already exist."""
     Path(settings.database_path).parent.mkdir(parents=True, exist_ok=True)
     async with aiosqlite.connect(settings.database_path) as db:
         await db.execute(
@@ -53,6 +53,17 @@ async def init_db() -> None:
               events_requested TEXT NOT NULL,
               status TEXT DEFAULT 'enabled',
               created_at INTEGER NOT NULL
+            )
+            """
+        )
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS apple_scim_tokens (
+              id            INTEGER PRIMARY KEY,
+              access_token  TEXT NOT NULL,
+              refresh_token TEXT,
+              expires_at    INTEGER NOT NULL,
+              updated_at    INTEGER NOT NULL
             )
             """
         )

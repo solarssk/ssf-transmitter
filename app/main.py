@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -6,10 +7,32 @@ from fastapi import FastAPI
 from app.config import configure_logging, settings
 from app.crypto import ensure_keys
 from app.database import init_db
-from app.routes import jwks, streams, webhook, wellknown
+from app.routes import apple_scim, jwks, streams, webhook, wellknown
 
 configure_logging()
 logger = logging.getLogger(__name__)
+
+
+async def _apple_scim_sync_loop() -> None:
+    """Background task: sync users from Authentik to Apple every APPLE_SCIM_SYNC_INTERVAL seconds."""
+    from app.scim.apple import sync_users
+    from app.scim.authentik import get_users
+    from app.scim.token import get_valid_access_token
+
+    logger.info("Apple SCIM: sync loop started interval=%ds", settings.apple_scim_sync_interval)
+    while True:
+        await asyncio.sleep(settings.apple_scim_sync_interval)
+        logger.info("Apple SCIM: starting scheduled sync")
+        try:
+            token = await get_valid_access_token()
+            if not token:
+                logger.warning("Apple SCIM: skipping sync — no valid token; visit /apple-scim/authorize")
+                continue
+            users = await get_users()
+            if users:
+                await sync_users(token, users)
+        except Exception:
+            logger.exception("Apple SCIM: unhandled error in sync loop")
 
 
 @asynccontextmanager
@@ -17,6 +40,16 @@ async def lifespan(app: FastAPI):
     logger.info("Starting SSF Transmitter config=%s", settings.safe_log_dict())
     ensure_keys()
     await init_db()
+
+    if settings.apple_scim_enabled:
+        logger.info("Apple SCIM sync enabled — background sync every %ds", settings.apple_scim_sync_interval)
+        asyncio.create_task(_apple_scim_sync_loop())
+    else:
+        logger.info(
+            "Apple SCIM sync disabled "
+            "(set APPLE_SCIM_CLIENT_ID, APPLE_SCIM_CLIENT_SECRET, AUTHENTIK_URL, AUTHENTIK_TOKEN to enable)"
+        )
+
     yield
 
 
@@ -25,3 +58,4 @@ app.include_router(wellknown.router)
 app.include_router(jwks.router)
 app.include_router(streams.router)
 app.include_router(webhook.router)
+app.include_router(apple_scim.router)
