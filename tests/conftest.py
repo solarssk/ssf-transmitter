@@ -33,8 +33,10 @@ def mock_dns_resolve(monkeypatch):
 
     Tests in test_url_validation.py override this with their own mocks to
     exercise specific rejection paths (private IPs, unresolvable hosts, etc.).
+
+    Patches both the url_validation module (used at stream create/patch time)
+    and the pusher module (used at delivery time for DNS rebinding protection).
     """
-    monkeypatch.setattr(
-        "app.security.url_validation._resolve_host",
-        lambda host: ["93.184.216.34"],  # example.com public IP
-    )
+    _public_ip = lambda host: ["93.184.216.34"]  # noqa: E731  # example.com
+    monkeypatch.setattr("app.security.url_validation._resolve_host", _public_ip)
+    monkeypatch.setattr("app.events.pusher._resolve_host", _public_ip)
