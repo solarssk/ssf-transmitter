@@ -98,6 +98,37 @@ On first startup the service generates an RS256 4096-bit private key and JWKS fi
 - The key is never regenerated automatically as long as both `private.pem` and `jwks.json` exist.
 - To rotate: stop the service, remove `/app/keys/`, restart. Receivers will need to re-fetch JWKS.
 
+## Security
+
+See [SECURITY.md](SECURITY.md) for the full threat model, trust boundaries, and vulnerability disclosure process.
+
+### Production deployment requirements
+
+| Requirement | Why |
+|---|---|
+| Run behind a TLS-terminating reverse proxy (nginx, Caddy) | All traffic must be HTTPS in production |
+| `SSF_MANAGEMENT_TOKEN` ≥ 32 random characters | Guards stream create/update/delete |
+| `SSF_WEBHOOK_SECRET` ≥ 32 random characters | Prevents spoofed Authentik events |
+| `/ssf/streams` reachable only by authorised receivers | Management API is authenticated but defence-in-depth |
+| `/webhook/authentik` reachable only from the Authentik container | Webhook is HMAC-protected but only Authentik should POST to it |
+| Mount `/app/keys` and `/app/data` to root-owned host paths | Signing key and receiver tokens must not be readable by other containers |
+
+### What this service does and does not do
+
+**Does:**
+- Sign and push Security Event Tokens (SETs) to registered receivers via HTTPS POST
+- Verify Authentik webhook signatures with HMAC-SHA256
+- Validate receiver endpoint URLs against SSRF (blocks RFC 1918, loopback, link-local, and unresolvable hostnames)
+- Re-validate receiver endpoint DNS before every push (DNS rebinding protection)
+- Mask email addresses in logs by default (`SSF_LOG_PII=false`)
+- Enforce strict Pydantic validation on all management API inputs
+
+**Does not:**
+- Encrypt receiver tokens at rest (stored in plaintext SQLite — protect the data volume)
+- Provide rate limiting (delegate to nginx/Caddy in front)
+- Rotate signing keys automatically
+- Support multiple simultaneous streams (single-stream design)
+
 ## API Reference
 
 See [docs/API.md](docs/API.md) for full endpoint documentation with request and response examples.
@@ -106,6 +137,8 @@ See [docs/API.md](docs/API.md) for full endpoint documentation with request and 
 
 The service logs to stdout/stderr only, so logs are visible in Portainer and `docker logs`.
 Secrets, bearer tokens, and full SET JWT payloads are not logged.
+Email addresses are replaced by a pseudonymous hash by default (`SSF_LOG_PII=false`);
+set `SSF_LOG_PII=true` only in controlled debug environments.
 
 ## Troubleshooting
 
