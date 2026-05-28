@@ -32,7 +32,7 @@ async def push_set(stream: Stream, event_uri: str, email: str) -> bool:
         headers["Authorization"] = f"Bearer {stream.endpoint_token}"
 
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=10.0, follow_redirects=False) as client:
             response = await client.post(stream.endpoint_url, content=token, headers=headers)
     except httpx.HTTPError:
         logger.exception(
@@ -86,7 +86,7 @@ async def push_verification_set(stream: "Stream") -> bool:
         headers["Authorization"] = f"Bearer {stream.endpoint_token}"
 
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=10.0, follow_redirects=False) as client:
             response = await client.post(stream.endpoint_url, content=token, headers=headers)
     except httpx.HTTPError:
         logger.exception(

@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from app.auth import require_management_auth
 from app.database import create_stream, delete_stream, delete_stream_by_id, get_first_stream, update_stream
 from app.events.pusher import push_verification_set
+from app.security.url_validation import validate_receiver_endpoint_url
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/ssf", dependencies=[Depends(require_management_auth)])
@@ -34,7 +35,12 @@ async def create_stream_endpoint(payload: dict[str, Any]) -> dict[str, Any]:
         sorted(payload.keys()),
         sorted(delivery.keys()),
     )
-    logger.debug("Stream create payload=%s", payload)
+    endpoint_url = delivery.get("endpoint_url")
+    if endpoint_url:
+        try:
+            validate_receiver_endpoint_url(endpoint_url)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=f"Invalid endpoint_url: {exc}") from exc
     try:
         stream = await create_stream(payload)
     except ValueError as exc:
@@ -80,6 +86,13 @@ async def get_stream_endpoint() -> dict[str, Any]:
 @router.patch("/streams")
 async def patch_stream_endpoint(payload: dict[str, Any]) -> dict[str, Any]:
     """Update the current SSF stream configuration."""
+    patch_delivery = payload.get("delivery") or {}
+    patch_endpoint_url = patch_delivery.get("endpoint_url")
+    if patch_endpoint_url:
+        try:
+            validate_receiver_endpoint_url(patch_endpoint_url)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=f"Invalid endpoint_url: {exc}") from exc
     try:
         stream = await update_stream(payload)
     except ValueError as exc:
