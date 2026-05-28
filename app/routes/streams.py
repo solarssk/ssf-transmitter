@@ -35,7 +35,7 @@ async def create_stream_endpoint(payload: dict[str, Any]) -> dict[str, Any]:
         sorted(payload.keys()),
         sorted(delivery.keys()),
     )
-    endpoint_url = delivery.get("endpoint_url")
+    endpoint_url = delivery.get("endpoint_url") or payload.get("endpoint_url")
     if endpoint_url:
         try:
             validate_receiver_endpoint_url(endpoint_url)
@@ -87,7 +87,7 @@ async def get_stream_endpoint() -> dict[str, Any]:
 async def patch_stream_endpoint(payload: dict[str, Any]) -> dict[str, Any]:
     """Update the current SSF stream configuration."""
     patch_delivery = payload.get("delivery") or {}
-    patch_endpoint_url = patch_delivery.get("endpoint_url")
+    patch_endpoint_url = patch_delivery.get("endpoint_url") or payload.get("endpoint_url")
     if patch_endpoint_url:
         try:
             validate_receiver_endpoint_url(patch_endpoint_url)
