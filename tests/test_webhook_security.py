@@ -17,7 +17,6 @@ import hmac
 import json
 import logging
 
-import pytest
 from fastapi.testclient import TestClient
 
 WEBHOOK_SECRET = b"test_secret_min_32_chars_1234567890"
@@ -115,7 +114,6 @@ def test_valid_hmac_accepted():
 
 def test_allow_unsigned_webhook_accepts_missing_sig(monkeypatch):
     """When SSF_ALLOW_UNSIGNED_WEBHOOK=true, unsigned requests are accepted."""
-    import os
 
     monkeypatch.setenv("SSF_ALLOW_UNSIGNED_WEBHOOK", "true")
 
@@ -153,19 +151,18 @@ def test_webhook_secret_not_in_logs(caplog):
     """The webhook secret must never appear in log output."""
     from app.main import app
 
-    with caplog.at_level(logging.DEBUG):
-        with TestClient(app) as client:
-            # Invalid signature path — triggers warning log
-            client.post(
-                WEBHOOK_URL,
-                content=SAMPLE_BODY,
-                headers={
-                    "Content-Type": "application/json",
-                    "X-Authentik-Signature": "sha256=invalid",
-                },
-            )
-            # Missing signature path
-            client.post(WEBHOOK_URL, content=SAMPLE_BODY, headers={"Content-Type": "application/json"})
+    with caplog.at_level(logging.DEBUG), TestClient(app) as client:
+        # Invalid signature path — triggers warning log
+        client.post(
+            WEBHOOK_URL,
+            content=SAMPLE_BODY,
+            headers={
+                "Content-Type": "application/json",
+                "X-Authentik-Signature": "sha256=invalid",
+            },
+        )
+        # Missing signature path
+        client.post(WEBHOOK_URL, content=SAMPLE_BODY, headers={"Content-Type": "application/json"})
 
     secret_str = WEBHOOK_SECRET.decode()
     assert secret_str not in caplog.text

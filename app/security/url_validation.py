@@ -124,11 +124,10 @@ def validate_receiver_endpoint_url(url: str, allowed_hosts: list[str] | None = N
             raise
 
     # --- allowlist check (if configured) ---
-    if allowed_hosts:
-        if host not in allowed_hosts:
-            raise ValueError(
-                f"endpoint_url host {host!r} is not in SSF_ALLOWED_RECEIVER_HOSTS allowlist"
-            )
+    if allowed_hosts and host not in allowed_hosts:
+        raise ValueError(
+            f"endpoint_url host {host!r} is not in SSF_ALLOWED_RECEIVER_HOSTS allowlist"
+        )
 
     # --- DNS resolution + IP block check ---
     resolved_ips = _resolve_host(host)

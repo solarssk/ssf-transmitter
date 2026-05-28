@@ -27,9 +27,8 @@ def _mock_resolve(public_ips: list[str] = None):
 
 
 def test_http_scheme_rejected():
-    with _mock_resolve():
-        with pytest.raises(ValueError, match="scheme must be 'https'"):
-            validate_receiver_endpoint_url("http://receiver.example.com/events")
+    with _mock_resolve(), pytest.raises(ValueError, match="scheme must be 'https'"):
+        validate_receiver_endpoint_url("http://receiver.example.com/events")
 
 
 def test_file_scheme_rejected():
@@ -48,15 +47,13 @@ def test_gopher_scheme_rejected():
 
 
 def test_credentials_in_url_rejected():
-    with _mock_resolve():
-        with pytest.raises(ValueError, match="credentials"):
-            validate_receiver_endpoint_url("https://user:pass@example.com/events")
+    with _mock_resolve(), pytest.raises(ValueError, match="credentials"):
+        validate_receiver_endpoint_url("https://user:pass@example.com/events")
 
 
 def test_fragment_rejected():
-    with _mock_resolve():
-        with pytest.raises(ValueError, match="fragment"):
-            validate_receiver_endpoint_url("https://receiver.example.com/events#section")
+    with _mock_resolve(), pytest.raises(ValueError, match="fragment"):
+        validate_receiver_endpoint_url("https://receiver.example.com/events#section")
 
 
 def test_userinfo_host_confusion_rejected():
@@ -112,22 +109,22 @@ def test_link_local_metadata_ip_rejected():
 
 def test_hostname_resolving_to_private_ip_rejected():
     """A hostname that resolves to a private IP must be rejected."""
-    with patch("app.security.url_validation._resolve_host", return_value=["192.168.0.1"]):
-        with pytest.raises(ValueError, match="blocked IP"):
-            validate_receiver_endpoint_url("https://internal.example.com/events")
+    mock = patch("app.security.url_validation._resolve_host", return_value=["192.168.0.1"])
+    with mock, pytest.raises(ValueError, match="blocked IP"):
+        validate_receiver_endpoint_url("https://internal.example.com/events")
 
 
 def test_hostname_resolving_to_loopback_rejected():
-    with patch("app.security.url_validation._resolve_host", return_value=["127.0.0.1"]):
-        with pytest.raises(ValueError, match="blocked IP"):
-            validate_receiver_endpoint_url("https://local.example.com/events")
+    mock = patch("app.security.url_validation._resolve_host", return_value=["127.0.0.1"])
+    with mock, pytest.raises(ValueError, match="blocked IP"):
+        validate_receiver_endpoint_url("https://local.example.com/events")
 
 
 def test_unresolvable_host_rejected():
     """A host that cannot be resolved must be rejected."""
-    with patch("app.security.url_validation._resolve_host", return_value=[]):
-        with pytest.raises(ValueError, match="did not resolve"):
-            validate_receiver_endpoint_url("https://nxdomain.example.invalid/events")
+    mock = patch("app.security.url_validation._resolve_host", return_value=[])
+    with mock, pytest.raises(ValueError, match="did not resolve"):
+        validate_receiver_endpoint_url("https://nxdomain.example.invalid/events")
 
 
 # ---------------------------------------------------------------------------
@@ -136,12 +133,11 @@ def test_unresolvable_host_rejected():
 
 
 def test_host_not_in_allowlist_rejected():
-    with _mock_resolve():
-        with pytest.raises(ValueError, match="allowlist"):
-            validate_receiver_endpoint_url(
-                "https://other.example.com/events",
-                allowed_hosts=["approved.example.com"],
-            )
+    with _mock_resolve(), pytest.raises(ValueError, match="allowlist"):
+        validate_receiver_endpoint_url(
+            "https://other.example.com/events",
+            allowed_hosts=["approved.example.com"],
+        )
 
 
 def test_host_in_allowlist_accepted():
