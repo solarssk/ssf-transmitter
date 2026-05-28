@@ -11,7 +11,7 @@ async def ssf_configuration() -> dict:
         "issuer": settings.ssf_issuer,
         "jwks_uri": settings.public_url("/jwks.json"),
         "delivery_methods_supported": [
-            "https://schemas.openid.net/secevent/risc/delivery-method/push",
+            "urn:ietf:rfc:8935",
         ],
         "configuration_endpoint": settings.public_url("/ssf/streams"),
         "add_subject_endpoint": settings.public_url("/ssf/streams/subjects:add"),
@@ -19,5 +19,5 @@ async def ssf_configuration() -> dict:
         "status_endpoint": settings.public_url("/ssf/status"),
         "supported_scopes": ["openid"],
         "critical_subject_members": [],
-        "spec_version": "1_0-ID2",
+        "spec_version": "1_0",
     }
