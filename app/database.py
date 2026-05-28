@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 import uuid
 from dataclasses import dataclass
@@ -57,6 +58,21 @@ async def init_db() -> None:
         settings.database_path,
         str(db_path.parent),
     )
+    # Pre-create the DB file with 0600 permissions before SQLite opens it.
+    # O_CREAT | O_WRONLY | O_EXCL is atomic: it either creates the file
+    # exclusively with the given mode, or raises FileExistsError if it
+    # already exists — eliminating the TOCTOU race that a preceding
+    # exists() check would introduce.
+    try:
+        fd = os.open(str(db_path), os.O_CREAT | os.O_WRONLY | os.O_EXCL, 0o600)
+        os.close(fd)
+    except FileExistsError:
+        # File already exists (restart) — enforce permissions in case they
+        # drifted due to a previous deployment or volume remount.
+        try:
+            db_path.chmod(0o600)
+        except OSError as exc:
+            logger.warning("Could not set 0600 permissions on DB file %s: %s", settings.database_path, exc)
     async with aiosqlite.connect(settings.database_path) as db:
         await db.execute(
             """
@@ -83,11 +99,6 @@ async def init_db() -> None:
             """
         )
         await db.commit()
-    # Restrict DB file permissions so only the owning process can read it.
-    try:
-        db_path.chmod(0o600)
-    except OSError as exc:
-        logger.warning("Could not set 0600 permissions on DB file %s: %s", settings.database_path, exc)
     logger.info("Initialized SQLite database at %s", settings.database_path)
 
 

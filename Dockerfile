@@ -18,4 +18,4 @@ RUN mkdir -p /app/keys /app/data && \
 
 USER appuser
 
-CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${SSF_CONTAINER_PORT:-8000}"]
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${SSF_CONTAINER_PORT:-8000} --proxy-headers --forwarded-allow-ips='*'"]
