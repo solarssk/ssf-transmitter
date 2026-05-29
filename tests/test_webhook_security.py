@@ -127,10 +127,6 @@ def test_allow_unsigned_webhook_accepts_missing_sig(monkeypatch):
     # unsigned — but allowed; may return 200 or ignored depending on event mapping
     assert resp.status_code in (200, 422)
 
-    # Restore
-    importlib.reload(cfg_module)
-    importlib.reload(wh_module)
-
 
 # ---------------------------------------------------------------------------
 # Log hygiene
