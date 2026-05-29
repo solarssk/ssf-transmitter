@@ -12,6 +12,10 @@ os.environ.setdefault("SSF_ROOT_PATH", "/shared-signals")
 os.environ.setdefault("SSF_CONTAINER_PORT", "8000")
 os.environ.setdefault("SSF_WEBHOOK_SECRET", "test_secret_min_32_chars_1234567890")
 os.environ.setdefault("SSF_MANAGEMENT_TOKEN", "test_management_token_min_32_chars_1234")
+os.environ.setdefault("SSF_WEBHOOK_TOKEN", "test_webhook_token_min_32_chars_1234567")
+# Default test mode is hmac so existing HMAC-based tests keep working unchanged.
+# Bearer/unsigned tests override settings via dataclasses.replace() + monkeypatch.
+os.environ.setdefault("SSF_WEBHOOK_AUTH_MODE", "hmac")
 os.environ.setdefault("LOG_LEVEL", "INFO")
 os.environ.setdefault("SSF_DATABASE_PATH", str(TESTDATA / "ssf.db"))
 os.environ.setdefault("SSF_KEYS_DIR", str(TESTDATA / "keys"))

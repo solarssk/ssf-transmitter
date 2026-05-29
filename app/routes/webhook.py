@@ -20,8 +20,21 @@ router = APIRouter()
 _MAX_BODY_BYTES = 64 * 1024  # 64 KiB
 
 
-def _verify_signature(raw_body: bytes, signature: str | None) -> bool:
-    """Return True iff the X-Authentik-Signature header is a valid HMAC-SHA256 of *raw_body*."""
+def _verify_bearer_token(authorization: str | None) -> bool:
+    """Return True iff *authorization* is a valid ``Bearer <SSF_WEBHOOK_TOKEN>`` header."""
+    if not authorization:
+        return False
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() != "bearer" or not token:
+        return False
+    expected = settings.ssf_webhook_token
+    if not expected:
+        return False
+    return hmac.compare_digest(token.encode("utf-8"), expected.encode("utf-8"))
+
+
+def _verify_hmac_signature(raw_body: bytes, signature: str | None) -> bool:
+    """Return True iff *signature* is a valid HMAC-SHA256 of *raw_body*."""
     if not signature:
         return False
     if not signature.startswith("sha256="):
@@ -46,7 +59,7 @@ def _pii_key() -> str:
 
 @router.post("/webhook/authentik")
 async def authentik_webhook(request: Request) -> dict:
-    """Receive an Authentik webhook event, verify its HMAC signature, and push
+    """Receive an Authentik webhook event, verify authentication, and push
     matching Security Event Tokens to all enabled SSF streams.
 
     Returns a JSON object with ``status`` and optional ``delivered``/``failed``
@@ -54,8 +67,7 @@ async def authentik_webhook(request: Request) -> dict:
     ``{"status": "ignored", "reason": "..."}``.
     """
     # ------------------------------------------------------------------ #
-    # 1. Body size guard — check Content-Length header first for a fast   #
-    #    rejection without reading the body, then cap streaming reads.     #
+    # 1. Body size guard                                                   #
     # ------------------------------------------------------------------ #
     content_length = request.headers.get("Content-Length")
     if content_length is not None:
@@ -68,9 +80,8 @@ async def authentik_webhook(request: Request) -> dict:
                 )
                 raise HTTPException(status_code=413, detail="Request body too large")
         except ValueError:
-            pass  # malformed Content-Length — proceed; streaming check will catch oversized bodies
+            pass  # malformed Content-Length — streaming check will catch oversized bodies
 
-    # Stream-accumulate so we never materialise more than _MAX_BODY_BYTES in RAM.
     chunks: list[bytes] = []
     size = 0
     async for chunk in request.stream():
@@ -86,30 +97,34 @@ async def authentik_webhook(request: Request) -> dict:
     raw_body = b"".join(chunks)
 
     # ------------------------------------------------------------------ #
-    # 2. Signature verification.                                           #
+    # 2. Authentication                                                    #
     # ------------------------------------------------------------------ #
-    signature = request.headers.get("X-Authentik-Signature")
+    mode = settings.ssf_webhook_auth_mode
 
-    if signature:
-        # Signature present — verify it; reject if invalid
-        if not _verify_signature(raw_body, signature):
-            logger.warning("Rejected Authentik webhook due to invalid signature")
+    if mode == "bearer":
+        authorization = request.headers.get("Authorization")
+        if not _verify_bearer_token(authorization):
+            logger.warning("Rejected Authentik webhook: invalid or missing bearer token")
             raise HTTPException(status_code=401, detail="Unauthorized")
-    else:
-        # No signature — fail-closed by default; opt out via SSF_ALLOW_UNSIGNED_WEBHOOK=true
-        if not settings.allow_unsigned_webhook:
-            logger.warning(
-                "Rejected Authentik webhook: missing X-Authentik-Signature. "
-                "Set SSF_ALLOW_UNSIGNED_WEBHOOK=true to accept unsigned requests (unsafe)."
-            )
+
+    elif mode == "hmac":
+        signature = request.headers.get("X-Authentik-Signature")
+        if not _verify_hmac_signature(raw_body, signature):
+            logger.warning("Rejected Authentik webhook: invalid or missing HMAC signature")
             raise HTTPException(status_code=401, detail="Unauthorized")
+
+    elif mode == "unsigned":
         logger.warning(
-            "Authentik webhook accepted without HMAC signature "
-            "(SSF_ALLOW_UNSIGNED_WEBHOOK=true — ensure endpoint is internal-network only)"
+            "Authentik webhook accepted without authentication "
+            "(SSF_WEBHOOK_AUTH_MODE=unsigned — development/lab only, do not use in production)"
         )
 
+    else:
+        logger.error("Invalid SSF_WEBHOOK_AUTH_MODE=%r — rejecting request", mode)
+        raise HTTPException(status_code=500, detail="Invalid webhook auth configuration")
+
     # ------------------------------------------------------------------ #
-    # 3. JSON parsing — return 400 on malformed or non-object JSON.        #
+    # 3. JSON parsing                                                      #
     # ------------------------------------------------------------------ #
     try:
         payload = json.loads(raw_body)
@@ -121,7 +136,7 @@ async def authentik_webhook(request: Request) -> dict:
         raise HTTPException(status_code=400, detail="Invalid JSON body")
 
     # ------------------------------------------------------------------ #
-    # 4. Event processing.                                                 #
+    # 4. Event processing                                                  #
     # ------------------------------------------------------------------ #
     action = extract_action(payload)
     email = extract_email(payload)
