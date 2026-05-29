@@ -1,3 +1,5 @@
+import hashlib
+
 import pytest
 
 from app.database import Stream
@@ -8,6 +10,7 @@ class FakeResponse:
     def __init__(self, status_code: int, text: str = ""):
         self.status_code = status_code
         self.text = text
+        self.content = text.encode()
 
 
 class FakeAsyncClient:
@@ -64,14 +67,90 @@ async def test_push_set_posts_signed_set_as_plain_secevent_jwt(monkeypatch, stre
             {
                 "Authorization": "Bearer receiver-secret-token",
                 "Content-Type": "application/secevent+jwt",
+                "Accept": "application/json",
             },
         )
     ]
 
 
 @pytest.mark.anyio
+async def test_push_set_sends_accept_application_json(monkeypatch, stream):
+    FakeAsyncClient.requests = []
+    FakeAsyncClient.status_code = 202
+    monkeypatch.setattr(pusher, "sign_set", lambda event_uri, audience, email: "signed.jwt")
+    monkeypatch.setattr(pusher.httpx, "AsyncClient", FakeAsyncClient)
+
+    await pusher.push_set(
+        stream,
+        "https://schemas.openid.net/secevent/caep/event-type/session-revoked",
+        "user@example.com",
+    )
+
+    _, _, sent_headers = FakeAsyncClient.requests[0]
+    assert sent_headers["Accept"] == "application/json"
+
+
+@pytest.mark.anyio
+async def test_push_verification_set_sends_accept_application_json(monkeypatch, stream):
+    FakeAsyncClient.requests = []
+    FakeAsyncClient.status_code = 202
+    monkeypatch.setattr(pusher, "sign_verification_set", lambda audience, stream_id: "signed.jwt")
+    monkeypatch.setattr(pusher.httpx, "AsyncClient", FakeAsyncClient)
+
+    await pusher.push_verification_set(stream)
+
+    _, _, sent_headers = FakeAsyncClient.requests[0]
+    assert sent_headers["Accept"] == "application/json"
+
+
+@pytest.mark.anyio
+async def test_receiver_error_body_not_logged_at_warn(monkeypatch, stream, caplog):
+    """Raw receiver error body must not appear in WARNING logs."""
+    FakeAsyncClient.requests = []
+    FakeAsyncClient.status_code = 400
+    FakeAsyncClient.response_text = "Invalid security event token — secret diagnostic info"
+    monkeypatch.setattr(pusher, "sign_set", lambda event_uri, audience, email: "signed.jwt")
+    monkeypatch.setattr(pusher.httpx, "AsyncClient", FakeAsyncClient)
+
+    import logging
+    with caplog.at_level(logging.WARNING, logger="app.events.pusher"):
+        delivered = await pusher.push_set(
+            stream,
+            "https://schemas.openid.net/secevent/caep/event-type/session-revoked",
+            "user@example.com",
+        )
+
+    assert delivered is False
+    warn_records = [r for r in caplog.records if r.levelno == logging.WARNING]
+    warn_text = " ".join(r.getMessage() for r in warn_records)
+    assert "Invalid security event token" not in warn_text
+    assert "secret diagnostic info" not in warn_text
+
+
+@pytest.mark.anyio
+async def test_receiver_error_body_hash_logged_at_warn(monkeypatch, stream, caplog):
+    """WARNING log must include a body hash for correlation."""
+    FakeAsyncClient.requests = []
+    FakeAsyncClient.status_code = 400
+    FakeAsyncClient.response_text = "error body"
+    monkeypatch.setattr(pusher, "sign_set", lambda event_uri, audience, email: "signed.jwt")
+    monkeypatch.setattr(pusher.httpx, "AsyncClient", FakeAsyncClient)
+
+    import logging
+    with caplog.at_level(logging.WARNING, logger="app.events.pusher"):
+        await pusher.push_set(
+            stream,
+            "https://schemas.openid.net/secevent/caep/event-type/session-revoked",
+            "user@example.com",
+        )
+
+    expected_hash = hashlib.sha256(b"error body").hexdigest()[:8]
+    assert expected_hash in caplog.text
+
+
+@pytest.mark.anyio
 async def test_push_set_reports_receiver_error(monkeypatch, stream, caplog):
-    """Failed push logs the response body so errors are diagnosable."""
+    """Failed push returns False and logs status code."""
     FakeAsyncClient.requests = []
     FakeAsyncClient.status_code = 500
     FakeAsyncClient.response_text = "Internal Server Error"
@@ -85,7 +164,7 @@ async def test_push_set_reports_receiver_error(monkeypatch, stream, caplog):
     )
 
     assert delivered is False
-    assert "Internal Server Error" in caplog.text
+    assert "500" in caplog.text
 
 
 @pytest.mark.anyio
