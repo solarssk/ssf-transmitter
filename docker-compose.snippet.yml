@@ -16,6 +16,11 @@ ssf-transmitter:
   volumes:
     - ./ssf-keys:/app/keys
     - ./ssf-data:/app/data
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "5"
   networks:
     - authentik_network
 
