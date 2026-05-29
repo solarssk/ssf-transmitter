@@ -1,3 +1,4 @@
+import hashlib
 import logging
 from urllib.parse import urlparse
 
@@ -63,7 +64,10 @@ async def push_set(stream: Stream, event_uri: str, email: str) -> bool:
         except Exception:
             logger.debug("SET claims could not be decoded event_uri=%s", event_uri)
 
-    headers: dict[str, str] = {"Content-Type": "application/secevent+jwt"}
+    headers: dict[str, str] = {
+        "Content-Type": "application/secevent+jwt",
+        "Accept": "application/json",
+    }
     if stream.endpoint_token:
         headers["Authorization"] = f"Bearer {stream.endpoint_token}"
 
@@ -80,14 +84,17 @@ async def push_set(stream: Stream, event_uri: str, email: str) -> bool:
         return False
 
     if not (200 <= response.status_code < 300):
+        body_hash = hashlib.sha256(response.content).hexdigest()[:8]
         logger.warning(
-            "Receiver returned error for SET event_uri=%s aud=%s endpoint_host=%s status_code=%s body=%r",
+            "Receiver returned error for SET event_uri=%s aud=%s endpoint_host=%s status_code=%s body_hash=%s",
             event_uri,
             stream.aud,
             _safe_host(stream.endpoint_url),
             response.status_code,
-            response.text[:500],
+            body_hash,
         )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Receiver error body (capped): %s", response.text[:200])
         return False
 
     logger.info(
@@ -115,7 +122,10 @@ async def push_verification_set(stream: "Stream") -> bool:
     if not _revalidate_endpoint(stream.endpoint_url):
         return False
 
-    headers: dict[str, str] = {"Content-Type": "application/secevent+jwt"}
+    headers: dict[str, str] = {
+        "Content-Type": "application/secevent+jwt",
+        "Accept": "application/json",
+    }
     if stream.endpoint_token:
         headers["Authorization"] = f"Bearer {stream.endpoint_token}"
 
@@ -131,13 +141,16 @@ async def push_verification_set(stream: "Stream") -> bool:
         return False
 
     if not (200 <= response.status_code < 300):
+        body_hash = hashlib.sha256(response.content).hexdigest()[:8]
         logger.warning(
-            "Receiver rejected verification SET aud=%s endpoint_host=%s status_code=%s body=%r",
+            "Receiver rejected verification SET aud=%s endpoint_host=%s status_code=%s body_hash=%s",
             stream.aud,
             _safe_host(stream.endpoint_url),
             response.status_code,
-            response.text[:500],
+            body_hash,
         )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Receiver error body (capped): %s", response.text[:200])
         return False
 
     logger.info(
