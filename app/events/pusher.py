@@ -42,11 +42,15 @@ def _revalidate_endpoint(url: str) -> bool:
     return True
 
 
-async def push_set(stream: Stream, event: MappedEvent, email: str) -> bool:
-    """Sign and push a Security Event Token to the stream's endpoint; returns True on success."""
+async def push_set(stream: Stream, event: MappedEvent, email: str) -> bool | None:
+    """Sign and push a Security Event Token; returns True on success, False on failure, None if skipped.
+
+    None is returned when the event is intentionally skipped (e.g. not in
+    stream.events_requested). Callers must not count None as a delivery failure.
+    """
     if stream.status != "enabled":
         logger.warning("Skipping disabled SSF stream stream_id=%s status=%s", stream.stream_id, stream.status)
-        return False
+        return None
 
     if stream.events_requested and event.uri not in stream.events_requested:
         logger.info(
@@ -54,7 +58,7 @@ async def push_set(stream: Stream, event: MappedEvent, email: str) -> bool:
             stream.stream_id,
             event.uri,
         )
-        return False
+        return None
 
     if not _revalidate_endpoint(stream.endpoint_url):
         return False

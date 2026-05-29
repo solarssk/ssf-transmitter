@@ -167,14 +167,14 @@ async def test_push_set_skips_disabled_stream(stream, event):
         created_at=stream.created_at,
     )
 
-    delivered = await pusher.push_set(disabled_stream, event, "user@example.com")
+    result = await pusher.push_set(disabled_stream, event, "user@example.com")
 
-    assert delivered is False
+    assert result is None
 
 
 @pytest.mark.anyio
 async def test_push_set_skips_event_not_in_events_requested(monkeypatch, stream):
-    """Events not listed in stream.events_requested must be silently skipped."""
+    """Events not listed in stream.events_requested return None (skipped), not False (failure)."""
     stream_with_filter = Stream(
         stream_id=stream.stream_id,
         aud=stream.aud,
@@ -186,9 +186,9 @@ async def test_push_set_skips_event_not_in_events_requested(monkeypatch, stream)
     )
     other_event = MappedEvent(uri=SESSION_REVOKED, payload={})
 
-    delivered = await pusher.push_set(stream_with_filter, other_event, "user@example.com")
+    result = await pusher.push_set(stream_with_filter, other_event, "user@example.com")
 
-    assert delivered is False
+    assert result is None
 
 
 @pytest.mark.anyio

@@ -1,5 +1,6 @@
 from app.events.mapper import (
     ACCOUNT_DISABLED,
+    ACCOUNT_ENABLED,
     ACCOUNT_PURGED,
     CREDENTIAL_CHANGE,
     SESSION_REVOKED,
@@ -50,6 +51,27 @@ def test_maps_user_delete_to_account_purged():
 
 def test_ignores_unmapped_event():
     assert map_authentik_event({"body": {"action": "authentik.core.auth.login_failed"}}) == []
+
+
+def test_is_active_in_context_but_not_in_changed_fields_does_not_emit_account_event():
+    """is_active present in context does not trigger account-disabled/enabled unless
+    is_active is also listed in changed_fields."""
+    events = map_authentik_event(
+        {
+            "body": {
+                "action": "authentik.core.user.write",
+                "context": {
+                    "changed_fields": ["password"],
+                    "is_active": False,  # present in context, but not changed
+                },
+            }
+        }
+    )
+
+    uris = [e.uri for e in events]
+    assert CREDENTIAL_CHANGE in uris
+    assert ACCOUNT_DISABLED not in uris
+    assert ACCOUNT_ENABLED not in uris
 
 
 def test_multiple_events_from_one_webhook_share_txn():

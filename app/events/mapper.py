@@ -67,10 +67,11 @@ def map_authentik_event(payload: dict[str, Any]) -> list[MappedEvent]:
             txn=txn,
         ))
 
-    if context.get("is_active") is False:
-        events.append(MappedEvent(uri=ACCOUNT_DISABLED, payload={}, txn=txn))
-    elif context.get("is_active") is True:
-        events.append(MappedEvent(uri=ACCOUNT_ENABLED, payload={}, txn=txn))
+    if "is_active" in changed_fields:
+        if context.get("is_active") is False:
+            events.append(MappedEvent(uri=ACCOUNT_DISABLED, payload={}, txn=txn))
+        elif context.get("is_active") is True:
+            events.append(MappedEvent(uri=ACCOUNT_ENABLED, payload={}, txn=txn))
 
     if not events:
         logger.warning("Authentik user.write event did not map to SSF event changed_fields=%s", changed_fields)
