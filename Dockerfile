@@ -1,9 +1,17 @@
-FROM python:3.12-slim
+FROM python:3.12-slim-bookworm
 
 ARG APP_VERSION=dev
 ENV APP_VERSION=${APP_VERSION}
 
 WORKDIR /app
+
+# Apply available security patches from Debian 12 (Bookworm) repos at build time.
+# This catches CVEs that landed in the repo after the base image was published.
+# Kept as a separate layer so Docker cache invalidates only when patches change.
+RUN apt-get update && \
+    apt-get upgrade -y --no-install-recommends && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
 # Create non-root user before installing deps
 RUN groupadd --system --gid 10001 appuser && \
