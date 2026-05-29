@@ -15,7 +15,7 @@ class _HealthcheckFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         msg = record.getMessage()
         if "127.0.0.1" in msg and "/jwks.json" in msg:
-            _healthcheck_logger.info("Docker healthcheck OK")
+            _healthcheck_logger.debug("Docker healthcheck OK")
             return False
         return True
 
@@ -120,6 +120,9 @@ class Settings:
     # Set true to suppress the startup warning when SSF_ISSUER differs from SSF_BASE_URL.
     # Only needed during migration from older deployments where these values diverge.
     ssf_allow_custom_issuer: bool = False
+    # Set SSF_LOG_COLOR=true to enable ANSI color output — Portainer renders ANSI codes.
+    # Requires the optional `colorlog` package; falls back to plain text if not installed.
+    ssf_log_color: bool = False
 
     @property
     def allow_unsigned_webhook(self) -> bool:
@@ -176,6 +179,7 @@ class Settings:
             apple_scim_group_id=os.getenv("APPLE_SCIM_GROUP_ID") or None,
             apple_scim_sync_interval=_parse_sync_interval(os.getenv("APPLE_SCIM_SYNC_INTERVAL", "3600")),
             ssf_allow_custom_issuer=os.getenv("SSF_ALLOW_CUSTOM_ISSUER", "false").lower() == "true",
+            ssf_log_color=os.getenv("SSF_LOG_COLOR", "false").lower() == "true",
         )
 
     def public_url(self, path: str) -> str:
@@ -212,12 +216,32 @@ def configure_logging() -> None:
     - Unifies log format across uvicorn and application loggers so all lines
       have the same timestamp format in Portainer.
     - Caps noisy third-party loggers at WARNING (aiosqlite, httpx, httpcore).
+    - When SSF_LOG_COLOR=true, uses colorlog for ANSI-coloured output (Portainer
+      renders ANSI codes). Falls back to plain text if colorlog is not installed.
     """
-    fmt = "%(asctime)s %(levelname)s [%(name)s] %(message)s"
-    logging.basicConfig(
-        level=getattr(logging, settings.log_level, logging.INFO),
-        format=fmt,
-    )
+    level = getattr(logging, settings.log_level, logging.INFO)
+    plain_fmt = "%(asctime)s %(levelname)s [%(name)s] %(message)s"
+
+    formatter: logging.Formatter = logging.Formatter(plain_fmt)
+    if settings.ssf_log_color:
+        try:
+            import colorlog  # optional dependency
+            formatter = colorlog.ColoredFormatter(
+                "%(log_color)s%(asctime)s %(levelname)s%(reset)s [%(name)s] %(message)s",
+                log_colors={
+                    "DEBUG": "cyan",
+                    "INFO": "green",
+                    "WARNING": "yellow",
+                    "ERROR": "red",
+                    "CRITICAL": "bold_red",
+                },
+            )
+        except ImportError:
+            pass  # colorlog not installed — plain text fallback already set
+
+    logging.basicConfig(level=level, format=plain_fmt)
+    for handler in logging.root.handlers:
+        handler.setFormatter(formatter)
     # Align uvicorn's own loggers to the same format so all lines look the same
     # in Portainer (uvicorn defaults to a different format without timestamps).
     for uvicorn_logger_name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
