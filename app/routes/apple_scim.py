@@ -23,7 +23,6 @@ from __future__ import annotations
 import logging
 import secrets
 import time
-from typing import Optional
 from urllib.parse import urlencode
 
 import httpx

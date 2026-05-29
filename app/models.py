@@ -6,7 +6,6 @@ Extra fields are forbidden on all models to prevent parameter smuggling.
 from __future__ import annotations
 
 from enum import Enum
-from typing import Optional, Union
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
@@ -90,13 +89,13 @@ class DeliveryConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     endpoint_url: str
-    method: Optional[str] = None
-    endpoint_url_token: Optional[str] = None
-    authorization_header: Optional[str] = None
+    method: str | None = None
+    endpoint_url_token: str | None = None
+    authorization_header: str | None = None
 
     @field_validator("method")
     @classmethod
-    def _validate_method(cls, v: Optional[str]) -> Optional[str]:
+    def _validate_method(cls, v: str | None) -> str | None:
         if v is not None and v not in SUPPORTED_DELIVERY_METHODS:
             raise ValueError(
                 f"Unsupported delivery method: {v!r}. "
@@ -115,7 +114,7 @@ class StreamCreateRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    aud: Union[str, list[str]]
+    aud: str | list[str]
     delivery: DeliveryConfig
     events_requested: list[str] = []
     status: StreamStatus = StreamStatus.enabled
@@ -136,17 +135,17 @@ class StreamPatchRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    status: Optional[StreamStatus] = None
-    events_requested: Optional[list[str]] = None
-    delivery: Optional[DeliveryConfig] = None
-    aud: Optional[Union[str, list[str]]] = None
+    status: StreamStatus | None = None
+    events_requested: list[str] | None = None
+    delivery: DeliveryConfig | None = None
+    aud: str | list[str] | None = None
 
     @field_validator("aud", mode="before")
     @classmethod
-    def _normalize_aud(cls, v: object) -> Optional[str]:
+    def _normalize_aud(cls, v: object) -> str | None:
         return None if v is None else _coerce_aud(v)
 
     @field_validator("events_requested")
     @classmethod
-    def _validate_events(cls, v: Optional[list[str]]) -> Optional[list[str]]:
+    def _validate_events(cls, v: list[str] | None) -> list[str] | None:
         return None if v is None else _validate_event_uris(v)
