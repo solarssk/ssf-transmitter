@@ -193,7 +193,11 @@ Go to `https://github.com/users/<owner>/packages/container/ssf-transmitter/setti
 or run `docker login ghcr.io` on the host before pulling.
 
 **Portainer deploy fails with status 500**
-Usually caused by a missing or misnamed environment variable. Check that all required variables (`SSF_ISSUER`, `SSF_BASE_URL`, `SSF_MANAGEMENT_TOKEN`, `SSF_WEBHOOK_TOKEN`) are present in `stack.env`. The `:?` syntax in the compose file causes a hard failure if a variable is unset.
+Usually caused by a missing or misnamed environment variable. The following are always required: `SSF_ISSUER`, `SSF_BASE_URL`, `SSF_MANAGEMENT_TOKEN`. Webhook variables depend on `SSF_WEBHOOK_AUTH_MODE`:
+- `bearer` (default) → `SSF_WEBHOOK_TOKEN` required
+- `hmac` → `SSF_WEBHOOK_SECRET` required
+
+The `:?` syntax in the compose file causes a hard failure for any unset required variable.
 
 **Container exits immediately on startup**
 Run `docker logs authentik-ssf` to see the error. Missing required env vars are reported as:
