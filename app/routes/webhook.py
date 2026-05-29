@@ -168,8 +168,8 @@ async def authentik_webhook(request: Request) -> dict:
     delivered = 0
     failed = 0
     for stream in enabled_streams:
-        for event_uri in events:
-            if await push_set(stream, event_uri, email):
+        for event in events:
+            if await push_set(stream, event, email):
                 delivered += 1
             else:
                 failed += 1

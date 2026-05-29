@@ -4,6 +4,9 @@ import pytest
 
 from app.database import Stream
 from app.events import pusher
+from app.events.mapper import MappedEvent
+
+SESSION_REVOKED = "https://schemas.openid.net/secevent/caep/event-type/session-revoked"
 
 
 class FakeResponse:
@@ -46,18 +49,19 @@ def stream():
     )
 
 
+@pytest.fixture()
+def event():
+    return MappedEvent(uri=SESSION_REVOKED, payload={}, txn=None)
+
+
 @pytest.mark.anyio
-async def test_push_set_posts_signed_set_as_plain_secevent_jwt(monkeypatch, stream):
+async def test_push_set_posts_signed_set_as_plain_secevent_jwt(monkeypatch, stream, event):
     FakeAsyncClient.requests = []
     FakeAsyncClient.status_code = 202
-    monkeypatch.setattr(pusher, "sign_set", lambda event_uri, audience, email: "signed.jwt")
+    monkeypatch.setattr(pusher, "sign_set", lambda *a, **kw: "signed.jwt")
     monkeypatch.setattr(pusher.httpx, "AsyncClient", FakeAsyncClient)
 
-    delivered = await pusher.push_set(
-        stream,
-        "https://schemas.openid.net/secevent/caep/event-type/session-revoked",
-        "user@example.com",
-    )
+    delivered = await pusher.push_set(stream, event, "user@example.com")
 
     assert delivered is True
     assert FakeAsyncClient.requests == [
@@ -74,17 +78,13 @@ async def test_push_set_posts_signed_set_as_plain_secevent_jwt(monkeypatch, stre
 
 
 @pytest.mark.anyio
-async def test_push_set_sends_accept_application_json(monkeypatch, stream):
+async def test_push_set_sends_accept_application_json(monkeypatch, stream, event):
     FakeAsyncClient.requests = []
     FakeAsyncClient.status_code = 202
-    monkeypatch.setattr(pusher, "sign_set", lambda event_uri, audience, email: "signed.jwt")
+    monkeypatch.setattr(pusher, "sign_set", lambda *a, **kw: "signed.jwt")
     monkeypatch.setattr(pusher.httpx, "AsyncClient", FakeAsyncClient)
 
-    await pusher.push_set(
-        stream,
-        "https://schemas.openid.net/secevent/caep/event-type/session-revoked",
-        "user@example.com",
-    )
+    await pusher.push_set(stream, event, "user@example.com")
 
     _, _, sent_headers = FakeAsyncClient.requests[0]
     assert sent_headers["Accept"] == "application/json"
@@ -104,21 +104,17 @@ async def test_push_verification_set_sends_accept_application_json(monkeypatch, 
 
 
 @pytest.mark.anyio
-async def test_receiver_error_body_not_logged_at_warn(monkeypatch, stream, caplog):
+async def test_receiver_error_body_not_logged_at_warn(monkeypatch, stream, event, caplog):
     """Raw receiver error body must not appear in WARNING logs."""
     FakeAsyncClient.requests = []
     FakeAsyncClient.status_code = 400
     FakeAsyncClient.response_text = "Invalid security event token — secret diagnostic info"
-    monkeypatch.setattr(pusher, "sign_set", lambda event_uri, audience, email: "signed.jwt")
+    monkeypatch.setattr(pusher, "sign_set", lambda *a, **kw: "signed.jwt")
     monkeypatch.setattr(pusher.httpx, "AsyncClient", FakeAsyncClient)
 
     import logging
     with caplog.at_level(logging.WARNING, logger="app.events.pusher"):
-        delivered = await pusher.push_set(
-            stream,
-            "https://schemas.openid.net/secevent/caep/event-type/session-revoked",
-            "user@example.com",
-        )
+        delivered = await pusher.push_set(stream, event, "user@example.com")
 
     assert delivered is False
     warn_records = [r for r in caplog.records if r.levelno == logging.WARNING]
@@ -128,47 +124,39 @@ async def test_receiver_error_body_not_logged_at_warn(monkeypatch, stream, caplo
 
 
 @pytest.mark.anyio
-async def test_receiver_error_body_hash_logged_at_warn(monkeypatch, stream, caplog):
+async def test_receiver_error_body_hash_logged_at_warn(monkeypatch, stream, event, caplog):
     """WARNING log must include a body hash for correlation."""
     FakeAsyncClient.requests = []
     FakeAsyncClient.status_code = 400
     FakeAsyncClient.response_text = "error body"
-    monkeypatch.setattr(pusher, "sign_set", lambda event_uri, audience, email: "signed.jwt")
+    monkeypatch.setattr(pusher, "sign_set", lambda *a, **kw: "signed.jwt")
     monkeypatch.setattr(pusher.httpx, "AsyncClient", FakeAsyncClient)
 
     import logging
     with caplog.at_level(logging.WARNING, logger="app.events.pusher"):
-        await pusher.push_set(
-            stream,
-            "https://schemas.openid.net/secevent/caep/event-type/session-revoked",
-            "user@example.com",
-        )
+        await pusher.push_set(stream, event, "user@example.com")
 
     expected_hash = hashlib.sha256(b"error body").hexdigest()[:8]
     assert expected_hash in caplog.text
 
 
 @pytest.mark.anyio
-async def test_push_set_reports_receiver_error(monkeypatch, stream, caplog):
+async def test_push_set_reports_receiver_error(monkeypatch, stream, event, caplog):
     """Failed push returns False and logs status code."""
     FakeAsyncClient.requests = []
     FakeAsyncClient.status_code = 500
     FakeAsyncClient.response_text = "Internal Server Error"
-    monkeypatch.setattr(pusher, "sign_set", lambda event_uri, audience, email: "signed.jwt")
+    monkeypatch.setattr(pusher, "sign_set", lambda *a, **kw: "signed.jwt")
     monkeypatch.setattr(pusher.httpx, "AsyncClient", FakeAsyncClient)
 
-    delivered = await pusher.push_set(
-        stream,
-        "https://schemas.openid.net/secevent/caep/event-type/session-revoked",
-        "user@example.com",
-    )
+    delivered = await pusher.push_set(stream, event, "user@example.com")
 
     assert delivered is False
     assert "500" in caplog.text
 
 
 @pytest.mark.anyio
-async def test_push_set_skips_disabled_stream(stream):
+async def test_push_set_skips_disabled_stream(stream, event):
     disabled_stream = Stream(
         stream_id=stream.stream_id,
         aud=stream.aud,
@@ -179,10 +167,61 @@ async def test_push_set_skips_disabled_stream(stream):
         created_at=stream.created_at,
     )
 
-    delivered = await pusher.push_set(
-        disabled_stream,
-        "https://schemas.openid.net/secevent/caep/event-type/session-revoked",
-        "user@example.com",
-    )
+    delivered = await pusher.push_set(disabled_stream, event, "user@example.com")
 
     assert delivered is False
+
+
+@pytest.mark.anyio
+async def test_push_set_skips_event_not_in_events_requested(monkeypatch, stream):
+    """Events not listed in stream.events_requested must be silently skipped."""
+    stream_with_filter = Stream(
+        stream_id=stream.stream_id,
+        aud=stream.aud,
+        endpoint_url=stream.endpoint_url,
+        endpoint_token=stream.endpoint_token,
+        events_requested=["https://schemas.openid.net/secevent/caep/event-type/credential-change"],
+        status="enabled",
+        created_at=stream.created_at,
+    )
+    other_event = MappedEvent(uri=SESSION_REVOKED, payload={})
+
+    delivered = await pusher.push_set(stream_with_filter, other_event, "user@example.com")
+
+    assert delivered is False
+
+
+@pytest.mark.anyio
+async def test_push_set_delivers_event_in_events_requested(monkeypatch, stream):
+    """Events present in stream.events_requested are pushed."""
+    stream_with_filter = Stream(
+        stream_id=stream.stream_id,
+        aud=stream.aud,
+        endpoint_url=stream.endpoint_url,
+        endpoint_token=stream.endpoint_token,
+        events_requested=[SESSION_REVOKED],
+        status="enabled",
+        created_at=stream.created_at,
+    )
+    FakeAsyncClient.requests = []
+    FakeAsyncClient.status_code = 202
+    monkeypatch.setattr(pusher, "sign_set", lambda *a, **kw: "signed.jwt")
+    monkeypatch.setattr(pusher.httpx, "AsyncClient", FakeAsyncClient)
+    allowed_event = MappedEvent(uri=SESSION_REVOKED, payload={})
+
+    delivered = await pusher.push_set(stream_with_filter, allowed_event, "user@example.com")
+
+    assert delivered is True
+
+
+@pytest.mark.anyio
+async def test_push_set_allows_all_when_events_requested_empty(monkeypatch, stream, event):
+    """Empty events_requested means no filter — all events are pushed."""
+    FakeAsyncClient.requests = []
+    FakeAsyncClient.status_code = 202
+    monkeypatch.setattr(pusher, "sign_set", lambda *a, **kw: "signed.jwt")
+    monkeypatch.setattr(pusher.httpx, "AsyncClient", FakeAsyncClient)
+
+    delivered = await pusher.push_set(stream, event, "user@example.com")
+
+    assert delivered is True

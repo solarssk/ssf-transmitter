@@ -162,8 +162,8 @@ def test_webhook_delivers_mapped_event_without_logging_or_posting_real_token(cli
     create_stream(client)  # uses MGMT_HEADERS internally
     pushed = []
 
-    async def fake_push_set(stream, event_uri, email):
-        pushed.append((stream.aud, event_uri, email, stream.endpoint_token))
+    async def fake_push_set(stream, event, email):
+        pushed.append((stream.aud, event.uri, email, stream.endpoint_token))
         return True
 
     monkeypatch.setattr("app.routes.webhook.push_set", fake_push_set)

@@ -17,11 +17,25 @@ SUPPORTED_EVENT_URIS: frozenset[str] = frozenset(
     {
         "https://schemas.openid.net/secevent/caep/event-type/session-revoked",
         "https://schemas.openid.net/secevent/caep/event-type/credential-change",
-        "https://schemas.openid.net/secevent/caep/event-type/account-disabled",
-        "https://schemas.openid.net/secevent/caep/event-type/account-enabled",
-        "https://schemas.openid.net/secevent/caep/event-type/account-purged",
+        # Final RISC URIs for account-state events (moved from caep/ namespace in the final spec)
+        "https://schemas.openid.net/secevent/risc/event-type/account-disabled",
+        "https://schemas.openid.net/secevent/risc/event-type/account-enabled",
+        "https://schemas.openid.net/secevent/risc/event-type/account-purged",
     }
 )
+
+# Legacy caep/ URIs for account events that pre-1.0 receivers may send in events_requested.
+# Accepted on input; canonicalized to risc/ before storage and emission.
+_LEGACY_CAEP_ACCOUNT_URIS: dict[str, str] = {
+    "https://schemas.openid.net/secevent/caep/event-type/account-disabled": "https://schemas.openid.net/secevent/risc/event-type/account-disabled",
+    "https://schemas.openid.net/secevent/caep/event-type/account-enabled": "https://schemas.openid.net/secevent/risc/event-type/account-enabled",
+    "https://schemas.openid.net/secevent/caep/event-type/account-purged": "https://schemas.openid.net/secevent/risc/event-type/account-purged",
+}
+
+
+def canonicalize_event_uri(uri: str) -> str:
+    """Return the canonical URI for an event, mapping legacy caep/ account URIs to risc/."""
+    return _LEGACY_CAEP_ACCOUNT_URIS.get(uri, uri)
 
 SUPPORTED_DELIVERY_METHODS: frozenset[str] = frozenset(
     {
@@ -68,14 +82,15 @@ def _coerce_aud(v: object) -> str:
 
 
 def _validate_event_uris(uris: list[str]) -> list[str]:
-    """Raise ``ValueError`` if any URI is not in the supported set."""
-    unsupported = [e for e in uris if e not in SUPPORTED_EVENT_URIS]
+    """Canonicalize and validate event URIs; raises ValueError for unsupported URIs."""
+    canonical = [canonicalize_event_uri(u) for u in uris]
+    unsupported = [u for u in canonical if u not in SUPPORTED_EVENT_URIS]
     if unsupported:
         raise ValueError(
             f"Unsupported event URI(s): {unsupported}. "
             f"Supported: {sorted(SUPPORTED_EVENT_URIS)}"
         )
-    return uris
+    return canonical
 
 
 # ---------------------------------------------------------------------------

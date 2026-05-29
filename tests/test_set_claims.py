@@ -162,6 +162,58 @@ def test_wellknown_delivery_method_is_rfc8935():
 
 
 # ---------------------------------------------------------------------------
+# txn claim
+# ---------------------------------------------------------------------------
+
+
+def test_set_payload_txn_present():
+    token = sign_set(event_uri=EVENT_URI, audience=AUDIENCE, email=EMAIL)
+    assert "txn" in _decode_payload(token)
+
+
+def test_set_payload_txn_uses_provided_value():
+    token = sign_set(event_uri=EVENT_URI, audience=AUDIENCE, email=EMAIL, txn="my-txn-value")
+    assert _decode_payload(token)["txn"] == "my-txn-value"
+
+
+def test_set_payload_txn_defaults_to_uuid_when_not_provided():
+    import re
+    token = sign_set(event_uri=EVENT_URI, audience=AUDIENCE, email=EMAIL)
+    txn = _decode_payload(token)["txn"]
+    assert re.match(r"[0-9a-f-]{36}", txn), f"txn not a UUID: {txn}"
+
+
+# ---------------------------------------------------------------------------
+# event_payload claim
+# ---------------------------------------------------------------------------
+
+
+def test_set_payload_event_body_is_empty_dict_by_default():
+    token = sign_set(event_uri=EVENT_URI, audience=AUDIENCE, email=EMAIL)
+    events = _decode_payload(token)["events"]
+    assert events[EVENT_URI] == {}
+
+
+def test_set_payload_event_body_contains_provided_payload():
+    ep = {"event_timestamp": 1234567890, "initiating_entity": "policy",
+          "reason_admin": {"en": "Test"}}
+    token = sign_set(event_uri=EVENT_URI, audience=AUDIENCE, email=EMAIL, event_payload=ep)
+    assert _decode_payload(token)["events"][EVENT_URI] == ep
+
+
+def test_sign_set_mutable_default_not_shared_between_calls():
+    """event_payload=None default must not share state between calls (mutable default bug)."""
+    t1 = sign_set(event_uri=EVENT_URI, audience=AUDIENCE, email=EMAIL)
+    t2 = sign_set(event_uri=EVENT_URI, audience=AUDIENCE, email=EMAIL)
+    p1 = _decode_payload(t1)["events"][EVENT_URI]
+    p2 = _decode_payload(t2)["events"][EVENT_URI]
+    assert p1 == p2 == {}
+    # Mutating p1 must not affect p2
+    p1["injected"] = True
+    assert "injected" not in _decode_payload(t2)["events"][EVENT_URI]
+
+
+# ---------------------------------------------------------------------------
 # Log redaction — no JWT in logs
 # ---------------------------------------------------------------------------
 
