@@ -38,10 +38,10 @@ async def _apple_scim_sync_loop() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting SSF Transmitter config=%s", settings.safe_log_dict())
-    if settings.allow_unsigned_webhook:
+    if settings.ssf_webhook_auth_mode == "unsigned":
         logger.warning(
-            "⚠️  SSF_ALLOW_UNSIGNED_WEBHOOK=true — unsigned webhook requests will be ACCEPTED. "
-            "This is UNSAFE unless the webhook endpoint is protected by internal-only network and IP allowlist."
+            "⚠️  SSF_WEBHOOK_AUTH_MODE=unsigned — webhook requests are accepted WITHOUT authentication. "
+            "This is UNSAFE. Use only in dev/lab environments protected by internal-only network."
         )
     ensure_keys()
     await init_db()

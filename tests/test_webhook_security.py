@@ -113,24 +113,14 @@ def test_valid_hmac_accepted():
 
 
 def test_allow_unsigned_webhook_accepts_missing_sig(monkeypatch):
-    """When SSF_ALLOW_UNSIGNED_WEBHOOK=true, unsigned requests are accepted."""
+    """When SSF_WEBHOOK_AUTH_MODE=unsigned, unsigned requests are accepted."""
+    import dataclasses
 
-    monkeypatch.setenv("SSF_ALLOW_UNSIGNED_WEBHOOK", "true")
-
-    # Re-import settings with patched env — requires module reload
-    import importlib
-
-    import app.config as cfg_module
-    import app.routes.webhook as wh_module
-
-    importlib.reload(cfg_module)
-    importlib.reload(wh_module)
-
-    from app.config import settings
-
-    assert settings.allow_unsigned_webhook is True
-
+    from app.config import settings as real_settings
     from app.main import app
+
+    unsigned_settings = dataclasses.replace(real_settings, ssf_webhook_auth_mode="unsigned")
+    monkeypatch.setattr("app.routes.webhook.settings", unsigned_settings)
 
     with TestClient(app) as client:
         resp = client.post(WEBHOOK_URL, content=SAMPLE_BODY, headers={"Content-Type": "application/json"})
