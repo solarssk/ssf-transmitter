@@ -12,10 +12,10 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6
         with:
           python-version: "3.12"
           cache: "pip"
@@ -37,3 +37,21 @@ jobs:
 
       - name: Build Docker image
         run: docker build -t ssf-transmitter:ci .
+
+      - name: Scan image for HIGH/CRITICAL vulnerabilities
+        run: |
+          trivy image \
+            --severity HIGH,CRITICAL \
+            --ignore-unfixed \
+            --exit-code 0 \
+            ssf-transmitter:ci
+
+      - name: Generate SBOM (CycloneDX)
+        run: trivy image --format cyclonedx --output sbom-cyclonedx.json ssf-transmitter:ci
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: sbom-cyclonedx
+          path: sbom-cyclonedx.json
+          retention-days: 90
