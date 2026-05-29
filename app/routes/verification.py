@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 from app.auth import require_management_auth
 from app.database import get_first_stream
@@ -15,6 +15,14 @@ router = APIRouter(prefix="/ssf", dependencies=[Depends(require_management_auth)
 
 class VerificationRequest(BaseModel):
     state: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_string(cls, value: object) -> object:
+        """Accept a bare string body as {"state": value} for API convenience."""
+        if isinstance(value, str):
+            return {"state": value}
+        return value
 
 
 @router.post("/verification", status_code=202)
