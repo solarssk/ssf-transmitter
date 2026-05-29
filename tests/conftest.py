@@ -53,10 +53,9 @@ def mock_dns_resolve(monkeypatch, request):
     Patches both the url_validation module (used at stream create/patch time)
     and the pusher module (used at delivery time for DNS rebinding protection).
 
-    Skipped for startup tests which verify preflight checks in isolation.
+    Tests decorated with @pytest.mark.no_dns_mock opt out of this fixture.
     """
-    # Skip for test_startup.py since it mocks settings before imports
-    if "test_startup" in request.node.nodeid:
+    if request.node.get_closest_marker("no_dns_mock"):
         return
 
     _public_ip = lambda host: ["93.184.216.34"]  # noqa: E731  # example.com
