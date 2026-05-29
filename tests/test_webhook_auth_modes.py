@@ -296,30 +296,3 @@ def test_allow_unsigned_legacy_alias():
     assert _parse_webhook_auth_mode("bearer", allow_unsigned_legacy=True) == "unsigned"
 
 
-def test_legacy_allow_unsigned_alias_logs_deprecation_warning(monkeypatch, caplog):
-    """Preflight must warn when SSF_ALLOW_UNSIGNED_WEBHOOK=true is set."""
-    from unittest.mock import MagicMock
-
-    from app.startup import run_preflight_checks
-
-    monkeypatch.setattr(
-        "app.startup.settings",
-        MagicMock(
-            ssf_issuer="https://idp.example.com/shared-signals",
-            ssf_base_url="https://idp.example.com/shared-signals",
-            ssf_allow_custom_issuer=False,
-            ssf_management_token="x" * 32,
-            ssf_webhook_auth_mode="unsigned",
-            ssf_webhook_token=None,
-            ssf_webhook_secret="",
-            keys_dir="",
-            database_path="",
-            apple_scim_enabled=False,
-        ),
-    )
-    monkeypatch.setenv("SSF_ALLOW_UNSIGNED_WEBHOOK", "true")
-
-    run_preflight_checks()
-
-    assert "SSF_ALLOW_UNSIGNED_WEBHOOK" in caplog.text
-    assert "DEPRECATED" in caplog.text
