@@ -23,8 +23,9 @@ pytestmark = pytest.mark.no_dns_mock
 def _good_settings(**overrides):
     """Return a MagicMock settings object with all checks passing."""
     defaults = dict(
-        ssf_issuer="https://idp.example.com/application/o/apple-id/",
+        ssf_issuer="https://idp.example.com/shared-signals",
         ssf_base_url="https://idp.example.com/shared-signals",
+        ssf_allow_custom_issuer=False,
         ssf_management_token="x" * 32,
         ssf_webhook_auth_mode="hmac",
         ssf_webhook_secret="x" * 32,

@@ -17,7 +17,7 @@ async def ssf_configuration() -> dict:
         "add_subject_endpoint": settings.public_url("/ssf/streams/subjects:add"),
         "remove_subject_endpoint": settings.public_url("/ssf/streams/subjects:remove"),
         "status_endpoint": settings.public_url("/ssf/status"),
-        "supported_scopes": ["openid"],
+        "verification_endpoint": settings.public_url("/ssf/verification"),
         "critical_subject_members": [],
         "spec_version": "1_0",
     }

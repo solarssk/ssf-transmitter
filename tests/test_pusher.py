@@ -94,7 +94,7 @@ async def test_push_set_sends_accept_application_json(monkeypatch, stream, event
 async def test_push_verification_set_sends_accept_application_json(monkeypatch, stream):
     FakeAsyncClient.requests = []
     FakeAsyncClient.status_code = 202
-    monkeypatch.setattr(pusher, "sign_verification_set", lambda audience, stream_id: "signed.jwt")
+    monkeypatch.setattr(pusher, "sign_verification_set", lambda audience, stream_id, **kw: "signed.jwt")
     monkeypatch.setattr(pusher.httpx, "AsyncClient", FakeAsyncClient)
 
     await pusher.push_verification_set(stream)

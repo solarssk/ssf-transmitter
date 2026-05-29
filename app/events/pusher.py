@@ -126,17 +126,17 @@ async def push_set(stream: Stream, event: MappedEvent, email: str) -> bool | Non
     return True
 
 
-async def push_verification_set(stream: "Stream") -> bool:
-    """Push a transmitter-initiated verification SET to confirm push delivery is working.
+async def push_verification_set(stream: "Stream", state: str | None = None) -> bool:
+    """Push a verification SET to the stream's endpoint.
 
-    Event type URI follows SSF Framework §6.2.  Per RFC 8417, when the transmitter
-    initiates verification, ``state`` is omitted.
+    ``state`` is forwarded to the receiver when provided (receiver-initiated
+    verification per SSF §6.2). Omitted for transmitter-initiated verification.
     """
     if not _revalidate_endpoint(stream.endpoint_url):
         return False
 
     try:
-        token = sign_verification_set(audience=stream.aud, stream_id=stream.stream_id)
+        token = sign_verification_set(audience=stream.aud, stream_id=stream.stream_id, state=state)
     except Exception:
         logger.exception("Failed to sign verification SET aud=%s", stream.aud)
         return False
