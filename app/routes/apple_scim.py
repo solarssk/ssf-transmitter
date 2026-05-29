@@ -23,6 +23,7 @@ from __future__ import annotations
 import logging
 import secrets
 import time
+from typing import Optional
 from urllib.parse import urlencode
 
 import httpx
@@ -86,9 +87,9 @@ async def authorize() -> RedirectResponse:
 
 @router.get("/callback", summary="OAuth callback — Apple redirects here after admin approves")
 async def callback(
-    code: str | None = None,
-    state: str | None = None,
-    error: str | None = None,
+    code: Optional[str] = None,
+    state: Optional[str] = None,
+    error: Optional[str] = None,
 ) -> dict:
     """Handle the redirect from Apple after the admin authorizes the connection.
 

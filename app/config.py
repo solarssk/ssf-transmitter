@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 from dataclasses import dataclass
+from typing import Optional, Union
 
 _WEBHOOK_AUTH_MODES = {"bearer", "hmac", "unsigned"}
 
@@ -20,7 +21,7 @@ def _parse_sync_interval(value: str) -> int:
     return interval
 
 
-def _parse_management_token(value: str | None) -> str:
+def _parse_management_token(value: Optional[str]) -> str:
     """Validate SSF_MANAGEMENT_TOKEN — required, minimum 32 characters."""
     if not value:
         raise RuntimeError("Missing required environment variable: SSF_MANAGEMENT_TOKEN")
@@ -31,7 +32,7 @@ def _parse_management_token(value: str | None) -> str:
     return value
 
 
-def _parse_webhook_auth_mode(value: str | None, allow_unsigned_legacy: bool) -> str:
+def _parse_webhook_auth_mode(value: Optional[str], allow_unsigned_legacy: bool) -> str:
     """Return the resolved webhook auth mode.
 
     ``SSF_ALLOW_UNSIGNED_WEBHOOK=true`` is accepted as a backward-compatible
@@ -47,7 +48,7 @@ def _parse_webhook_auth_mode(value: str | None, allow_unsigned_legacy: bool) -> 
     return mode
 
 
-def _parse_webhook_token(value: str | None, mode: str) -> str | None:
+def _parse_webhook_token(value: Optional[str], mode: str) -> Optional[str]:
     """Validate SSF_WEBHOOK_TOKEN — required and ≥ 32 chars when mode is 'bearer'."""
     if mode != "bearer":
         return value or None
@@ -63,7 +64,7 @@ def _parse_webhook_token(value: str | None, mode: str) -> str | None:
     return value
 
 
-def _parse_webhook_secret(value: str | None, mode: str) -> str:
+def _parse_webhook_secret(value: Optional[str], mode: str) -> str:
     """Validate SSF_WEBHOOK_SECRET — required when mode is 'hmac'."""
     if mode == "hmac" and not value:
         raise RuntimeError(
@@ -83,7 +84,7 @@ class Settings:
     log_level: str
     # Webhook authentication
     ssf_webhook_auth_mode: str = "bearer"   # bearer | hmac | unsigned
-    ssf_webhook_token: str | None = None    # required in bearer mode
+    ssf_webhook_token: Optional[str] = None    # required in bearer mode
     ssf_webhook_secret: str = ""           # required in hmac mode
     database_path: str = "/app/data/ssf.db"
     keys_dir: str = "/app/keys"
@@ -96,11 +97,11 @@ class Settings:
     pii_pepper: str = ""
     # Apple SCIM sync — all optional; sync is disabled when any required field is unset.
     # Set these to enable automatic user provisioning from Authentik to Apple Business Manager.
-    apple_scim_client_id: str | None = None
-    apple_scim_client_secret: str | None = None
-    authentik_url: str | None = None
-    authentik_token: str | None = None
-    apple_scim_group_id: str | None = None  # sync only members of this Authentik group UUID
+    apple_scim_client_id: Optional[str] = None
+    apple_scim_client_secret: Optional[str] = None
+    authentik_url: Optional[str] = None
+    authentik_token: Optional[str] = None
+    apple_scim_group_id: Optional[str] = None  # sync only members of this Authentik group UUID
     apple_scim_sync_interval: int = 3600    # seconds between automatic syncs (default: 1 hour)
 
     @property
@@ -164,7 +165,7 @@ class Settings:
         normalized_path = path if path.startswith("/") else f"/{path}"
         return f"{self.ssf_base_url}{normalized_path}"
 
-    def safe_log_dict(self) -> dict[str, str | int | bool]:
+    def safe_log_dict(self) -> dict[str, Union[str, int, bool]]:
         """Return a dict of non-sensitive settings suitable for startup logging."""
         return {
             "ssf_issuer": self.ssf_issuer,

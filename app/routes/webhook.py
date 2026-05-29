@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import json
 import logging
+from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Request
 
@@ -20,7 +21,7 @@ router = APIRouter()
 _MAX_BODY_BYTES = 64 * 1024  # 64 KiB
 
 
-def _verify_bearer_token(authorization: str | None) -> bool:
+def _verify_bearer_token(authorization: Optional[str]) -> bool:
     """Return True iff *authorization* is a valid ``Bearer <SSF_WEBHOOK_TOKEN>`` header."""
     if not authorization:
         return False
@@ -33,7 +34,7 @@ def _verify_bearer_token(authorization: str | None) -> bool:
     return hmac.compare_digest(token.encode("utf-8"), expected.encode("utf-8"))
 
 
-def _verify_hmac_signature(raw_body: bytes, signature: str | None) -> bool:
+def _verify_hmac_signature(raw_body: bytes, signature: Optional[str]) -> bool:
     """Return True iff *signature* is a valid HMAC-SHA256 of *raw_body*."""
     if not signature:
         return False

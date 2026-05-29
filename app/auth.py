@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import hmac
 import logging
+from typing import Optional
 
 from fastapi import Header, HTTPException
 
@@ -24,7 +25,7 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 
 
-async def require_management_auth(authorization: str | None = Header(default=None)) -> None:
+async def require_management_auth(authorization: Optional[str] = Header(default=None)) -> None:
     """FastAPI dependency: validate Bearer token using constant-time comparison.
 
     Returns None on success.
