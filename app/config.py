@@ -179,7 +179,12 @@ class Settings:
         }
 
 
-settings = Settings.from_env()
+try:
+    settings = Settings.from_env()
+except RuntimeError as _cfg_exc:
+    import sys as _sys
+    print(f"\n❌  Configuration error: {_cfg_exc}\n", file=_sys.stderr)
+    _sys.exit(1)
 
 
 def configure_logging() -> None:
