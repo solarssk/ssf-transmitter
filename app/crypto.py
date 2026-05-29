@@ -111,12 +111,7 @@ def sign_set(event_uri: str, audience: str, email: str) -> str:
             "email": email,
         },
         "events": {
-            event_uri: {
-                "subject": {
-                    "format": "email",
-                    "email": email,
-                }
-            }
+            event_uri: {},
         },
     }
     return jwt.encode(payload, private_pem, algorithm="RS256", headers={"kid": kid, "typ": "secevent+jwt"})
