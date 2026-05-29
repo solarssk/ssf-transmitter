@@ -57,7 +57,8 @@ This document covers the threat model, trust boundaries, and security properties
 | Receiver endpoint URL | SQLite (`/app/data/ssf.db`) | Not secret; validated against SSRF blocklist |
 | Receiver bearer token | SQLite (`/app/data/ssf.db`) | **Stored in plaintext** — protect the data volume |
 | Management token | Environment variable only | Never written to disk or logged |
-| Webhook HMAC secret | Environment variable only | Never written to disk or logged |
+| Webhook bearer token (`SSF_WEBHOOK_TOKEN`) | Environment variable only | Never written to disk or logged |
+| Webhook HMAC secret (`SSF_WEBHOOK_SECRET`) | Environment variable only | Never written to disk or logged (legacy mode only) |
 | User email addresses | Logs (pseudonymous by default) | Replaced by `[pii:<sha256[:8]>]` when `SSF_LOG_PII=false` |
 
 ---
@@ -80,9 +81,10 @@ This document covers the threat model, trust boundaries, and security properties
 **Risk:** An attacker who can POST to `/webhook/authentik` could trigger arbitrary session-revocation events for any user.
 
 **Mitigation:**
-- Webhook is fail-closed by default: missing `X-Authentik-Signature` returns 401.
-- Signature verification uses `hmac.compare_digest` (constant-time).
-- Body size limited to 64 KiB before HMAC is checked.
+- In `bearer` mode (default): missing or invalid `Authorization: Bearer <SSF_WEBHOOK_TOKEN>` returns 401. Token comparison uses `hmac.compare_digest` (constant-time).
+- In `hmac` mode (legacy): missing or invalid `X-Authentik-Signature` returns 401. Signature verification uses `hmac.compare_digest` (constant-time).
+- `unsigned` mode disables authentication entirely — only for isolated dev/lab environments.
+- Body size limited to 64 KiB before authentication is checked.
 
 ### Management API abuse
 
