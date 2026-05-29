@@ -69,13 +69,56 @@ If `SSF_HOST_PORT` changes, update the port in Nginx Proxy Manager too.
 
 ## Authentik Webhook
 
-Configure a Generic Webhook transport in Authentik:
+### Recommended: Bearer token (Authentik Generic Webhook + Header Mapping)
+
+Set in `stack.env`:
+
+```env
+SSF_WEBHOOK_AUTH_MODE=bearer
+SSF_WEBHOOK_TOKEN=<random-token-min-32-chars>
+```
+
+In Authentik, create a **Webhook Header Mapping** (Directory → Property Mappings → Create → Webhook Mapping):
+
+```python
+return {
+    "Authorization": "Bearer <SSF_WEBHOOK_TOKEN>"
+}
+```
+
+Then create a **Generic Webhook** notification transport:
 
 - URL: `http://authentik-ssf:8000/webhook/authentik`
-- HMAC secret: the value of `SSF_WEBHOOK_SECRET`
-- Events: `authentik.core.auth.logout`, `authentik.core.user.write`, `authentik.core.user.delete`
+- Attach the Header Mapping above
+
+> **Important:** Use `SSF_WEBHOOK_TOKEN` here — **not** `SSF_MANAGEMENT_TOKEN`.
+> `SSF_MANAGEMENT_TOKEN` protects the SSF management API (`/ssf/*`).
+> `SSF_WEBHOOK_TOKEN` protects only `/webhook/authentik`.
+> Keeping them separate limits blast radius if one is ever compromised.
+
+Create a **Notification Rule** that sends to this transport for events:
+`authentik.core.auth.logout`, `authentik.core.user.write`, `authentik.core.user.delete`
 
 If you change `SSF_CONTAINER_PORT`, update the internal webhook URL port.
+
+### Legacy: HMAC signature
+
+```env
+SSF_WEBHOOK_AUTH_MODE=hmac
+SSF_WEBHOOK_SECRET=<random-secret-min-32-chars>
+```
+
+Configure the webhook transport with the HMAC secret — Authentik will send
+`X-Authentik-Signature: sha256=<hmac>` on each request.
+
+### Development only: unsigned
+
+```env
+SSF_WEBHOOK_AUTH_MODE=unsigned
+```
+
+No authentication. Logs a loud warning on every request.
+**Do not use in production.**
 
 ## Event Mapping
 

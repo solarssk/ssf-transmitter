@@ -4,6 +4,8 @@ import logging
 import os
 from dataclasses import dataclass
 
+_WEBHOOK_AUTH_MODES = {"bearer", "hmac", "unsigned"}
+
 
 def _strip_trailing_slash(value: str) -> str:
     """Remove any trailing slashes from *value*."""
@@ -29,19 +31,62 @@ def _parse_management_token(value: str | None) -> str:
     return value
 
 
+def _parse_webhook_auth_mode(value: str | None, allow_unsigned_legacy: bool) -> str:
+    """Return the resolved webhook auth mode.
+
+    ``SSF_ALLOW_UNSIGNED_WEBHOOK=true`` is accepted as a backward-compatible
+    alias for ``SSF_WEBHOOK_AUTH_MODE=unsigned``.
+    """
+    if allow_unsigned_legacy:
+        return "unsigned"
+    mode = (value or "bearer").lower().strip()
+    if mode not in _WEBHOOK_AUTH_MODES:
+        raise RuntimeError(
+            f"SSF_WEBHOOK_AUTH_MODE must be one of: {', '.join(sorted(_WEBHOOK_AUTH_MODES))}"
+        )
+    return mode
+
+
+def _parse_webhook_token(value: str | None, mode: str) -> str | None:
+    """Validate SSF_WEBHOOK_TOKEN — required and ≥ 32 chars when mode is 'bearer'."""
+    if mode != "bearer":
+        return value or None
+    if not value:
+        raise RuntimeError(
+            "Missing required environment variable: SSF_WEBHOOK_TOKEN "
+            "(required when SSF_WEBHOOK_AUTH_MODE=bearer)"
+        )
+    if len(value) < 32:
+        raise RuntimeError(
+            f"SSF_WEBHOOK_TOKEN is too short ({len(value)} chars); minimum is 32 characters"
+        )
+    return value
+
+
+def _parse_webhook_secret(value: str | None, mode: str) -> str:
+    """Validate SSF_WEBHOOK_SECRET — required when mode is 'hmac'."""
+    if mode == "hmac" and not value:
+        raise RuntimeError(
+            "Missing required environment variable: SSF_WEBHOOK_SECRET "
+            "(required when SSF_WEBHOOK_AUTH_MODE=hmac)"
+        )
+    return value or ""
+
+
 @dataclass(frozen=True)
 class Settings:
     ssf_issuer: str
     ssf_base_url: str
     ssf_root_path: str
     ssf_container_port: int
-    ssf_webhook_secret: str
     ssf_management_token: str
     log_level: str
+    # Webhook authentication
+    ssf_webhook_auth_mode: str = "bearer"   # bearer | hmac | unsigned
+    ssf_webhook_token: str | None = None    # required in bearer mode
+    ssf_webhook_secret: str = ""           # required in hmac mode
     database_path: str = "/app/data/ssf.db"
     keys_dir: str = "/app/keys"
-    # Webhook — opt-out of mandatory HMAC (unsafe, document clearly)
-    allow_unsigned_webhook: bool = False
     # Privacy — when False (default), emails are replaced by a keyed HMAC token in logs.
     # Set SSF_LOG_PII=true only in controlled dev/debug environments.
     log_pii: bool = False
@@ -77,20 +122,25 @@ class Settings:
         required = {
             "SSF_ISSUER": os.getenv("SSF_ISSUER"),
             "SSF_BASE_URL": os.getenv("SSF_BASE_URL"),
-            "SSF_WEBHOOK_SECRET": os.getenv("SSF_WEBHOOK_SECRET"),
         }
         missing = [name for name, value in required.items() if not value]
         if missing:
             raise RuntimeError(f"Missing required environment variables: {', '.join(missing)}")
+
+        allow_unsigned = os.getenv("SSF_ALLOW_UNSIGNED_WEBHOOK", "false").lower() == "true"
+        auth_mode = _parse_webhook_auth_mode(os.getenv("SSF_WEBHOOK_AUTH_MODE"), allow_unsigned)
+        webhook_token = _parse_webhook_token(os.getenv("SSF_WEBHOOK_TOKEN"), auth_mode)
+        webhook_secret = _parse_webhook_secret(os.getenv("SSF_WEBHOOK_SECRET"), auth_mode)
 
         return cls(
             ssf_issuer=required["SSF_ISSUER"],
             ssf_base_url=_strip_trailing_slash(required["SSF_BASE_URL"]),
             ssf_root_path=os.getenv("SSF_ROOT_PATH", ""),
             ssf_container_port=int(os.getenv("SSF_CONTAINER_PORT", "8000")),
-            ssf_webhook_secret=required["SSF_WEBHOOK_SECRET"],
             ssf_management_token=_parse_management_token(os.getenv("SSF_MANAGEMENT_TOKEN")),
-            allow_unsigned_webhook=os.getenv("SSF_ALLOW_UNSIGNED_WEBHOOK", "false").lower() == "true",
+            ssf_webhook_auth_mode=auth_mode,
+            ssf_webhook_token=webhook_token,
+            ssf_webhook_secret=webhook_secret,
             log_pii=os.getenv("SSF_LOG_PII", "false").lower() == "true",
             pii_pepper=os.getenv("SSF_PII_PEPPER", ""),
             log_level=os.getenv("LOG_LEVEL", "INFO").upper(),
@@ -119,6 +169,7 @@ class Settings:
             "database_path": self.database_path,
             "keys_dir": self.keys_dir,
             "log_level": self.log_level,
+            "ssf_webhook_auth_mode": self.ssf_webhook_auth_mode,
             "apple_scim_enabled": self.apple_scim_enabled,
         }
 
