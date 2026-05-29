@@ -5,7 +5,7 @@ Extra fields are forbidden on all models to prevent parameter smuggling.
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
@@ -38,7 +38,7 @@ SUPPORTED_DELIVERY_METHODS: frozenset[str] = frozenset(
 # ---------------------------------------------------------------------------
 
 
-class StreamStatus(str, Enum):
+class StreamStatus(StrEnum):
     enabled = "enabled"
     paused = "paused"
     disabled = "disabled"
