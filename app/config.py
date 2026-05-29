@@ -184,7 +184,7 @@ try:
 except RuntimeError as _cfg_exc:
     import sys as _sys
     print(f"\n❌  Configuration error: {_cfg_exc}\n", file=_sys.stderr)
-    _sys.exit(1)
+    _sys.exit(0)  # exit 0 → Docker restart: unless-stopped does NOT restart
 
 
 def configure_logging() -> None:
