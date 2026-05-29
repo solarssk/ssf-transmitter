@@ -104,6 +104,11 @@ class Settings:
     apple_scim_sync_interval: int = 3600    # seconds between automatic syncs (default: 1 hour)
 
     @property
+    def allow_unsigned_webhook(self) -> bool:
+        """Backward-compatible alias — True when ssf_webhook_auth_mode == 'unsigned'."""
+        return self.ssf_webhook_auth_mode == "unsigned"
+
+    @property
     def apple_scim_enabled(self) -> bool:
         """True when all required Apple SCIM variables are configured."""
         return bool(

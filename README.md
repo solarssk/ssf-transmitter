@@ -9,7 +9,7 @@ It is designed for deployments where Authentik handles OIDC and this service han
 
 - SSF configuration metadata and JWKS endpoints.
 - Stream create/read/update/delete endpoints for push delivery receivers.
-- Authentik webhook receiver with HMAC-SHA256 signature verification.
+- Authentik webhook receiver with Bearer token or HMAC-SHA256 authentication.
 - CAEP/RISC event mapping for logout, credential change, account disabled/enabled, and account purged events.
 - RS256-signed Security Event Token push delivery.
 - SQLite persistence for stream configuration.
@@ -36,7 +36,9 @@ SSF_ISSUER=https://idp.example.com/application/o/apple-id/
 SSF_BASE_URL=https://idp.example.com/shared-signals
 SSF_ROOT_PATH=/shared-signals
 SSF_CONTAINER_PORT=8000
-SSF_WEBHOOK_SECRET=change_me_to_random_string_min_32_chars
+SSF_MANAGEMENT_TOKEN=change_me_to_random_string_min_32_chars
+SSF_WEBHOOK_AUTH_MODE=bearer
+SSF_WEBHOOK_TOKEN=change_me_to_random_string_min_32_chars
 LOG_LEVEL=INFO
 ```
 
@@ -151,16 +153,16 @@ See [SECURITY.md](SECURITY.md) for the full threat model, trust boundaries, and 
 |---|---|
 | Run behind a TLS-terminating reverse proxy (nginx, Caddy) | All traffic must be HTTPS in production |
 | `SSF_MANAGEMENT_TOKEN` ≥ 32 random characters | Guards stream create/update/delete |
-| `SSF_WEBHOOK_SECRET` ≥ 32 random characters | Prevents spoofed Authentik events |
+| `SSF_WEBHOOK_TOKEN` ≥ 32 random characters (bearer mode) | Authenticates Authentik webhook requests |
 | `/ssf/streams` reachable only by authorised receivers | Management API is authenticated but defence-in-depth |
-| `/webhook/authentik` reachable only from the Authentik container | Webhook is HMAC-protected but only Authentik should POST to it |
+| `/webhook/authentik` reachable only from the Authentik container | Webhook is Bearer/HMAC protected but only Authentik should POST to it |
 | Mount `/app/keys` and `/app/data` to root-owned host paths | Signing key and receiver tokens must not be readable by other containers |
 
 ### What this service does and does not do
 
 **Does:**
 - Sign and push Security Event Tokens (SETs) to registered receivers via HTTPS POST
-- Verify Authentik webhook signatures with HMAC-SHA256
+- Authenticate Authentik webhook requests (Bearer token by default; HMAC-SHA256 in legacy mode)
 - Validate receiver endpoint URLs against SSRF (blocks RFC 1918, loopback, link-local, and unresolvable hostnames)
 - Re-validate receiver endpoint DNS before every push (DNS rebinding protection)
 - Mask email addresses in logs by default (`SSF_LOG_PII=false`)
@@ -191,14 +193,18 @@ Go to `https://github.com/users/<owner>/packages/container/ssf-transmitter/setti
 or run `docker login ghcr.io` on the host before pulling.
 
 **Portainer deploy fails with status 500**
-Usually caused by a missing or misnamed environment variable. Check that all required variables (`SSF_ISSUER`, `SSF_BASE_URL`, `SSF_WEBHOOK_SECRET`) are present in `stack.env`. The `:?` syntax in the compose file causes a hard failure if a variable is unset.
+Usually caused by a missing or misnamed environment variable. Check that all required variables (`SSF_ISSUER`, `SSF_BASE_URL`, `SSF_MANAGEMENT_TOKEN`, `SSF_WEBHOOK_TOKEN`) are present in `stack.env`. The `:?` syntax in the compose file causes a hard failure if a variable is unset.
 
 **Container exits immediately on startup**
 Run `docker logs authentik-ssf` to see the error. Missing required env vars are reported as:
 `RuntimeError: Missing required environment variables: SSF_ISSUER, ...`
 
-**Webhook returns 401**
-The `X-Authentik-Signature` header does not match. Verify that `SSF_WEBHOOK_SECRET` in the service matches the HMAC secret configured in the Authentik webhook transport.
+**Webhook returns 401 (bearer mode)**
+The `Authorization: Bearer <token>` header is missing or the token doesn't match `SSF_WEBHOOK_TOKEN`.
+Verify that the Authentik Webhook Header Mapping returns `{"Authorization": "Bearer <SSF_WEBHOOK_TOKEN>"}` and is attached to the notification transport.
+
+**Webhook returns 401 (hmac mode)**
+The `X-Authentik-Signature` header does not match. Verify that `SSF_WEBHOOK_SECRET` matches the HMAC secret configured in the Authentik webhook transport.
 
 **Apple returns `invalid_request` / `Invalid security event token` for normal events, but verification SET was accepted (202)**
 
