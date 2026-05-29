@@ -132,13 +132,13 @@ async def push_verification_set(stream: "Stream") -> bool:
     Event type URI follows SSF Framework §6.2.  Per RFC 8417, when the transmitter
     initiates verification, ``state`` is omitted.
     """
+    if not _revalidate_endpoint(stream.endpoint_url):
+        return False
+
     try:
         token = sign_verification_set(audience=stream.aud, stream_id=stream.stream_id)
     except Exception:
         logger.exception("Failed to sign verification SET aud=%s", stream.aud)
-        return False
-
-    if not _revalidate_endpoint(stream.endpoint_url):
         return False
 
     headers: dict[str, str] = {
