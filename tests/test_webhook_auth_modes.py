@@ -294,3 +294,39 @@ def test_allow_unsigned_legacy_alias():
     from app.config import _parse_webhook_auth_mode
     assert _parse_webhook_auth_mode(None, allow_unsigned_legacy=True) == "unsigned"
     assert _parse_webhook_auth_mode("bearer", allow_unsigned_legacy=True) == "unsigned"
+
+
+def test_legacy_allow_unsigned_alias_logs_deprecation_warning(monkeypatch, caplog):
+    """Preflight must warn when SSF_ALLOW_UNSIGNED_WEBHOOK=true is set."""
+    import logging
+    from unittest.mock import MagicMock, patch
+
+    from app.startup import run_preflight_checks
+
+    mock_settings = MagicMock(
+        ssf_issuer="https://idp.example.com/shared-signals",
+        ssf_base_url="https://idp.example.com/shared-signals",
+        ssf_allow_custom_issuer=False,
+        ssf_management_token="x" * 32,
+        ssf_webhook_auth_mode="unsigned",
+        ssf_webhook_token=None,
+        ssf_webhook_secret="",
+        keys_dir="",
+        database_path="",
+        apple_scim_enabled=False,
+    )
+    monkeypatch.setattr("app.startup.settings", mock_settings)
+    monkeypatch.setenv("SSF_ALLOW_UNSIGNED_WEBHOOK", "true")
+
+    with (
+        patch("app.startup.Path") as mock_path,
+        patch("app.startup.os.access", return_value=True),
+        caplog.at_level(logging.WARNING, logger="app.startup"),
+    ):
+        mock_path.return_value.__truediv__ = lambda s, x: MagicMock(exists=lambda: True)
+        mock_path.return_value.parent.exists.return_value = True
+        run_preflight_checks()
+
+    warn_msgs = " ".join(r.getMessage() for r in caplog.records if r.levelno == logging.WARNING)
+    assert "SSF_ALLOW_UNSIGNED_WEBHOOK" in warn_msgs
+    assert "DEPRECATED" in warn_msgs or "deprecated" in warn_msgs.lower()

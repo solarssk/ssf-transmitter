@@ -124,7 +124,17 @@ def run_preflight_checks() -> None:
             logger.error("%s SSF_WEBHOOK_SECRET     NOT SET", _FAIL)
             failed = True
     elif mode == "unsigned":
-        logger.warning("%s SSF_WEBHOOK_AUTH_MODE  unsigned — NO authentication on webhook (dev/lab only)", _WARN)
+        logger.warning(
+            "%s SSF_WEBHOOK_AUTH_MODE  unsigned — NO authentication on webhook "
+            "(dev/lab only, never use in production)",
+            _WARN,
+        )
+        if os.getenv("SSF_ALLOW_UNSIGNED_WEBHOOK", "").lower() == "true":
+            logger.warning(
+                "%s SSF_ALLOW_UNSIGNED_WEBHOOK  DEPRECATED — set SSF_WEBHOOK_AUTH_MODE=unsigned "
+                "explicitly instead; this alias will be removed in a future release",
+                _WARN,
+            )
     else:
         logger.error("%s SSF_WEBHOOK_AUTH_MODE  unknown value %r", _FAIL, mode)
         failed = True
