@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 
-MGMT_TOKEN = "test-management-token-minimum-32-chars"
+MGMT_TOKEN = "test_management_token_min_32_chars_1234"
 MGMT_HEADERS = {"Authorization": f"Bearer {MGMT_TOKEN}"}
 
 

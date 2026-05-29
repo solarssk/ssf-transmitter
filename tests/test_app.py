@@ -61,7 +61,7 @@ def test_ssf_metadata_uses_public_base_url(client: TestClient):
         "add_subject_endpoint": "https://idp.example.com/shared-signals/ssf/streams/subjects:add",
         "remove_subject_endpoint": "https://idp.example.com/shared-signals/ssf/streams/subjects:remove",
         "status_endpoint": "https://idp.example.com/shared-signals/ssf/status",
-        "supported_scopes": ["openid"],
+        "verification_endpoint": "https://idp.example.com/shared-signals/ssf/verification",
         "critical_subject_members": [],
         "spec_version": "1_0",
     }
