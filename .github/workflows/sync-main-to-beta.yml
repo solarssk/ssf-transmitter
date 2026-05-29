@@ -1,0 +1,33 @@
+name: Sync main → beta
+
+# After every push to main (releases, hotfixes), merge main back into beta
+# so the next release branch never has conflicts.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    name: Merge main into beta
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git identity
+        run: |
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+
+      - name: Merge main into beta
+        run: |
+          git checkout beta
+          git merge origin/main --no-edit -m "chore: sync main into beta after release"
+          git push origin beta
