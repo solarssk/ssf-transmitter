@@ -50,6 +50,10 @@ Versioning: [Semantic Versioning](https://semver.org/)
 - Receiver error bodies no longer logged at WARNING — WARNING now logs a SHA-256 body hash (`body_hash=`) for correlation; raw body available at DEBUG only
 - `SECURITY.md` updated: bearer = default/recommended, hmac = legacy, all three webhook auth modes documented; `SSF_WEBHOOK_TOKEN` added to "Data processed" table
 
+---
+
+## [0.2.4] — 2026-05-29
+
 ### Added
 - Version number printed in preflight log header: `── SSF Transmitter preflight  v0.2.4 ──`
 - Apple SCIM preflight diagnostics: when SCIM is disabled, the log now shows exactly which env vars are missing instead of listing all four every time
