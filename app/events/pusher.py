@@ -2,6 +2,7 @@ import logging
 from urllib.parse import urlparse
 
 import httpx
+from jose import jwt
 
 from app.crypto import sign_set, sign_verification_set
 from app.database import Stream
@@ -53,6 +54,13 @@ async def push_set(stream: Stream, event_uri: str, email: str) -> bool:
     except Exception:
         logger.exception("Failed to sign SET event_uri=%s aud=%s", event_uri, stream.aud)
         return False
+
+    logger.debug(
+        "SET payload event_uri=%s aud=%s claims=%s",
+        event_uri,
+        stream.aud,
+        jwt.get_unverified_claims(token),
+    )
 
     headers: dict[str, str] = {"Content-Type": "application/secevent+jwt"}
     if stream.endpoint_token:
