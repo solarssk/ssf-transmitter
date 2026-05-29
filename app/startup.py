@@ -44,7 +44,11 @@ def _check_authentik_connectivity() -> None:
         return
 
     if r.status_code == 200:
-        count = r.json().get("pagination", {}).get("count", "?")
+        try:
+            count = r.json().get("pagination", {}).get("count", "?")
+        except Exception:
+            logger.debug("Authentik API response is not JSON: %s", r.text[:200])
+            count = "?"
         logger.info("%s Authentik API          %s (connected, %s users)", _OK, settings.authentik_url, count)
     elif r.status_code in (401, 403):
         logger.error("%s Authentik API          %s — check AUTHENTIK_TOKEN", _FAIL, r.status_code)
