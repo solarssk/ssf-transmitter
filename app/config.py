@@ -4,6 +4,21 @@ import logging
 import os
 from dataclasses import dataclass
 
+_healthcheck_logger = logging.getLogger("app.health")
+
+
+class _HealthcheckFilter(logging.Filter):
+    """Replace the raw uvicorn access log entry for Docker healthcheck requests
+    with a single readable line from app.health so it's clear what is happening.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        msg = record.getMessage()
+        if "127.0.0.1" in msg and "/jwks.json" in msg:
+            _healthcheck_logger.info("Docker healthcheck OK")
+            return False
+        return True
+
 _WEBHOOK_AUTH_MODES = {"bearer", "hmac", "unsigned"}
 
 
@@ -205,6 +220,7 @@ def configure_logging() -> None:
         uvicorn_log = logging.getLogger(uvicorn_logger_name)
         uvicorn_log.handlers.clear()
         uvicorn_log.propagate = True
+    logging.getLogger("uvicorn.access").addFilter(_HealthcheckFilter())
 
     # Suppress noisy third-party loggers even when DEBUG is enabled globally.
     for noisy in ("aiosqlite", "httpx", "httpcore"):
