@@ -65,14 +65,15 @@ def run_preflight_checks() -> None:
                          _FAIL, f"too short ({wt_len} chars, min 32)" if wt_len else "NOT SET")
             failed = True
     elif mode == "hmac":
+        # Config contract (_parse_webhook_secret) only requires non-empty in hmac mode.
+        # Align preflight with that contract — don't add a stricter rule here.
         ws_len = len(settings.ssf_webhook_secret) if settings.ssf_webhook_secret else 0
-        if ws_len >= 32:
+        if ws_len > 0:
             logger.info("%s SSF_WEBHOOK_AUTH_MODE  hmac (legacy)", _OK)
             logger.info("%s SSF_WEBHOOK_SECRET     configured (%d chars)", _OK, ws_len)
         else:
             logger.info("%s SSF_WEBHOOK_AUTH_MODE  hmac (legacy)", _OK)
-            logger.error("%s SSF_WEBHOOK_SECRET     %s",
-                         _FAIL, f"too short ({ws_len} chars, min 32)" if ws_len else "NOT SET")
+            logger.error("%s SSF_WEBHOOK_SECRET     NOT SET", _FAIL)
             failed = True
     elif mode == "unsigned":
         logger.warning("%s SSF_WEBHOOK_AUTH_MODE  unsigned — NO authentication on webhook (dev/lab only)", _WARN)

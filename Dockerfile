@@ -18,4 +18,14 @@ RUN mkdir -p /app/keys /app/data && \
 
 USER appuser
 
+# Health check — poll /jwks.json (public, no auth, confirms crypto layer is up).
+# Uses Python stdlib so no curl/wget dependency is needed in the image.
+# start-period covers key generation on first start (~2s) plus DB init.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD python3 -c \
+    "import urllib.request, os; \
+     port = os.getenv('SSF_CONTAINER_PORT', '8000'); \
+     urllib.request.urlopen(f'http://localhost:{port}/jwks.json', timeout=4)" \
+  || exit 1
+
 CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${SSF_CONTAINER_PORT:-8000} --proxy-headers --forwarded-allow-ips='*'"]
