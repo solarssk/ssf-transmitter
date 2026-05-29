@@ -87,9 +87,9 @@ async def authorize() -> RedirectResponse:
 
 @router.get("/callback", summary="OAuth callback — Apple redirects here after admin approves")
 async def callback(
-    code: Optional[str] = None,
-    state: Optional[str] = None,
-    error: Optional[str] = None,
+    code: str | None = None,
+    state: str | None = None,
+    error: str | None = None,
 ) -> dict:
     """Handle the redirect from Apple after the admin authorizes the connection.
 

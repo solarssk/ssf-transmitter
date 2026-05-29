@@ -177,10 +177,11 @@ class TestPreflightWebhookAuth:
                 ),
             )
 
-            with patch("app.startup.os.access", return_value=True):
-                with patch("app.startup.Path") as mock_path:
-                    mock_path.return_value.exists.return_value = False
-                    run_preflight_checks()
+            with patch("app.startup.os.access", return_value=True), patch(
+                "app.startup.Path"
+            ) as mock_path:
+                mock_path.return_value.exists.return_value = False
+                run_preflight_checks()
 
             assert "unsigned" in caplog.text
 
@@ -337,8 +338,9 @@ class TestPreflightSuccess:
             ),
         )
 
-        with patch("app.startup.os.access", return_value=True):
-            with caplog.at_level(logging.INFO):
-                run_preflight_checks()
+        with patch("app.startup.os.access", return_value=True), caplog.at_level(
+            logging.INFO
+        ):
+            run_preflight_checks()
 
         assert "preflight OK — starting" in caplog.text
