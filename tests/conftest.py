@@ -22,6 +22,18 @@ os.environ.setdefault("SSF_KEYS_DIR", str(TESTDATA / "keys"))
 
 
 @pytest.fixture(autouse=True)
+def mock_preflight(monkeypatch):
+    """Skip preflight checks in tests.
+
+    Preflight verifies infrastructure (key files, DB directory) that is set up
+    by the test harness, not something API tests should re-verify.  More
+    importantly, sys.exit(0) inside an async lifespan context raises SystemExit
+    which anyio wraps in BaseExceptionGroup, breaking the test runner.
+    """
+    monkeypatch.setattr("app.startup.run_preflight_checks", lambda: None)
+
+
+@pytest.fixture(autouse=True)
 def mock_push_verification_set(monkeypatch):
     """Prevent real outbound HTTP calls during stream creation tests."""
 

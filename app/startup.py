@@ -106,8 +106,9 @@ def run_preflight_checks() -> None:
     db_path = Path(settings.database_path)
     db_dir = db_path.parent
     if not db_dir.exists():
-        logger.error("%s Database dir           %s does not exist — mount /app/data volume", _FAIL, db_dir)
-        failed = True
+        # Directory will be created by init_db(); warn but don't fail.
+        logger.warning("%s Database dir           %s does not exist yet — will be created on start",
+                       _WARN, db_dir)
     elif not os.access(db_dir, os.W_OK):
         logger.error("%s Database dir           %s is not writable — check volume permissions", _FAIL, db_dir)
         failed = True
