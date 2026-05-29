@@ -48,11 +48,6 @@ async def lifespan(app: FastAPI):
     if settings.apple_scim_enabled:
         logger.info("Apple SCIM sync enabled — background sync every %ds", settings.apple_scim_sync_interval)
         apple_scim_task = asyncio.create_task(_apple_scim_sync_loop())
-    else:
-        logger.info(
-            "Apple SCIM sync disabled "
-            "(set APPLE_SCIM_CLIENT_ID, APPLE_SCIM_CLIENT_SECRET, AUTHENTIK_URL, AUTHENTIK_TOKEN to enable)"
-        )
 
     yield
 
