@@ -55,12 +55,13 @@ async def push_set(stream: Stream, event_uri: str, email: str) -> bool:
         logger.exception("Failed to sign SET event_uri=%s aud=%s", event_uri, stream.aud)
         return False
 
-    logger.debug(
-        "SET payload event_uri=%s aud=%s claims=%s",
-        event_uri,
-        stream.aud,
-        jwt.get_unverified_claims(token),
-    )
+    if logger.isEnabledFor(logging.DEBUG):
+        try:
+            claims = jwt.get_unverified_claims(token)
+            safe = {k: v for k, v in claims.items() if k not in ("sub_id", "sub")}
+            logger.debug("SET claims event_uri=%s aud=%s payload=%s", event_uri, stream.aud, safe)
+        except Exception:
+            logger.debug("SET claims could not be decoded event_uri=%s", event_uri)
 
     headers: dict[str, str] = {"Content-Type": "application/secevent+jwt"}
     if stream.endpoint_token:
