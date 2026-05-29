@@ -39,15 +39,20 @@ jobs:
         run: docker build -t ssf-transmitter:ci .
 
       - name: Scan image for HIGH/CRITICAL vulnerabilities
-        run: |
-          trivy image \
-            --severity HIGH,CRITICAL \
-            --ignore-unfixed \
-            --exit-code 0 \
-            ssf-transmitter:ci
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8  # v0.36.0
+        with:
+          image-ref: ssf-transmitter:ci
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "0"
 
       - name: Generate SBOM (CycloneDX)
-        run: trivy image --format cyclonedx --output sbom-cyclonedx.json ssf-transmitter:ci
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8  # v0.36.0
+        with:
+          image-ref: ssf-transmitter:ci
+          format: cyclonedx
+          output: sbom-cyclonedx.json
 
       - name: Upload SBOM artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
