@@ -6,4 +6,4 @@ cryptography>=48.0.0,<49.0.0
 httpx>=0.28.1,<1.0.0
 python-dotenv>=1.2.2,<2.0.0
 # Optional: enable ANSI-coloured logs with SSF_LOG_COLOR=true
-colorlog>=6.8,<7.0.0
+colorlog>=6.10.1,<7.0.0
