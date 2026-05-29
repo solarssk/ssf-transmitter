@@ -290,7 +290,15 @@ def test_hmac_mode_without_secret_raises():
 
 
 def test_allow_unsigned_legacy_alias():
-    """SSF_ALLOW_UNSIGNED_WEBHOOK=true maps to unsigned mode."""
+    """SSF_ALLOW_UNSIGNED_WEBHOOK=true maps to unsigned mode regardless of SSF_WEBHOOK_AUTH_MODE."""
     from app.config import _parse_webhook_auth_mode
+    # Legacy flag overrides any explicit mode value
     assert _parse_webhook_auth_mode(None, allow_unsigned_legacy=True) == "unsigned"
     assert _parse_webhook_auth_mode("bearer", allow_unsigned_legacy=True) == "unsigned"
+    assert _parse_webhook_auth_mode("unsigned", allow_unsigned_legacy=True) == "unsigned"
+    # Without legacy flag, explicit mode is respected
+    assert _parse_webhook_auth_mode("bearer", allow_unsigned_legacy=False) == "bearer"
+    assert _parse_webhook_auth_mode("hmac", allow_unsigned_legacy=False) == "hmac"
+    assert _parse_webhook_auth_mode(None, allow_unsigned_legacy=False) == "bearer"  # default
+
+
