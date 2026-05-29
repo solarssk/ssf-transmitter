@@ -7,7 +7,48 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ---
 
-## [Unreleased] — v0.2.4
+## [Unreleased]
+
+---
+
+## [0.3.0] — 2026-05-29
+
+### Added
+- **Structured CAEP event payloads** — `session-revoked` now carries `event_timestamp`, `initiating_entity`, and `reason_admin`; `credential-change` carries `credential_type`, `change_type`, and `event_timestamp` per CAEP Interoperability Profile
+- **`txn` claim in every SET** — derived from Authentik event `pk` when available so multiple SETs from one webhook share the same transaction ID; falls back to a fresh UUID
+- **`events_requested` filtering** — `push_set` skips events not listed in the stream's `events_requested`; empty list means no filter (backward compatible)
+- **`POST /ssf/verification`** — receiver-initiated verification endpoint (management auth required); accepts optional `{"state": "..."}` body; returns 202/404/502
+- **`verification_endpoint`** in `.well-known/ssf-configuration` discovery response
+- **`SSF_ISSUER` startup warnings** — preflight warns (⚠️, no exit) when `SSF_ISSUER` differs from `SSF_BASE_URL` or looks like an Authentik OIDC application URL; suppressed with `SSF_ALLOW_CUSTOM_ISSUER=true`
+- **`SSF_ALLOW_CUSTOM_ISSUER`** env var (bool, default false)
+- **`SSF_LOG_COLOR`** env var — enables ANSI-coloured log output; Portainer renders ANSI codes; requires optional `colorlog` package (falls back to plain text)
+- **Log rotation** in `docker-compose.snippet.yml` — `json-file` driver with `max-size: 10m` / `max-file: 5`
+- **Trivy image scan** in CI — scans locally built image for HIGH/CRITICAL CVEs; results uploaded to GitHub Security tab (SARIF)
+- **SBOM (CycloneDX)** generated on every CI build and uploaded as a 90-day artifact
+- **`SSF_PII_PEPPER`** documented in `.env.example`
+
+### Changed
+- **`push_set` return type** is now `bool | None` — `None` means intentionally skipped (disabled stream or event not in `events_requested`); callers must not count `None` as a delivery failure
+- **Canonical RISC URIs** for account-state events — `account-disabled/enabled/purged` moved from `caep/event-type/` to `risc/event-type/` namespace; legacy `caep/` URIs accepted on input and canonicalized transparently
+- **`push_verification_set`** accepts optional `state` parameter forwarded to the verification SET
+- **`supported_scopes`** removed from `.well-known/ssf-configuration` — was incorrectly claiming `["openid"]` (OAuth2 not implemented)
+- **`SSF_WEBHOOK_AUTH_MODE=unsigned`** startup message strengthened: "never use in production"
+- **`SSF_ALLOW_UNSIGNED_WEBHOOK=true`** logs a DEPRECATED warning at startup; alias still works but will be removed in a future release
+- **`account-enabled/disabled`** events are only emitted when `is_active` is listed in `changed_fields` — prevents false events when `is_active` is present in context but unchanged
+- **Healthcheck log** reduced from `INFO` to `DEBUG` — no longer floods Portainer at default `LOG_LEVEL=INFO`
+- **GitHub Actions SHA-pinned** — all `uses:` in `ci.yml` and `docker-publish.yml` reference immutable commit SHAs
+- **Docker base image** switched from `python:3.12-slim` (Debian 13 Trixie/testing) to `python:3.12-slim-bookworm@sha256:…` (Debian 12 LTS, pinned digest) for reproducible builds and stable CVE support
+- **Dependabot** extended to track Docker base image digest updates weekly
+
+### Fixed
+- `push_verification_set` now validates the endpoint before signing the JWT (consistent with `push_set` order)
+- Redundant `enabled_streams` filter removed from webhook handler — `push_set` already handles disabled streams
+- `sign_set` uses `event_payload: dict | None = None` default instead of mutable `{}` (Python mutable-default bug)
+
+### Security
+- **`Accept: application/json`** header added to all SET push requests per RFC 8935 §4
+- Receiver error bodies no longer logged at WARNING — WARNING now logs a SHA-256 body hash (`body_hash=`) for correlation; raw body available at DEBUG only
+- `SECURITY.md` updated: bearer = default/recommended, hmac = legacy, all three webhook auth modes documented; `SSF_WEBHOOK_TOKEN` added to "Data processed" table
 
 ### Added
 - Version number printed in preflight log header: `── SSF Transmitter preflight  v0.2.4 ──`
