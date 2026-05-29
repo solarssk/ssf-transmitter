@@ -14,7 +14,6 @@ router = APIRouter(prefix="/ssf", dependencies=[Depends(require_management_auth)
 
 
 class VerificationRequest(BaseModel):
-    stream_id: str | None = None
     state: str | None = None
 
 
