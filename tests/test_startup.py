@@ -23,8 +23,9 @@ pytestmark = pytest.mark.no_dns_mock
 def _good_settings(**overrides):
     """Return a MagicMock settings object with all checks passing."""
     defaults = dict(
-        ssf_issuer="https://idp.example.com/application/o/apple-id/",
+        ssf_issuer="https://idp.example.com/shared-signals",
         ssf_base_url="https://idp.example.com/shared-signals",
+        ssf_allow_custom_issuer=False,
         ssf_management_token="x" * 32,
         ssf_webhook_auth_mode="hmac",
         ssf_webhook_secret="x" * 32,
@@ -230,3 +231,17 @@ class TestPreflightSuccess:
             run_preflight_checks()
 
         assert "preflight OK — starting" in caplog.text
+
+
+class TestPreflightDeprecation:
+    def test_allow_unsigned_webhook_legacy_alias_logs_deprecation(self, monkeypatch, caplog):
+        monkeypatch.setattr(
+            "app.startup.settings",
+            _good_settings(ssf_webhook_auth_mode="unsigned", ssf_webhook_token=None, ssf_webhook_secret=""),
+        )
+        monkeypatch.setenv("SSF_ALLOW_UNSIGNED_WEBHOOK", "true")
+
+        run_preflight_checks()
+
+        assert "SSF_ALLOW_UNSIGNED_WEBHOOK" in caplog.text
+        assert "DEPRECATED" in caplog.text

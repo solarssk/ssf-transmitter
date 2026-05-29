@@ -9,7 +9,7 @@ from fastapi import FastAPI
 from app.config import configure_logging, settings
 from app.crypto import ensure_keys
 from app.database import init_db
-from app.routes import apple_scim, jwks, streams, webhook, wellknown
+from app.routes import apple_scim, jwks, streams, verification, webhook, wellknown
 from app.startup import run_preflight_checks
 
 configure_logging()
@@ -63,5 +63,6 @@ app = FastAPI(root_path=settings.ssf_root_path, title="SSF Transmitter", lifespa
 app.include_router(wellknown.router)
 app.include_router(jwks.router)
 app.include_router(streams.router)
+app.include_router(verification.router)
 app.include_router(webhook.router)
 app.include_router(apple_scim.router)

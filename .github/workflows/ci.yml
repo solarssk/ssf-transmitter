@@ -9,13 +9,18 @@ jobs:
   test:
     name: Test and lint
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write  # required for SARIF upload to Security tab
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+        with:
+          persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6
         with:
           python-version: "3.12"
           cache: "pip"
@@ -37,3 +42,42 @@ jobs:
 
       - name: Build Docker image
         run: docker build -t ssf-transmitter:ci .
+
+      # Scan for vulnerabilities — exit-code 0 means reporting only (does not block CI).
+      # Findings are uploaded to the Security tab for triage. Once the base image
+      # vulnerabilities are addressed, exit-code can be raised to "1".
+      # --ignore-unfixed: skip CVEs with no available fix.
+      - name: Scan image for HIGH/CRITICAL vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
+        with:
+          image-ref: ssf-transmitter:ci
+          format: sarif
+          output: trivy-results.sarif
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "0"
+        env:
+          TRIVY_CACHE_DIR: /tmp/trivy-cache
+
+      - name: Upload Trivy scan results to Security tab
+        uses: github/codeql-action/upload-sarif@f52b05f4acaaa234e44466e66d29050e135ea9ef  # v4.36.0
+        if: always()
+        with:
+          sarif_file: trivy-results.sarif
+
+      # SBOM generation reuses Trivy DB cached from the scan step above.
+      - name: Generate SBOM (CycloneDX)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
+        with:
+          image-ref: ssf-transmitter:ci
+          format: cyclonedx
+          output: sbom-cyclonedx.json
+        env:
+          TRIVY_CACHE_DIR: /tmp/trivy-cache
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: sbom-cyclonedx
+          path: sbom-cyclonedx.json
+          retention-days: 90

@@ -75,17 +75,25 @@ def test_unsupported_event_uri_rejected(client: TestClient):
 
 
 def test_all_supported_event_uris_accepted(client: TestClient):
-    supported = [
+    # Legacy caep/ account URIs are accepted on input but canonicalized to risc/ on output.
+    submitted = [
         "https://schemas.openid.net/secevent/caep/event-type/session-revoked",
         "https://schemas.openid.net/secevent/caep/event-type/credential-change",
         "https://schemas.openid.net/secevent/caep/event-type/account-disabled",
         "https://schemas.openid.net/secevent/caep/event-type/account-enabled",
         "https://schemas.openid.net/secevent/caep/event-type/account-purged",
     ]
-    payload = {**VALID_PAYLOAD, "events_requested": supported}
+    expected = [
+        "https://schemas.openid.net/secevent/caep/event-type/session-revoked",
+        "https://schemas.openid.net/secevent/caep/event-type/credential-change",
+        "https://schemas.openid.net/secevent/risc/event-type/account-disabled",
+        "https://schemas.openid.net/secevent/risc/event-type/account-enabled",
+        "https://schemas.openid.net/secevent/risc/event-type/account-purged",
+    ]
+    payload = {**VALID_PAYLOAD, "events_requested": submitted}
     resp = client.post("/ssf/streams", json=payload, headers=MGMT_HEADERS)
     assert resp.status_code == 201
-    assert resp.json()["events_requested"] == supported
+    assert resp.json()["events_requested"] == expected
 
 
 def test_empty_events_requested_accepted(client: TestClient):

@@ -68,6 +68,19 @@ def run_preflight_checks() -> None:
     # SSF_ISSUER
     if settings.ssf_issuer:
         logger.info("%s SSF_ISSUER            %s", _OK, settings.ssf_issuer)
+        if not settings.ssf_allow_custom_issuer:
+            if settings.ssf_issuer.rstrip("/") != settings.ssf_base_url.rstrip("/"):
+                logger.warning(
+                    "%s SSF_ISSUER            differs from SSF_BASE_URL — receivers may fail "
+                    "to validate SETs; set SSF_ALLOW_CUSTOM_ISSUER=true to suppress this warning",
+                    _WARN,
+                )
+            if "/application/o/" in settings.ssf_issuer:
+                logger.warning(
+                    "%s SSF_ISSUER            looks like an Authentik OIDC application URL — "
+                    "SSF_ISSUER should be the transmitter's public base URL (usually SSF_BASE_URL)",
+                    _WARN,
+                )
     else:
         logger.error("%s SSF_ISSUER            NOT SET", _FAIL)
         failed = True
@@ -111,7 +124,17 @@ def run_preflight_checks() -> None:
             logger.error("%s SSF_WEBHOOK_SECRET     NOT SET", _FAIL)
             failed = True
     elif mode == "unsigned":
-        logger.warning("%s SSF_WEBHOOK_AUTH_MODE  unsigned — NO authentication on webhook (dev/lab only)", _WARN)
+        logger.warning(
+            "%s SSF_WEBHOOK_AUTH_MODE  unsigned — NO authentication on webhook "
+            "(dev/lab only, never use in production)",
+            _WARN,
+        )
+        if os.getenv("SSF_ALLOW_UNSIGNED_WEBHOOK", "").lower() == "true":
+            logger.warning(
+                "%s SSF_ALLOW_UNSIGNED_WEBHOOK  DEPRECATED — set SSF_WEBHOOK_AUTH_MODE=unsigned "
+                "explicitly instead; this alias will be removed in a future release",
+                _WARN,
+            )
     else:
         logger.error("%s SSF_WEBHOOK_AUTH_MODE  unknown value %r", _FAIL, mode)
         failed = True

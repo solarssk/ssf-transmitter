@@ -156,10 +156,9 @@ async def authentik_webhook(request: Request) -> dict:
         return {"status": "ignored", "reason": "missing_email"}
 
     streams = await list_streams()
-    enabled_streams = [stream for stream in streams if stream.status == "enabled"]
-    if not enabled_streams:
+    if not streams:
         logger.warning(
-            "No enabled SSF stream available for event delivery action=%s email=%s",
+            "No SSF stream configured for event delivery action=%s email=%s",
             action,
             safe_email,
         )
@@ -167,11 +166,13 @@ async def authentik_webhook(request: Request) -> dict:
 
     delivered = 0
     failed = 0
-    for stream in enabled_streams:
-        for event_uri in events:
-            if await push_set(stream, event_uri, email):
+    for stream in streams:
+        for event in events:
+            result = await push_set(stream, event, email)
+            if result is True:
                 delivered += 1
-            else:
+            elif result is False:
                 failed += 1
+            # None = intentionally skipped (not in events_requested) — not a failure
 
     return {"status": "ok", "delivered": delivered, "failed": failed}

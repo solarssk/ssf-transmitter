@@ -162,6 +162,58 @@ def test_wellknown_delivery_method_is_rfc8935():
 
 
 # ---------------------------------------------------------------------------
+# txn claim
+# ---------------------------------------------------------------------------
+
+
+def test_set_payload_txn_present():
+    token = sign_set(event_uri=EVENT_URI, audience=AUDIENCE, email=EMAIL)
+    assert "txn" in _decode_payload(token)
+
+
+def test_set_payload_txn_uses_provided_value():
+    token = sign_set(event_uri=EVENT_URI, audience=AUDIENCE, email=EMAIL, txn="my-txn-value")
+    assert _decode_payload(token)["txn"] == "my-txn-value"
+
+
+def test_set_payload_txn_defaults_to_uuid_when_not_provided():
+    import uuid
+    token = sign_set(event_uri=EVENT_URI, audience=AUDIENCE, email=EMAIL)
+    txn = _decode_payload(token)["txn"]
+    uuid.UUID(txn)  # raises ValueError if not a valid UUID
+
+
+# ---------------------------------------------------------------------------
+# event_payload claim
+# ---------------------------------------------------------------------------
+
+
+def test_set_payload_event_body_is_empty_dict_by_default():
+    token = sign_set(event_uri=EVENT_URI, audience=AUDIENCE, email=EMAIL)
+    events = _decode_payload(token)["events"]
+    assert events[EVENT_URI] == {}
+
+
+def test_set_payload_event_body_contains_provided_payload():
+    ep = {"event_timestamp": 1234567890, "initiating_entity": "policy",
+          "reason_admin": {"en": "Test"}}
+    token = sign_set(event_uri=EVENT_URI, audience=AUDIENCE, email=EMAIL, event_payload=ep)
+    assert _decode_payload(token)["events"][EVENT_URI] == ep
+
+
+def test_sign_set_mutable_default_not_shared_between_calls():
+    """sign_set must not mutate a caller-supplied mutable payload dict."""
+    original = {"event_timestamp": 12345}
+    snapshot = dict(original)
+    sign_set(event_uri=EVENT_URI, audience=AUDIENCE, email=EMAIL, event_payload=original)
+    assert original == snapshot, "sign_set must not modify the caller's event_payload dict"
+
+    # Calling twice with the same dict must not cause cross-call contamination
+    t2 = sign_set(event_uri=EVENT_URI, audience=AUDIENCE, email=EMAIL, event_payload=original)
+    assert _decode_payload(t2)["events"][EVENT_URI] == snapshot
+
+
+# ---------------------------------------------------------------------------
 # Log redaction — no JWT in logs
 # ---------------------------------------------------------------------------
 

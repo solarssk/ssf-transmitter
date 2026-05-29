@@ -1,4 +1,7 @@
-FROM python:3.12-slim
+# Pin to an immutable digest for reproducible builds and predictable CVE surface.
+# To update: docker pull python:3.12-slim-bookworm && docker inspect --format='{{index .RepoDigests 0}}'
+# Dependabot will propose digest bumps automatically when a new image is published.
+FROM python:3.12-slim-bookworm@sha256:42ada43c4265e1ed6db62ad8df62af99a4abb9a9d49622032522ac76efb0bcef
 
 ARG APP_VERSION=dev
 ENV APP_VERSION=${APP_VERSION}

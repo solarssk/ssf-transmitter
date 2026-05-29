@@ -61,7 +61,7 @@ def test_ssf_metadata_uses_public_base_url(client: TestClient):
         "add_subject_endpoint": "https://idp.example.com/shared-signals/ssf/streams/subjects:add",
         "remove_subject_endpoint": "https://idp.example.com/shared-signals/ssf/streams/subjects:remove",
         "status_endpoint": "https://idp.example.com/shared-signals/ssf/status",
-        "supported_scopes": ["openid"],
+        "verification_endpoint": "https://idp.example.com/shared-signals/ssf/verification",
         "critical_subject_members": [],
         "spec_version": "1_0",
     }
@@ -162,8 +162,8 @@ def test_webhook_delivers_mapped_event_without_logging_or_posting_real_token(cli
     create_stream(client)  # uses MGMT_HEADERS internally
     pushed = []
 
-    async def fake_push_set(stream, event_uri, email):
-        pushed.append((stream.aud, event_uri, email, stream.endpoint_token))
+    async def fake_push_set(stream, event, email):
+        pushed.append((stream.aud, event.uri, email, stream.endpoint_token))
         return True
 
     monkeypatch.setattr("app.routes.webhook.push_set", fake_push_set)

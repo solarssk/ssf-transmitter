@@ -91,13 +91,21 @@ def _load_signing_material() -> tuple[str, str]:
     return private_pem, kid
 
 
-def sign_set(event_uri: str, audience: str, email: str) -> str:
+def sign_set(
+    event_uri: str,
+    audience: str,
+    email: str,
+    *,
+    event_payload: dict[str, Any] | None = None,
+    txn: str | None = None,
+) -> str:
     """Sign a Security Event Token (SET) JWT for the given event and subject email.
 
     Conforms to SSF Framework 1.0 (final):
     - ``sub_id`` at top level with ``format: email`` (SSF §5.1)
     - ``aud`` as single-element array (RFC 7519 §4.1.3)
     - ``typ: secevent+jwt`` header (RFC 8417 §2.3)
+    - ``txn`` included per SSF SHOULD requirement; falls back to a fresh UUID
     - No ``exp`` or ``sub`` claims
     """
     private_pem, kid = _load_signing_material()
@@ -106,12 +114,13 @@ def sign_set(event_uri: str, audience: str, email: str) -> str:
         "iat": int(time.time()),
         "jti": str(uuid.uuid4()),
         "aud": [audience],
+        "txn": txn or str(uuid.uuid4()),
         "sub_id": {
             "format": "email",
             "email": email,
         },
         "events": {
-            event_uri: {},
+            event_uri: event_payload if event_payload is not None else {},
         },
     }
     return jwt.encode(payload, private_pem, algorithm="RS256", headers={"kid": kid, "typ": "secevent+jwt"})
