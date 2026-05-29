@@ -20,10 +20,12 @@ _OK = "  ✅"
 _WARN = "  ⚠️ "
 _FAIL = "  ❌"
 
+_VERSION = os.getenv("APP_VERSION", "dev")
+
 
 def run_preflight_checks() -> None:
     """Run all startup checks and exit with code 0 if any critical check fails."""
-    logger.info("── SSF Transmitter preflight ──")
+    logger.info("── SSF Transmitter preflight  v%s ──", _VERSION)
     failed = False
 
     # ------------------------------------------------------------------ #
@@ -129,8 +131,15 @@ def run_preflight_checks() -> None:
         logger.info("%s Apple SCIM             enabled (sync every %ds)",
                     _OK, settings.apple_scim_sync_interval)
     else:
-        logger.warning("%s Apple SCIM             disabled (set APPLE_SCIM_CLIENT_ID, "
-                       "APPLE_SCIM_CLIENT_SECRET, AUTHENTIK_URL, AUTHENTIK_TOKEN to enable)", _WARN)
+        missing = [
+            name for name, val in [
+                ("APPLE_SCIM_CLIENT_ID", settings.apple_scim_client_id),
+                ("APPLE_SCIM_CLIENT_SECRET", settings.apple_scim_client_secret),
+                ("AUTHENTIK_URL", settings.authentik_url),
+                ("AUTHENTIK_TOKEN", settings.authentik_token),
+            ] if not val
+        ]
+        logger.warning("%s Apple SCIM             disabled — missing: %s", _WARN, ", ".join(missing))
 
     # ------------------------------------------------------------------ #
     # Result                                                               #
