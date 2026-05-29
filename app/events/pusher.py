@@ -7,6 +7,7 @@ from jose import jwt
 
 from app.crypto import sign_set, sign_verification_set
 from app.database import Stream
+from app.events.mapper import MappedEvent
 from app.security.url_validation import _is_blocked_ip, _resolve_host
 
 logger = logging.getLogger(__name__)
@@ -41,28 +42,46 @@ def _revalidate_endpoint(url: str) -> bool:
     return True
 
 
-async def push_set(stream: Stream, event_uri: str, email: str) -> bool:
-    """Sign and push a Security Event Token to the stream's endpoint; returns True on success."""
+async def push_set(stream: Stream, event: MappedEvent, email: str) -> bool | None:
+    """Sign and push a Security Event Token; returns True on success, False on failure, None if skipped.
+
+    None is returned when the event is intentionally skipped (e.g. not in
+    stream.events_requested). Callers must not count None as a delivery failure.
+    """
     if stream.status != "enabled":
         logger.warning("Skipping disabled SSF stream stream_id=%s status=%s", stream.stream_id, stream.status)
-        return False
+        return None
+
+    if stream.events_requested and event.uri not in stream.events_requested:
+        logger.info(
+            "Skipping SET — event URI not in stream.events_requested stream_id=%s event_uri=%s",
+            stream.stream_id,
+            event.uri,
+        )
+        return None
 
     if not _revalidate_endpoint(stream.endpoint_url):
         return False
 
     try:
-        token = sign_set(event_uri=event_uri, audience=stream.aud, email=email)
+        token = sign_set(
+            event_uri=event.uri,
+            audience=stream.aud,
+            email=email,
+            event_payload=event.payload,
+            txn=event.txn,
+        )
     except Exception:
-        logger.exception("Failed to sign SET event_uri=%s aud=%s", event_uri, stream.aud)
+        logger.exception("Failed to sign SET event_uri=%s aud=%s", event.uri, stream.aud)
         return False
 
     if logger.isEnabledFor(logging.DEBUG):
         try:
             claims = jwt.get_unverified_claims(token)
             safe = {k: v for k, v in claims.items() if k not in ("sub_id", "sub")}
-            logger.debug("SET claims event_uri=%s aud=%s payload=%s", event_uri, stream.aud, safe)
+            logger.debug("SET claims event_uri=%s aud=%s payload=%s", event.uri, stream.aud, safe)
         except Exception:
-            logger.debug("SET claims could not be decoded event_uri=%s", event_uri)
+            logger.debug("SET claims could not be decoded event_uri=%s", event.uri)
 
     headers: dict[str, str] = {
         "Content-Type": "application/secevent+jwt",
@@ -77,7 +96,7 @@ async def push_set(stream: Stream, event_uri: str, email: str) -> bool:
     except httpx.HTTPError:
         logger.exception(
             "Failed to push SET event_uri=%s aud=%s endpoint_host=%s",
-            event_uri,
+            event.uri,
             stream.aud,
             _safe_host(stream.endpoint_url),
         )
@@ -87,7 +106,7 @@ async def push_set(stream: Stream, event_uri: str, email: str) -> bool:
         body_hash = hashlib.sha256(response.content).hexdigest()[:8]
         logger.warning(
             "Receiver returned error for SET event_uri=%s aud=%s endpoint_host=%s status_code=%s body_hash=%s",
-            event_uri,
+            event.uri,
             stream.aud,
             _safe_host(stream.endpoint_url),
             response.status_code,
@@ -99,7 +118,7 @@ async def push_set(stream: Stream, event_uri: str, email: str) -> bool:
 
     logger.info(
         "Pushed SET event_uri=%s aud=%s endpoint_host=%s status_code=%s",
-        event_uri,
+        event.uri,
         stream.aud,
         _safe_host(stream.endpoint_url),
         response.status_code,
@@ -113,13 +132,13 @@ async def push_verification_set(stream: "Stream") -> bool:
     Event type URI follows SSF Framework §6.2.  Per RFC 8417, when the transmitter
     initiates verification, ``state`` is omitted.
     """
+    if not _revalidate_endpoint(stream.endpoint_url):
+        return False
+
     try:
         token = sign_verification_set(audience=stream.aud, stream_id=stream.stream_id)
     except Exception:
         logger.exception("Failed to sign verification SET aud=%s", stream.aud)
-        return False
-
-    if not _revalidate_endpoint(stream.endpoint_url):
         return False
 
     headers: dict[str, str] = {
