@@ -187,32 +187,12 @@ except RuntimeError as _cfg_exc:
     _sys.exit(1)
 
 
-class _SuppressPollingAccess(logging.Filter):
-    """Drop uvicorn access log lines for high-frequency polling endpoints.
-
-    Apple Business Manager polls /jwks.json and /.well-known/ssf-configuration
-    every ~60 seconds.  Successful (2xx) requests for these paths add no
-    diagnostic value and flood Portainer.  Non-2xx responses are always kept
-    so errors remain visible.
-    """
-
-    _QUIET_PATHS = frozenset({"/jwks.json", "/.well-known/ssf-configuration"})
-
-    def filter(self, record: logging.LogRecord) -> bool:
-        msg = record.getMessage()
-        for path in self._QUIET_PATHS:
-            if path in msg and '" 2' in msg:  # 2xx response
-                return False
-        return True
-
-
 def configure_logging() -> None:
     """Configure the root logger using the level from :data:`settings`.
 
-    - Unifies log format across uvicorn and application loggers.
+    - Unifies log format across uvicorn and application loggers so all lines
+      have the same timestamp format in Portainer.
     - Caps noisy third-party loggers at WARNING (aiosqlite, httpx, httpcore).
-    - Suppresses uvicorn access logs for polling endpoints (JWKS, SSF config)
-      that produce no diagnostic value during normal operation.
     """
     fmt = "%(asctime)s %(levelname)s [%(name)s] %(message)s"
     logging.basicConfig(
@@ -225,9 +205,6 @@ def configure_logging() -> None:
         uvicorn_log = logging.getLogger(uvicorn_logger_name)
         uvicorn_log.handlers.clear()
         uvicorn_log.propagate = True
-
-    # Suppress high-frequency polling access logs (200 OK on /jwks.json etc.)
-    logging.getLogger("uvicorn.access").addFilter(_SuppressPollingAccess())
 
     # Suppress noisy third-party loggers even when DEBUG is enabled globally.
     for noisy in ("aiosqlite", "httpx", "httpcore"):
