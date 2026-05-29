@@ -11,6 +11,15 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ---
 
+## [0.3.1] — 2026-05-30
+
+### Changed
+- Docker base image updated from `python:3.12-slim-bookworm` to `python:3.14-slim-bookworm` (Python 3.14, Debian 12 LTS)
+- `colorlog` updated to `>=6.10.1` (patch)
+- CI: `actions/upload-artifact` bumped to v7.0.1; `github/codeql-action` SHA updated
+
+---
+
 ## [0.3.0] — 2026-05-29
 
 ### Added
