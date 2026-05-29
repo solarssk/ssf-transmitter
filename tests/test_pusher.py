@@ -156,7 +156,9 @@ async def test_push_set_reports_receiver_error(monkeypatch, stream, event, caplo
 
 
 @pytest.mark.anyio
-async def test_push_set_skips_disabled_stream(stream, event):
+async def test_push_set_skips_disabled_stream(monkeypatch, stream, event):
+    FakeAsyncClient.requests = []
+    monkeypatch.setattr(pusher.httpx, "AsyncClient", FakeAsyncClient)
     disabled_stream = Stream(
         stream_id=stream.stream_id,
         aud=stream.aud,
@@ -170,11 +172,14 @@ async def test_push_set_skips_disabled_stream(stream, event):
     result = await pusher.push_set(disabled_stream, event, "user@example.com")
 
     assert result is None
+    assert FakeAsyncClient.requests == []
 
 
 @pytest.mark.anyio
 async def test_push_set_skips_event_not_in_events_requested(monkeypatch, stream):
     """Events not listed in stream.events_requested return None (skipped), not False (failure)."""
+    FakeAsyncClient.requests = []
+    monkeypatch.setattr(pusher.httpx, "AsyncClient", FakeAsyncClient)
     stream_with_filter = Stream(
         stream_id=stream.stream_id,
         aud=stream.aud,
@@ -189,6 +194,7 @@ async def test_push_set_skips_event_not_in_events_requested(monkeypatch, stream)
     result = await pusher.push_set(stream_with_filter, other_event, "user@example.com")
 
     assert result is None
+    assert FakeAsyncClient.requests == []
 
 
 @pytest.mark.anyio

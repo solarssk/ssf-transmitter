@@ -113,7 +113,7 @@ async def push_set(stream: Stream, event: MappedEvent, email: str) -> bool | Non
             body_hash,
         )
         if logger.isEnabledFor(logging.DEBUG):
-            logger.debug("Receiver error body (capped): %s", response.text[:200])
+            logger.debug("Receiver error body_hash=%s body_len=%d", body_hash, len(response.content))
         return False
 
     logger.info(
@@ -169,7 +169,7 @@ async def push_verification_set(stream: "Stream", state: str | None = None) -> b
             body_hash,
         )
         if logger.isEnabledFor(logging.DEBUG):
-            logger.debug("Receiver error body (capped): %s", response.text[:200])
+            logger.debug("Receiver error body_hash=%s body_len=%d", body_hash, len(response.content))
         return False
 
     logger.info(

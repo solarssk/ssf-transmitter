@@ -177,10 +177,10 @@ def test_set_payload_txn_uses_provided_value():
 
 
 def test_set_payload_txn_defaults_to_uuid_when_not_provided():
-    import re
+    import uuid
     token = sign_set(event_uri=EVENT_URI, audience=AUDIENCE, email=EMAIL)
     txn = _decode_payload(token)["txn"]
-    assert re.match(r"[0-9a-f-]{36}", txn), f"txn not a UUID: {txn}"
+    uuid.UUID(txn)  # raises ValueError if not a valid UUID
 
 
 # ---------------------------------------------------------------------------
@@ -202,15 +202,15 @@ def test_set_payload_event_body_contains_provided_payload():
 
 
 def test_sign_set_mutable_default_not_shared_between_calls():
-    """event_payload=None default must not share state between calls (mutable default bug)."""
-    t1 = sign_set(event_uri=EVENT_URI, audience=AUDIENCE, email=EMAIL)
-    t2 = sign_set(event_uri=EVENT_URI, audience=AUDIENCE, email=EMAIL)
-    p1 = _decode_payload(t1)["events"][EVENT_URI]
-    p2 = _decode_payload(t2)["events"][EVENT_URI]
-    assert p1 == p2 == {}
-    # Mutating p1 must not affect p2
-    p1["injected"] = True
-    assert "injected" not in _decode_payload(t2)["events"][EVENT_URI]
+    """sign_set must not mutate a caller-supplied mutable payload dict."""
+    original = {"event_timestamp": 12345}
+    snapshot = dict(original)
+    sign_set(event_uri=EVENT_URI, audience=AUDIENCE, email=EMAIL, event_payload=original)
+    assert original == snapshot, "sign_set must not modify the caller's event_payload dict"
+
+    # Calling twice with the same dict must not cause cross-call contamination
+    t2 = sign_set(event_uri=EVENT_URI, audience=AUDIENCE, email=EMAIL, event_payload=original)
+    assert _decode_payload(t2)["events"][EVENT_URI] == snapshot
 
 
 # ---------------------------------------------------------------------------
