@@ -12,6 +12,8 @@ import logging
 import os
 from pathlib import Path
 
+import httpx
+
 from app.config import settings
 
 logger = logging.getLogger("app.startup")
@@ -20,10 +22,43 @@ _OK = "  ✅"
 _WARN = "  ⚠️ "
 _FAIL = "  ❌"
 
+_VERSION = os.getenv("APP_VERSION", "dev")
+
+
+def _check_authentik_connectivity() -> None:
+    """Probe Authentik API to verify URL and token are correct.
+
+    Non-fatal — logs ✅/⚠️/❌ but never exits. SCIM sync will surface errors
+    later if the connection is broken.
+    """
+    url = f"{settings.authentik_url}/api/v3/core/users/?page_size=1"
+    try:
+        r = httpx.get(
+            url,
+            headers={"Authorization": f"Bearer {settings.authentik_token}"},
+            timeout=5.0,
+            follow_redirects=False,
+        )
+    except httpx.HTTPError as exc:
+        logger.warning("%s Authentik API          unreachable (%s) — check AUTHENTIK_URL", _WARN, exc)
+        return
+
+    if r.status_code == 200:
+        try:
+            count = r.json().get("pagination", {}).get("count", "?")
+        except Exception:
+            logger.debug("Authentik API response is not JSON: %s", r.text[:200])
+            count = "?"
+        logger.info("%s Authentik API          %s (connected, %s users)", _OK, settings.authentik_url, count)
+    elif r.status_code in (401, 403):
+        logger.error("%s Authentik API          %s — check AUTHENTIK_TOKEN", _FAIL, r.status_code)
+    else:
+        logger.warning("%s Authentik API          unexpected status %s", _WARN, r.status_code)
+
 
 def run_preflight_checks() -> None:
     """Run all startup checks and exit with code 0 if any critical check fails."""
-    logger.info("── SSF Transmitter preflight ──")
+    logger.info("── SSF Transmitter preflight  v%s ──", _VERSION)
     failed = False
 
     # ------------------------------------------------------------------ #
@@ -128,9 +163,17 @@ def run_preflight_checks() -> None:
     if settings.apple_scim_enabled:
         logger.info("%s Apple SCIM             enabled (sync every %ds)",
                     _OK, settings.apple_scim_sync_interval)
+        _check_authentik_connectivity()
     else:
-        logger.warning("%s Apple SCIM             disabled (set APPLE_SCIM_CLIENT_ID, "
-                       "APPLE_SCIM_CLIENT_SECRET, AUTHENTIK_URL, AUTHENTIK_TOKEN to enable)", _WARN)
+        missing = [
+            name for name, val in [
+                ("APPLE_SCIM_CLIENT_ID", settings.apple_scim_client_id),
+                ("APPLE_SCIM_CLIENT_SECRET", settings.apple_scim_client_secret),
+                ("AUTHENTIK_URL", settings.authentik_url),
+                ("AUTHENTIK_TOKEN", settings.authentik_token),
+            ] if not val
+        ]
+        logger.warning("%s Apple SCIM             disabled — missing: %s", _WARN, ", ".join(missing))
 
     # ------------------------------------------------------------------ #
     # Result                                                               #
