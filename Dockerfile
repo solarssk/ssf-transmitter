@@ -1,17 +1,12 @@
-FROM python:3.12-slim-bookworm
+# Pin to an immutable digest for reproducible builds and predictable CVE surface.
+# To update: docker pull python:3.12-slim-bookworm && docker inspect --format='{{index .RepoDigests 0}}'
+# Dependabot will propose digest bumps automatically when a new image is published.
+FROM python:3.12-slim-bookworm@sha256:42ada43c4265e1ed6db62ad8df62af99a4abb9a9d49622032522ac76efb0bcef
 
 ARG APP_VERSION=dev
 ENV APP_VERSION=${APP_VERSION}
 
 WORKDIR /app
-
-# Apply available security patches from Debian 12 (Bookworm) repos at build time.
-# This catches CVEs that landed in the repo after the base image was published.
-# Kept as a separate layer so Docker cache invalidates only when patches change.
-RUN apt-get update && \
-    apt-get upgrade -y --no-install-recommends && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
 
 # Create non-root user before installing deps
 RUN groupadd --system --gid 10001 appuser && \

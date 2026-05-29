@@ -8,6 +8,14 @@ updates:
     labels:
       - "dependencies"
 
+  # Keep Docker base image up to date (digest bumps)
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+
   # Keep Python dependencies up to date
   - package-ecosystem: "pip"
     directory: "/"
