@@ -53,6 +53,25 @@ The `main` branch publishes a multi-architecture image to GitHub Container Regis
 ghcr.io/solarssk/ssf-transmitter:latest
 ```
 
+### Startup preflight
+
+On every start the container runs a preflight check sequence and logs a ✅/⚠️/❌ line for each item (env vars, signing key, database). If any critical check fails the container exits with code **0** — Docker's `restart: unless-stopped` will **not** restart it automatically. Fix the configuration and start the container manually.
+
+### Health check
+
+The image includes a built-in `HEALTHCHECK` that polls `GET /jwks.json` every 30 seconds using Python's built-in `urllib`. No `curl` or `wget` required. Portainer displays **(healthy)** / **(unhealthy)** next to the container.
+
+The check respects `SSF_CONTAINER_PORT` automatically. If you need `depends_on: condition: service_healthy` in Compose, add an explicit healthcheck block:
+
+```yaml
+healthcheck:
+  test: ["CMD-SHELL", "python3 -c \"import urllib.request,os; urllib.request.urlopen('http://localhost:' + os.getenv('SSF_CONTAINER_PORT','8000') + '/jwks.json', timeout=4)\""]
+  interval: 30s
+  timeout: 5s
+  start_period: 15s
+  retries: 3
+```
+
 ## Nginx Proxy Manager
 
 Add this custom location to your existing IdP proxy host:

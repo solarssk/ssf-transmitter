@@ -22,6 +22,18 @@ os.environ.setdefault("SSF_KEYS_DIR", str(TESTDATA / "keys"))
 
 
 @pytest.fixture(autouse=True)
+def mock_preflight(monkeypatch):
+    """Skip preflight checks in tests.
+
+    Preflight verifies infrastructure (key files, DB directory) that is set up
+    by the test harness, not something API tests should re-verify.  More
+    importantly, sys.exit(0) inside an async lifespan context raises SystemExit
+    which anyio wraps in BaseExceptionGroup, breaking the test runner.
+    """
+    monkeypatch.setattr("app.startup.run_preflight_checks", lambda: None)
+
+
+@pytest.fixture(autouse=True)
 def mock_push_verification_set(monkeypatch):
     """Prevent real outbound HTTP calls during stream creation tests."""
 
@@ -32,7 +44,7 @@ def mock_push_verification_set(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def mock_dns_resolve(monkeypatch):
+def mock_dns_resolve(monkeypatch, request):
     """Return a public IP for all DNS lookups so SSRF validation passes in tests.
 
     Tests in test_url_validation.py override this with their own mocks to
@@ -40,7 +52,12 @@ def mock_dns_resolve(monkeypatch):
 
     Patches both the url_validation module (used at stream create/patch time)
     and the pusher module (used at delivery time for DNS rebinding protection).
+
+    Tests decorated with @pytest.mark.no_dns_mock opt out of this fixture.
     """
+    if request.node.get_closest_marker("no_dns_mock"):
+        return
+
     _public_ip = lambda host: ["93.184.216.34"]  # noqa: E731  # example.com
     monkeypatch.setattr("app.security.url_validation._resolve_host", _public_ip)
     monkeypatch.setattr("app.events.pusher._resolve_host", _public_ip)

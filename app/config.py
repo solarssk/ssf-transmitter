@@ -179,21 +179,33 @@ class Settings:
         }
 
 
-settings = Settings.from_env()
+try:
+    settings = Settings.from_env()
+except (RuntimeError, ValueError) as _cfg_exc:
+    import sys as _sys
+    print(f"\n❌  Configuration error: {_cfg_exc}\n", file=_sys.stderr)
+    _sys.exit(0)  # exit 0 → Docker restart: unless-stopped does NOT restart
 
 
 def configure_logging() -> None:
     """Configure the root logger using the level from :data:`settings`.
 
-    Third-party libraries that are excessively chatty at DEBUG level are
-    capped at WARNING regardless of the global log level:
-    - ``aiosqlite``: emits raw SQL statements and internal threading details
-    - ``httpx`` / ``httpcore``: logs full request/response bodies
+    - Unifies log format across uvicorn and application loggers so all lines
+      have the same timestamp format in Portainer.
+    - Caps noisy third-party loggers at WARNING (aiosqlite, httpx, httpcore).
     """
+    fmt = "%(asctime)s %(levelname)s [%(name)s] %(message)s"
     logging.basicConfig(
         level=getattr(logging, settings.log_level, logging.INFO),
-        format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+        format=fmt,
     )
+    # Align uvicorn's own loggers to the same format so all lines look the same
+    # in Portainer (uvicorn defaults to a different format without timestamps).
+    for uvicorn_logger_name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+        uvicorn_log = logging.getLogger(uvicorn_logger_name)
+        uvicorn_log.handlers.clear()
+        uvicorn_log.propagate = True
+
     # Suppress noisy third-party loggers even when DEBUG is enabled globally.
     for noisy in ("aiosqlite", "httpx", "httpcore"):
         logging.getLogger(noisy).setLevel(logging.WARNING)

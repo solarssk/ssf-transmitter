@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import logging
 from contextlib import asynccontextmanager
@@ -8,6 +10,7 @@ from app.config import configure_logging, settings
 from app.crypto import ensure_keys
 from app.database import init_db
 from app.routes import apple_scim, jwks, streams, webhook, wellknown
+from app.startup import run_preflight_checks
 
 configure_logging()
 logger = logging.getLogger(__name__)
@@ -37,12 +40,7 @@ async def _apple_scim_sync_loop() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("Starting SSF Transmitter config=%s", settings.safe_log_dict())
-    if settings.ssf_webhook_auth_mode == "unsigned":
-        logger.warning(
-            "⚠️  SSF_WEBHOOK_AUTH_MODE=unsigned — webhook requests are accepted WITHOUT authentication. "
-            "This is UNSAFE. Use only in dev/lab environments protected by internal-only network."
-        )
+    run_preflight_checks()  # logs ✅/⚠️/❌ for each check; exits with 0 if any ❌
     ensure_keys()
     await init_db()
 
