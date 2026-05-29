@@ -117,6 +117,9 @@ class Settings:
     authentik_token: str | None = None
     apple_scim_group_id: str | None = None  # sync only members of this Authentik group UUID
     apple_scim_sync_interval: int = 3600    # seconds between automatic syncs (default: 1 hour)
+    # Set true to suppress the startup warning when SSF_ISSUER differs from SSF_BASE_URL.
+    # Only needed during migration from older deployments where these values diverge.
+    ssf_allow_custom_issuer: bool = False
 
     @property
     def allow_unsigned_webhook(self) -> bool:
@@ -172,6 +175,7 @@ class Settings:
             authentik_token=os.getenv("AUTHENTIK_TOKEN") or None,
             apple_scim_group_id=os.getenv("APPLE_SCIM_GROUP_ID") or None,
             apple_scim_sync_interval=_parse_sync_interval(os.getenv("APPLE_SCIM_SYNC_INTERVAL", "3600")),
+            ssf_allow_custom_issuer=os.getenv("SSF_ALLOW_CUSTOM_ISSUER", "false").lower() == "true",
         )
 
     def public_url(self, path: str) -> str:
