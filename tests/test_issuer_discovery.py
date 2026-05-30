@@ -209,12 +209,10 @@ def test_wellknown_authorization_schemes():
 def test_startup_warns_when_pii_pepper_not_set(monkeypatch, caplog):
     monkeypatch.setattr("app.startup.settings", _settings(pii_pepper=""))
 
-    with patch("app.startup.Path") as mock_path:
+    with patch("app.startup.Path") as mock_path, patch("app.startup.os.access", return_value=True), caplog.at_level(logging.WARNING, logger="app.startup"):
         mock_path.return_value.__truediv__ = lambda s, x: MagicMock(exists=lambda: True)
         mock_path.return_value.parent.exists.return_value = True
-        with patch("app.startup.os.access", return_value=True):
-            with caplog.at_level(logging.WARNING, logger="app.startup"):
-                run_preflight_checks()
+        run_preflight_checks()
 
     assert any(
         "SSF_PII_PEPPER" in r.getMessage() and "falling back" in r.getMessage()
@@ -225,12 +223,10 @@ def test_startup_warns_when_pii_pepper_not_set(monkeypatch, caplog):
 def test_startup_no_pii_pepper_warning_when_set(monkeypatch, caplog):
     monkeypatch.setattr("app.startup.settings", _settings(pii_pepper="dedicated-pepper-secret"))
 
-    with patch("app.startup.Path") as mock_path:
+    with patch("app.startup.Path") as mock_path, patch("app.startup.os.access", return_value=True), caplog.at_level(logging.WARNING, logger="app.startup"):
         mock_path.return_value.__truediv__ = lambda s, x: MagicMock(exists=lambda: True)
         mock_path.return_value.parent.exists.return_value = True
-        with patch("app.startup.os.access", return_value=True):
-            with caplog.at_level(logging.WARNING, logger="app.startup"):
-                run_preflight_checks()
+        run_preflight_checks()
 
     assert not any(
         "SSF_PII_PEPPER" in r.getMessage() and "falling back" in r.getMessage()
