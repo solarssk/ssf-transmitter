@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 from dataclasses import dataclass
+from urllib.parse import urlparse
 
 _healthcheck_logger = logging.getLogger("app.health")
 
@@ -25,6 +26,16 @@ _WEBHOOK_AUTH_MODES = {"bearer", "hmac", "unsigned"}
 def _strip_trailing_slash(value: str) -> str:
     """Remove any trailing slashes from *value*."""
     return value.rstrip("/")
+
+
+def _parse_https_url(value: str, env_name: str) -> str:
+    """Validate that value is a well-formed HTTPS URL; raise ValueError otherwise."""
+    parsed = urlparse(value)
+    if parsed.scheme != "https" or not parsed.hostname:
+        raise ValueError(
+            f"{env_name} must be a valid HTTPS URL, got {value!r}"
+        )
+    return value
 
 
 def _parse_sync_interval(value: str) -> int:
@@ -180,8 +191,14 @@ class Settings:
             authentik_token=os.getenv("AUTHENTIK_TOKEN") or None,
             apple_scim_group_id=os.getenv("APPLE_SCIM_GROUP_ID") or None,
             apple_scim_sync_interval=_parse_sync_interval(os.getenv("APPLE_SCIM_SYNC_INTERVAL", "3600")),
-            apple_scim_authorize_url=os.getenv("APPLE_SCIM_AUTHORIZE_URL", "https://appleid.apple.com/auth/oauth2/v2/authorize"),
-            apple_scim_token_url=os.getenv("APPLE_SCIM_TOKEN_URL", "https://appleid.apple.com/auth/oauth2/v2/token"),
+            apple_scim_authorize_url=_parse_https_url(
+                os.getenv("APPLE_SCIM_AUTHORIZE_URL", "https://appleid.apple.com/auth/oauth2/v2/authorize"),
+                "APPLE_SCIM_AUTHORIZE_URL",
+            ),
+            apple_scim_token_url=_parse_https_url(
+                os.getenv("APPLE_SCIM_TOKEN_URL", "https://appleid.apple.com/auth/oauth2/v2/token"),
+                "APPLE_SCIM_TOKEN_URL",
+            ),
             ssf_allow_custom_issuer=os.getenv("SSF_ALLOW_CUSTOM_ISSUER", "false").lower() == "true",
             ssf_log_color=os.getenv("SSF_LOG_COLOR", "false").lower() == "true",
         )

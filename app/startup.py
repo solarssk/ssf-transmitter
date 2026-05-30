@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
+from urllib.parse import urlparse
 
 import httpx
 
@@ -200,7 +201,8 @@ def run_preflight_checks() -> None:
             ("APPLE_SCIM_AUTHORIZE_URL", settings.apple_scim_authorize_url),
             ("APPLE_SCIM_TOKEN_URL", settings.apple_scim_token_url),
         ]:
-            if "appleaccount.apple.com" in url_val:
+            host = (urlparse(url_val).hostname or "").lower()
+            if host == "appleaccount.apple.com":
                 logger.warning(
                     "%s %s uses appleaccount.apple.com — "
                     "Apple Business UI currently shows appleid.apple.com; verify before use",
