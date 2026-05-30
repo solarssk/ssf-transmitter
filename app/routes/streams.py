@@ -19,7 +19,7 @@ router = APIRouter(prefix="/ssf", dependencies=[Depends(require_management_auth)
 def _stream_response(stream) -> dict[str, Any]:
     events_delivered = (
         [e for e in stream.events_requested if e in _EVENTS_SUPPORTED]
-        if stream.events_requested
+        if stream.events_requested is not None
         else _EVENTS_SUPPORTED
     )
     return {
