@@ -58,12 +58,16 @@ async def _get_existing_users(client: httpx.AsyncClient, headers: dict) -> dict[
 
 
 def _users_differ(existing: dict, new: dict) -> bool:
-    """Return True if any syncable field has changed."""
+    """Return True if any syncable field has changed.
+
+    Apple may omit `active` from GET responses when the value is True —
+    treat a missing field as True so we don't spuriously update every user.
+    """
     checks = [
         existing.get("userName") != new.get("userName"),
         existing.get("name", {}).get("givenName") != new.get("name", {}).get("givenName"),
         existing.get("name", {}).get("familyName") != new.get("name", {}).get("familyName"),
-        existing.get("active") != new.get("active"),
+        existing.get("active", True) != new.get("active", True),
     ]
     existing_email = next((e["value"] for e in existing.get("emails", []) if e.get("primary")), None)
     new_email = next((e["value"] for e in new.get("emails", []) if e.get("primary")), None)
@@ -113,9 +117,13 @@ async def sync_users(access_token: str, scim_users: list[dict]) -> SyncResult:
                             ext_id, resp.status_code, resp.text[:300],
                         )
                 elif _users_differ(apple_user, user):
-                    # Update existing user (full PUT)
+                    # Update existing user (full PUT).
+                    # Apple requires the resource `id` in the body and rejects
+                    # `externalId` on updates (it is immutable after creation).
                     apple_id = apple_user["id"]
-                    resp = await client.put(f"{APPLE_SCIM_BASE}/Users/{apple_id}", json=user, headers=headers)
+                    update_body = {k: v for k, v in user.items() if k != "externalId"}
+                    update_body["id"] = apple_id
+                    resp = await client.put(f"{APPLE_SCIM_BASE}/Users/{apple_id}", json=update_body, headers=headers)
                     if resp.status_code in (200, 204):
                         result.updated += 1
                         logger.debug("Apple SCIM: updated user externalId=%s userName=%s", ext_id, user.get("userName"))
