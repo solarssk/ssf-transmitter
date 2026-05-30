@@ -11,6 +11,20 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ---
 
+## [0.5.2-b1] — 2026-05-30
+
+### Fixed
+- Apple SCIM sync was returning 404 on every request — SCIM base URL had a hardcoded `/v2` segment that does not exist on Apple's endpoint; aligned with the URL shown in Apple Business Manager settings (`https://federation.apple.com/feeds/business/scim`)
+- SQLite connection leak in preflight `_check_scim_authorized` — now uses a `with` context manager so the connection is always closed even if the query raises an exception
+
+### Added
+- Preflight check now shows Apple SCIM OAuth authorization status at startup: `authorized (token valid)`, `token expired`, or `not authorized`
+
+### Changed
+- CI pipeline now also runs on the `beta` branch (lint, tests, Trivy scan, SBOM)
+
+---
+
 ## [0.5.1] — 2026-05-30
 
 ### Fixed
