@@ -6,24 +6,11 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from app.auth import require_management_auth
 from app.config import settings
 from app.database import create_stream, delete_stream, delete_stream_by_id, get_first_stream, update_stream
-from app.events.mapper import (
-    ACCOUNT_DISABLED,
-    ACCOUNT_ENABLED,
-    ACCOUNT_PURGED,
-    CREDENTIAL_CHANGE,
-    SESSION_REVOKED,
-)
 from app.events.pusher import push_verification_set
-from app.models import StreamCreateRequest, StreamPatchRequest
+from app.models import SUPPORTED_EVENT_URIS, StreamCreateRequest, StreamPatchRequest
 from app.security.url_validation import validate_receiver_endpoint_url
 
-_EVENTS_SUPPORTED = [
-    SESSION_REVOKED,
-    CREDENTIAL_CHANGE,
-    ACCOUNT_DISABLED,
-    ACCOUNT_ENABLED,
-    ACCOUNT_PURGED,
-]
+_EVENTS_SUPPORTED = sorted(SUPPORTED_EVENT_URIS)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/ssf", dependencies=[Depends(require_management_auth)])
