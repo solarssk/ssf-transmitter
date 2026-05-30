@@ -90,8 +90,7 @@ body:
         Run the following command and paste the JSON response.
         Replace the actual token value — the command uses your env vars directly.
       render: json
-      value: |
-        # curl -s -H "Authorization: Bearer $SSF_MANAGEMENT_TOKEN" $SSF_BASE_URL/ssf/status
+      placeholder: "# curl -s -H \"Authorization: Bearer $SSF_MANAGEMENT_TOKEN\" $SSF_BASE_URL/ssf/status"
     validations:
       required: false
 
