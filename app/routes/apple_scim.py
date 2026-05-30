@@ -20,6 +20,7 @@ The client_secret set in ABM expires every 6/9/12 months.  When it does:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import secrets
 import time
@@ -45,6 +46,10 @@ router = APIRouter(prefix="/apple-scim", tags=["Apple SCIM"])
 # callback validation.  A container restart clears them, which is acceptable
 # since the admin simply re-visits /authorize.
 _pending_states: set[str] = set()
+
+# Holds references to fire-and-forget background tasks so they are not
+# garbage-collected before they finish.
+_background_tasks: set[asyncio.Task[None]] = set()
 
 
 def _require_scim_configured() -> None:
@@ -150,11 +155,25 @@ async def callback(
         bool(refresh_token), expires_in,
     )
 
+    # Kick off an immediate sync in the background so the admin doesn't have
+    # to manually POST /apple-scim/sync after every (re-)authorization.
+    async def _background_sync() -> None:
+        try:
+            users = await get_users()
+            if users is not None:
+                await sync_users(access_token, users)
+        except Exception:
+            logger.exception("Apple SCIM: background sync after authorization failed")
+
+    task = asyncio.create_task(_background_sync())
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+
     return {
         "status": "authorized",
         "expires_in": expires_in,
         "has_refresh_token": bool(refresh_token),
-        "message": "Authorization successful. Trigger an immediate sync via POST /apple-scim/sync",
+        "message": "Authorization successful. Initial sync started automatically.",
     }
 
 
@@ -182,6 +201,7 @@ async def status() -> dict:
         "token_expires_in_seconds": max(0, tokens["expires_at"] - now),
         "has_refresh_token": bool(tokens.get("refresh_token")),
         "last_updated": tokens["updated_at"],
+        "alert_webhook_configured": bool(settings.apple_scim_alert_webhook_url),
     }
 
 

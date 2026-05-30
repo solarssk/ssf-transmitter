@@ -4,7 +4,8 @@ Pushes users from Authentik to Apple Business Manager via Apple's SCIM endpoint.
 Uses externalId (Authentik PK) to correlate records across systems so that
 renames / email changes are handled as updates rather than create+delete.
 
-Apple SCIM base URL: https://federation.apple.com/feeds/business/scim/v2
+Apple SCIM base URL: https://federation.apple.com/feeds/business/scim
+Note: Apple's SCIM endpoint does not include /v2 in the public URL.
 """
 
 from __future__ import annotations
@@ -16,7 +17,7 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-APPLE_SCIM_BASE = "https://federation.apple.com/feeds/business/scim/v2"
+APPLE_SCIM_BASE = "https://federation.apple.com/feeds/business/scim"
 
 
 @dataclass

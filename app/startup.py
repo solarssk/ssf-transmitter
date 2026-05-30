@@ -26,6 +26,34 @@ _FAIL = "  ❌"
 _VERSION = os.getenv("APP_VERSION", "dev")
 
 
+def _check_scim_authorized() -> None:
+    """Check whether Apple SCIM OAuth tokens are stored in the database."""
+    import sqlite3
+    from contextlib import closing
+    try:
+        with closing(sqlite3.connect(settings.database_path)) as con:
+            row = con.execute(
+                "SELECT expires_at FROM apple_scim_tokens WHERE id = 1"
+            ).fetchone()
+    except Exception:
+        row = None
+
+    if row:
+        import time as _time
+        if _time.time() < row[0]:
+            logger.info("%s Apple SCIM OAuth       authorized (token valid)", _OK)
+        else:
+            logger.warning(
+                "%s Apple SCIM OAuth       token expired — visit %s/apple-scim/authorize to re-authorize",
+                _WARN, settings.ssf_base_url,
+            )
+    else:
+        logger.warning(
+            "%s Apple SCIM OAuth       not authorized — visit %s/apple-scim/authorize to connect",
+            _WARN, settings.ssf_base_url,
+        )
+
+
 def _check_authentik_connectivity() -> None:
     """Probe Authentik API to verify URL and token are correct.
 
@@ -197,6 +225,14 @@ def run_preflight_checks() -> None:
     if settings.apple_scim_enabled:
         logger.info("%s Apple SCIM             enabled (sync every %ds)",
                     _OK, settings.apple_scim_sync_interval)
+        if settings.apple_scim_alert_webhook_url:
+            logger.info("%s Apple SCIM alerts      webhook configured", _OK)
+        else:
+            logger.warning(
+                "%s Apple SCIM alerts      APPLE_SCIM_ALERT_WEBHOOK_URL not set"
+                " — set it to receive alerts when re-authorization is needed",
+                _WARN,
+            )
         for url_name, url_val in [
             ("APPLE_SCIM_AUTHORIZE_URL", settings.apple_scim_authorize_url),
             ("APPLE_SCIM_TOKEN_URL", settings.apple_scim_token_url),
@@ -208,6 +244,7 @@ def run_preflight_checks() -> None:
                     "Apple Business UI currently shows appleid.apple.com; verify before use",
                     _WARN, url_name,
                 )
+        _check_scim_authorized()
         _check_authentik_connectivity()
     else:
         missing = [
