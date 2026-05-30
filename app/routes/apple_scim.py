@@ -20,6 +20,7 @@ The client_secret set in ABM expires every 6/9/12 months.  When it does:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import secrets
 import time
@@ -150,11 +151,26 @@ async def callback(
         bool(refresh_token), expires_in,
     )
 
+    # Kick off an immediate sync in the background so the admin doesn't have
+    # to manually POST /apple-scim/sync after every (re-)authorization.
+    from app.scim.apple import sync_users
+    from app.scim.authentik import get_users
+
+    async def _background_sync() -> None:
+        try:
+            users = await get_users()
+            if users is not None:
+                await sync_users(access_token, users)
+        except Exception:
+            logger.exception("Apple SCIM: background sync after authorization failed")
+
+    asyncio.create_task(_background_sync())
+
     return {
         "status": "authorized",
         "expires_in": expires_in,
         "has_refresh_token": bool(refresh_token),
-        "message": "Authorization successful. Trigger an immediate sync via POST /apple-scim/sync",
+        "message": "Authorization successful. Initial sync started automatically.",
     }
 
 
