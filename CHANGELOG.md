@@ -11,6 +11,18 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ---
 
+## [0.5.1] — 2026-05-30
+
+### Fixed
+- Apple SCIM OAuth endpoints now default to `appleid.apple.com` instead of `appleaccount.apple.com` — the latter does not resolve in DNS despite appearing in some Apple documentation
+- Apple Business Manager UI shows `appleid.apple.com` as the correct host; this project follows the UI as source of truth
+
+### Added
+- `APPLE_SCIM_AUTHORIZE_URL` and `APPLE_SCIM_TOKEN_URL` env vars — override Apple OAuth endpoints if Apple changes them in the future
+- Startup warning when `appleaccount.apple.com` is configured via env override
+
+---
+
 ## [0.5.0] — 2026-05-30
 
 ### Added
