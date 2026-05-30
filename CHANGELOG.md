@@ -11,6 +11,14 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ---
 
+## [0.5.3-b1] — 2026-05-31
+
+### Fixed
+- Apple SCIM PUT updates failing with `400 Invalid request` — PUT body now strips `externalId` (immutable after creation) and includes Apple's resource `id` (`GN-...`) as required
+- `_users_differ()` treated missing `active` field (Apple omits it when `true`) as `None` vs `True`, causing all users to be flagged as changed on every sync cycle
+
+---
+
 ## [0.5.2] — 2026-05-30
 
 ### Fixed
