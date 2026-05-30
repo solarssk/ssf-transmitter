@@ -3,29 +3,32 @@
 All endpoints are served under `SSF_BASE_URL` (e.g. `https://idp.example.com/shared-signals`).
 The service is typically deployed behind a reverse proxy that handles TLS.
 
+All management endpoints require `Authorization: Bearer <SSF_MANAGEMENT_TOKEN>`.
+
 ---
 
 ## Discovery
 
 ### `GET /.well-known/ssf-configuration`
 
-Returns the SSF transmitter metadata document. Used by receivers to auto-configure the stream endpoint and JWKS URI.
+Returns the SSF transmitter metadata document. Public — no authentication required.
 
 **Response**
 ```json
 {
-  "issuer": "https://idp.example.com/application/o/apple-id/",
+  "issuer": "https://idp.example.com/shared-signals",
   "jwks_uri": "https://idp.example.com/shared-signals/jwks.json",
   "delivery_methods_supported": [
-    "https://schemas.openid.net/secevent/risc/delivery-method/push"
+    "urn:ietf:rfc:8935"
   ],
   "configuration_endpoint": "https://idp.example.com/shared-signals/ssf/streams",
   "add_subject_endpoint": "https://idp.example.com/shared-signals/ssf/streams/subjects:add",
   "remove_subject_endpoint": "https://idp.example.com/shared-signals/ssf/streams/subjects:remove",
   "status_endpoint": "https://idp.example.com/shared-signals/ssf/status",
-  "supported_scopes": ["openid"],
+  "verification_endpoint": "https://idp.example.com/shared-signals/ssf/verification",
+  "authorization_schemes": [{"spec_urn": "urn:ietf:rfc:6750"}],
   "critical_subject_members": [],
-  "spec_version": "1_0-ID2"
+  "spec_version": "1_0"
 }
 ```
 
@@ -33,7 +36,7 @@ Returns the SSF transmitter metadata document. Used by receivers to auto-configu
 
 ### `GET /jwks.json`
 
-Returns the public JWKS used to verify RS256-signed SET JWTs issued by this service.
+Returns the public JWKS used to verify RS256-signed SET JWTs. Public — no authentication required.
 
 **Response**
 ```json
@@ -55,21 +58,23 @@ Returns the public JWKS used to verify RS256-signed SET JWTs issued by this serv
 
 ## Stream Management
 
-The service supports one active stream at a time. Creating a new stream replaces any existing one.
+SSF Transmitter 1.0 supports **one active stream per container**. Registering a new stream replaces the existing stream. Multi-stream support is planned for v1.1.
+
+All stream management endpoints require `Authorization: Bearer <SSF_MANAGEMENT_TOKEN>`.
 
 ### `POST /ssf/streams`
 
-Creates a stream. The receiver calls this endpoint to register its push delivery URL and token.
+Registers an SSF push stream. The receiver calls this to configure where SETs are delivered.
 
-**Request body** (fields accepted by this implementation):
+**Request body**
 
 | Field | Required | Notes |
 |---|---|---|
-| `delivery.endpoint_url` | Yes | URL where SETs will be pushed |
-| `delivery.endpoint_url_token` | Yes | Bearer token included in SET push requests |
-| `aud` | Yes | Audience value used in JWT claims. Also accepted as `audience`, `receiver`, or `iss` |
-| `events_requested` | No | List of event URIs the receiver wants. Stored but not filtered on |
-| `stream_id` | No | Custom ID; auto-generated UUID if omitted |
+| `delivery.endpoint_url` | Yes | HTTPS URL where SETs will be pushed |
+| `delivery.endpoint_url_token` | Yes | Bearer token sent in `Authorization` header of each SET push |
+| `aud` | Yes | Audience claim in SET JWTs. Also accepted as `audience`, `receiver`, or `iss` |
+| `events_requested` | No | List of event URIs the receiver wants. Empty means all supported events |
+| `stream_id` | No | Custom UUID; auto-generated if omitted |
 
 ```json
 {
@@ -87,19 +92,35 @@ Creates a stream. The receiver calls this endpoint to register its push delivery
 **Response** `201 Created`
 ```json
 {
+  "iss": "https://idp.example.com/shared-signals",
   "stream_id": "550e8400-e29b-41d4-a716-446655440000",
   "aud": "https://receiver.example.com",
   "delivery": {
-    "method": "https://schemas.openid.net/secevent/risc/delivery-method/push",
+    "method": "urn:ietf:rfc:8935",
     "endpoint_url": "https://receiver.example.com/sets"
   },
-  "events_requested": ["https://schemas.openid.net/secevent/caep/event-type/session-revoked"],
+  "events_supported": [
+    "https://schemas.openid.net/secevent/caep/event-type/credential-change",
+    "https://schemas.openid.net/secevent/caep/event-type/session-revoked",
+    "https://schemas.openid.net/secevent/risc/event-type/account-disabled",
+    "https://schemas.openid.net/secevent/risc/event-type/account-enabled",
+    "https://schemas.openid.net/secevent/risc/event-type/account-purged"
+  ],
+  "events_requested": [
+    "https://schemas.openid.net/secevent/caep/event-type/session-revoked"
+  ],
+  "events_delivered": [
+    "https://schemas.openid.net/secevent/caep/event-type/session-revoked"
+  ],
+  "stream_model": "single-stream",
   "status": "enabled",
   "created_at": 1716800000
 }
 ```
 
-> The `endpoint_url_token` is never returned in responses.
+> `endpoint_url_token` is never returned in any response.
+>
+> `events_delivered` reflects what the transmitter will actually push: the intersection of `events_requested` and `events_supported`. If `events_requested` is empty, all supported events are delivered.
 
 ---
 
@@ -108,22 +129,22 @@ Creates a stream. The receiver calls this endpoint to register its push delivery
 Returns the current stream configuration.
 
 **Response** `200 OK` — same shape as POST response.
-**Response** `404 Not Found` — if no stream is configured.
+**Response** `404 Not Found` — no stream configured.
 
 ---
 
 ### `PATCH /ssf/streams`
 
-Updates fields on the existing stream. Accepts the same fields as POST; omitted fields retain their current values.
+Updates the current stream. Accepts the same fields as POST; omitted fields retain their values.
 
 **Response** `200 OK` — updated stream.
-**Response** `404 Not Found` — if no stream is configured.
+**Response** `404 Not Found` — no stream configured.
 
 ---
 
 ### `DELETE /ssf/streams`
 
-Removes the current stream. No body.
+Deletes the current stream. No body.
 
 **Response** `204 No Content`
 
@@ -131,8 +152,9 @@ Removes the current stream. No body.
 
 ### `POST /ssf/streams/subjects:add`
 
-Acknowledges subject registration. Logs the request and returns `{"status": "ok"}`.
-The service does not filter events by subject — all Authentik events are forwarded to the active stream.
+Acknowledges subject registration. Returns `{"status": "ok"}` and logs the request.
+
+> Subject filtering is not implemented — all Authentik events are forwarded to the active stream regardless of registered subjects. Subject management is planned for a future release.
 
 ---
 
@@ -166,20 +188,36 @@ Returns the current stream status.
 
 ---
 
+## Verification
+
+### `POST /ssf/verification`
+
+Triggers a receiver-initiated verification SET for the current stream.
+
+**Request body** (optional)
+```json
+{ "state": "optional-opaque-string" }
+```
+
+**Response** `202 Accepted` — verification SET delivered.
+**Response** `404 Not Found` — no stream configured.
+**Response** `502 Bad Gateway` — delivery to receiver failed.
+
+---
+
 ## Webhook Receiver
 
 ### `POST /webhook/authentik`
 
-Receives event notifications from Authentik. This endpoint is called by Authentik, not by SSF receivers.
+Receives event notifications from Authentik. Called by Authentik, not by SSF receivers.
 
-**Headers**
+**Authentication** — controlled by `SSF_WEBHOOK_AUTH_MODE`:
 
-| Header | Required | Value |
+| Mode | Header required | Notes |
 |---|---|---|
-| `X-Authentik-Signature` | Yes | `sha256=<HMAC-SHA256 hex of raw body>` |
-| `Content-Type` | Yes | `application/json` |
-
-**Authentication**: HMAC-SHA256 signature verified against `SSF_WEBHOOK_SECRET`. Requests with missing or invalid signatures are rejected with `401 Unauthorized`.
+| `bearer` (default) | `Authorization: Bearer <SSF_WEBHOOK_TOKEN>` | Recommended |
+| `hmac` (legacy) | `X-Authentik-Signature: sha256=<hex>` | Verified against `SSF_WEBHOOK_SECRET` |
+| `unsigned` | None | Dev/lab only — never use in production |
 
 **Response** `200 OK`
 ```json
@@ -187,6 +225,23 @@ Receives event notifications from Authentik. This endpoint is called by Authenti
 ```
 
 Possible `status` values when no SET is delivered:
-- `"ignored"` with `"reason": "unmapped_event"` — event has no SSF mapping
-- `"ignored"` with `"reason": "missing_email"` — event has no user email
-- `"ignored"` with `"reason": "no_enabled_stream"` — no active stream to deliver to
+
+| status | reason | Meaning |
+|---|---|---|
+| `"ignored"` | `"unmapped_event"` | Authentik event has no SSF mapping |
+| `"ignored"` | `"missing_email"` | Event has no user email |
+| `"ignored"` | `"no_enabled_stream"` | No active stream configured |
+
+---
+
+## Supported event types
+
+| Event URI | Triggered by |
+|---|---|
+| `https://schemas.openid.net/secevent/caep/event-type/session-revoked` | Authentik logout |
+| `https://schemas.openid.net/secevent/caep/event-type/credential-change` | Password change |
+| `https://schemas.openid.net/secevent/risc/event-type/account-disabled` | User deactivated |
+| `https://schemas.openid.net/secevent/risc/event-type/account-enabled` | User reactivated |
+| `https://schemas.openid.net/secevent/risc/event-type/account-purged` | User deleted |
+
+Legacy `caep/event-type/account-*` URIs are accepted in `events_requested` and canonicalized to `risc/event-type/` automatically.

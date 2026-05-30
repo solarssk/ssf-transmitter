@@ -62,7 +62,7 @@ def test_ssf_metadata_uses_public_base_url(client: TestClient):
         "remove_subject_endpoint": "https://idp.example.com/shared-signals/ssf/streams/subjects:remove",
         "status_endpoint": "https://idp.example.com/shared-signals/ssf/status",
         "verification_endpoint": "https://idp.example.com/shared-signals/ssf/verification",
-        "authorization_schemes": [{"spec_urn": "urn:ietf:rfc:6749"}],
+        "authorization_schemes": [{"spec_urn": "urn:ietf:rfc:6750"}],
         "critical_subject_members": [],
         "spec_version": "1_0",
     }

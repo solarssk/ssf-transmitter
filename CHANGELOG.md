@@ -11,6 +11,23 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ---
 
+## [0.5.0] — 2026-05-30
+
+### Added
+- Stream response now includes `iss`, `events_supported`, `events_delivered`, and `stream_model: "single-stream"` per SSF spec examples
+- `events_supported` sourced from `models.SUPPORTED_EVENT_URIS` (single source of truth for API validation and response)
+
+### Changed
+- `authorization_schemes` URN corrected: `urn:ietf:rfc:6749` → `urn:ietf:rfc:6750` (Bearer Token Usage — more accurate than OAuth2 Authorization Framework)
+- `docker-compose.snippet.yml` updated to bearer-first model: adds `SSF_MANAGEMENT_TOKEN`, `SSF_WEBHOOK_AUTH_MODE`, `SSF_WEBHOOK_TOKEN`; removes mandatory `SSF_WEBHOOK_SECRET`; adds commented `SSF_PII_PEPPER` and `SSF_FORWARDED_ALLOW_IPS`
+- README clarifies single-stream model (one active stream per container); multi-stream planned for v1.1
+- `docs/API.md` fully refreshed: correct delivery method URN, spec_version, issuer example, `events_requested` filtering behaviour, bearer-first webhook auth, verification endpoint, supported event types table
+
+### Fixed
+- `events_delivered` in stream response uses `is not None` check to correctly distinguish explicit empty `events_requested` from unset
+
+---
+
 ## [0.4.0] — 2026-05-30
 
 ### Added
