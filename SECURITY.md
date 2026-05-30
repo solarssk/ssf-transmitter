@@ -60,6 +60,7 @@ This document covers the threat model, trust boundaries, and security properties
 | Webhook bearer token (`SSF_WEBHOOK_TOKEN`) | Environment variable only | Never written to disk or logged |
 | Webhook HMAC secret (`SSF_WEBHOOK_SECRET`) | Environment variable only | Never written to disk or logged (legacy mode only) |
 | User email addresses | Logs (pseudonymous by default) | Replaced by `[pii:<sha256[:8]>]` when `SSF_LOG_PII=false` |
+| PII pseudonymisation key (`SSF_PII_PEPPER`) | Environment variable only | Never written to disk or logged; falls back to `SSF_MANAGEMENT_TOKEN` if unset (startup warning issued) |
 
 ---
 
@@ -137,6 +138,7 @@ To run this service securely in production:
 4. **Volume permissions:** Mount `/app/keys` and `/app/data` to host paths owned by root (mode 700). Do not share these volumes with other containers.
 5. **Log pipeline:** Logs go to stdout/stderr only. Route them to a private log aggregator; do not ship logs to untrusted third parties (they may contain pseudonymous user identifiers).
 6. **Rate limiting:** Use nginx `limit_req` or Caddy `rate_limit` in front of the service. SSF Transmitter does not implement rate limiting internally.
+7. **Reverse proxy trust:** `SSF_FORWARDED_ALLOW_IPS` defaults to `*`. For hardened deployments, restrict it to your reverse proxy's Docker network subnet (e.g. `172.18.0.0/16` for a typical Nginx Proxy Manager bridge network).
 
 ---
 

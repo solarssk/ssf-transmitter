@@ -9,6 +9,16 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Added
+- `authorization_schemes` field in `/.well-known/ssf-configuration` discovery response — required by CAEP Interoperability Profile (`urn:ietf:rfc:6749`)
+- `SSF_FORWARDED_ALLOW_IPS` env var — configures trusted reverse proxy IPs/CIDRs passed to Uvicorn `--forwarded-allow-ips`; defaults to `*` for backward compatibility
+
+### Changed
+- `SSF_FORWARDED_ALLOW_IPS` replaces the previously hardcoded `--forwarded-allow-ips='*'` in the container CMD
+
+### Security
+- Startup preflight now logs `⚠️ SSF_PII_PEPPER not set` when `SSF_PII_PEPPER` is absent, making the fallback to `SSF_MANAGEMENT_TOKEN` for PII pseudonymisation explicit and visible
+
 ---
 
 ## [0.3.1] — 2026-05-30
