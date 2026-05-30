@@ -22,7 +22,7 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-APPLE_TOKEN_URL = "https://appleaccount.apple.com/auth/oauth2/v2/token"
+APPLE_TOKEN_URL = settings.apple_scim_token_url
 
 
 async def save_tokens(access_token: str, refresh_token: str | None, expires_in: int) -> None:
