@@ -42,7 +42,6 @@ async def send_alert(event: str, message: str, severity: str = "error") -> None:
     if now - _last_sent.get(event, 0) < ALERT_COOLDOWN:
         logger.debug("Alert suppressed (cooldown) event=%s", event)
         return
-    _last_sent[event] = now
 
     payload = {
         "event": event,
@@ -55,6 +54,7 @@ async def send_alert(event: str, message: str, severity: str = "error") -> None:
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.post(url, json=payload)
+        _last_sent[event] = now  # server reached — start cooldown
         if resp.status_code >= 300:
             logger.warning(
                 "Alert webhook returned non-2xx status=%s event=%s", resp.status_code, event
