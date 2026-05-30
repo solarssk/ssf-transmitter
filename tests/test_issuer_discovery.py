@@ -183,3 +183,18 @@ def test_wellknown_no_openid_scopes():
 
     data = resp.json()
     assert "supported_scopes" not in data or "openid" not in data.get("supported_scopes", [])
+
+
+def test_wellknown_authorization_schemes():
+    """CAEP Interoperability Profile requires authorization_schemes with OAuth2 URN."""
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    with TestClient(app) as client:
+        resp = client.get("/.well-known/ssf-configuration")
+
+    data = resp.json()
+    assert "authorization_schemes" in data
+    urns = [s.get("spec_urn") for s in data["authorization_schemes"]]
+    assert "urn:ietf:rfc:6749" in urns
