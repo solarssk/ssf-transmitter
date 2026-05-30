@@ -20,13 +20,17 @@ Versioning: [Semantic Versioning](https://semver.org/)
 ### Added
 - **Apple SCIM alert webhook** (`APPLE_SCIM_ALERT_WEBHOOK_URL`) — when the client_secret expires or re-authorization is needed, the service POSTs a JSON alert to the configured URL; compatible with Ntfy, Slack, n8n, Make, Uptime Kuma push, etc.; rate-limited to one alert per event type per hour
 - Apple Business Manager API error codes `invalid_client` / `invalid_grant` / `unauthorized_client` are now detected in the token refresh path and trigger a `scim_client_secret_expired` alert
+- **Automatic sync after OAuth authorization** — visiting `/apple-scim/authorize` and completing the flow now triggers an immediate background sync; no manual `POST /apple-scim/sync` needed
 - Preflight check now shows Apple SCIM OAuth authorization status at startup: `authorized (token valid)`, `token expired`, or `not authorized`
 - Preflight warns when `APPLE_SCIM_ALERT_WEBHOOK_URL` is not set
 - `/apple-scim/status` response now includes `alert_webhook_configured` field
+- `pyproject.toml` declares `requires-python = ">=3.11"`
 
 ### Changed
 - CI pipeline now also runs on the `beta` branch (lint, tests, Trivy scan, SBOM)
 - GitHub release workflow marks pre-release tags (containing `-`) as GitHub pre-releases and does not update `latest`
+- Alert cooldown starts only after the webhook server is reached — transport failures do not consume the hourly window
+- Alert cooldown uses presence check instead of `0` sentinel — first alert is never suppressed on fresh container start
 
 ---
 
