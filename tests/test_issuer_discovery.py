@@ -21,6 +21,7 @@ def _settings(**overrides):
         ssf_webhook_auth_mode="bearer",
         ssf_webhook_token="x" * 32,
         ssf_webhook_secret="",
+        pii_pepper="",
         keys_dir="",
         database_path="",
         apple_scim_enabled=False,
@@ -198,3 +199,38 @@ def test_wellknown_authorization_schemes():
     assert "authorization_schemes" in data
     urns = [s.get("spec_urn") for s in data["authorization_schemes"]]
     assert "urn:ietf:rfc:6749" in urns
+
+
+# ---------------------------------------------------------------------------
+# SSF_PII_PEPPER warnings
+# ---------------------------------------------------------------------------
+
+
+def test_startup_warns_when_pii_pepper_not_set(monkeypatch, caplog):
+    monkeypatch.setattr("app.startup.settings", _settings(pii_pepper=""))
+
+    with patch("app.startup.Path") as mock_path:
+        mock_path.return_value.__truediv__ = lambda s, x: MagicMock(exists=lambda: True)
+        mock_path.return_value.parent.exists.return_value = True
+        with patch("app.startup.os.access", return_value=True):
+            run_preflight_checks()
+
+    assert any(
+        "SSF_PII_PEPPER" in r.getMessage() and "falling back" in r.getMessage()
+        for r in caplog.records if r.levelno == logging.WARNING
+    )
+
+
+def test_startup_no_pii_pepper_warning_when_set(monkeypatch, caplog):
+    monkeypatch.setattr("app.startup.settings", _settings(pii_pepper="dedicated-pepper-secret"))
+
+    with patch("app.startup.Path") as mock_path:
+        mock_path.return_value.__truediv__ = lambda s, x: MagicMock(exists=lambda: True)
+        mock_path.return_value.parent.exists.return_value = True
+        with patch("app.startup.os.access", return_value=True):
+            run_preflight_checks()
+
+    assert not any(
+        "SSF_PII_PEPPER" in r.getMessage() and "falling back" in r.getMessage()
+        for r in caplog.records if r.levelno == logging.WARNING
+    )
