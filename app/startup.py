@@ -224,6 +224,14 @@ def run_preflight_checks() -> None:
     if settings.apple_scim_enabled:
         logger.info("%s Apple SCIM             enabled (sync every %ds)",
                     _OK, settings.apple_scim_sync_interval)
+        if settings.apple_scim_alert_webhook_url:
+            logger.info("%s Apple SCIM alerts      webhook configured", _OK)
+        else:
+            logger.warning(
+                "%s Apple SCIM alerts      APPLE_SCIM_ALERT_WEBHOOK_URL not set"
+                " — set it to receive alerts when re-authorization is needed",
+                _WARN,
+            )
         for url_name, url_val in [
             ("APPLE_SCIM_AUTHORIZE_URL", settings.apple_scim_authorize_url),
             ("APPLE_SCIM_TOKEN_URL", settings.apple_scim_token_url),

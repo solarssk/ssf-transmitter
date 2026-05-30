@@ -182,6 +182,7 @@ async def status() -> dict:
         "token_expires_in_seconds": max(0, tokens["expires_at"] - now),
         "has_refresh_token": bool(tokens.get("refresh_token")),
         "last_updated": tokens["updated_at"],
+        "alert_webhook_configured": bool(settings.apple_scim_alert_webhook_url),
     }
 
 
