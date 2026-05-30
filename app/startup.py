@@ -26,6 +26,33 @@ _FAIL = "  ❌"
 _VERSION = os.getenv("APP_VERSION", "dev")
 
 
+def _check_scim_authorized() -> None:
+    """Check whether Apple SCIM OAuth tokens are stored in the database."""
+    import sqlite3
+    try:
+        with sqlite3.connect(settings.database_path) as con:
+            row = con.execute(
+                "SELECT expires_at FROM apple_scim_tokens WHERE id = 1"
+            ).fetchone()
+    except Exception:
+        row = None
+
+    if row:
+        import time as _time
+        if _time.time() < row[0]:
+            logger.info("%s Apple SCIM OAuth       authorized (token valid)", _OK)
+        else:
+            logger.warning(
+                "%s Apple SCIM OAuth       token expired — visit %s/apple-scim/authorize to re-authorize",
+                _WARN, settings.ssf_base_url,
+            )
+    else:
+        logger.warning(
+            "%s Apple SCIM OAuth       not authorized — visit %s/apple-scim/authorize to connect",
+            _WARN, settings.ssf_base_url,
+        )
+
+
 def _check_authentik_connectivity() -> None:
     """Probe Authentik API to verify URL and token are correct.
 
@@ -208,6 +235,7 @@ def run_preflight_checks() -> None:
                     "Apple Business UI currently shows appleid.apple.com; verify before use",
                     _WARN, url_name,
                 )
+        _check_scim_authorized()
         _check_authentik_connectivity()
     else:
         missing = [
