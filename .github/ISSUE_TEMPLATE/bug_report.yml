@@ -1,0 +1,115 @@
+name: Bug report
+description: Something is not working as expected.
+labels: ["bug"]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: >
+        Check the first line of your startup log:
+        `── SSF Transmitter preflight  v…`
+      placeholder: "e.g. v0.4.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: Deployment type
+      options:
+        - Docker Compose
+        - Portainer
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: what_happened
+    attributes:
+      label: What happened?
+      description: A clear description of the problem.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What did you expect to happen instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Configure stream with ...
+        2. Send webhook event ...
+        3. Observe ...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: webhook_mode
+    attributes:
+      label: Webhook auth mode
+      description: Value of `SSF_WEBHOOK_AUTH_MODE` in your config.
+      options:
+        - bearer
+        - hmac
+        - unsigned
+    validations:
+      required: true
+
+  - type: textarea
+    id: preflight_log
+    attributes:
+      label: Startup preflight log
+      description: >
+        Paste the full `── SSF Transmitter preflight ──` block from your container logs.
+        **Replace any token values with `[redacted]`** — keep the ✅/⚠️/❌ lines and the version line.
+      render: text
+      placeholder: |
+        ── SSF Transmitter preflight  v0.4.0 ──
+          ✅ SSF_ISSUER            https://idp.example.com/shared-signals
+          ✅ SSF_BASE_URL           https://idp.example.com/shared-signals
+          ✅ SSF_MANAGEMENT_TOKEN   configured (48 chars)
+          ✅ SSF_WEBHOOK_AUTH_MODE  bearer
+          ✅ SSF_WEBHOOK_TOKEN      configured (36 chars)
+          ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: ssf_status
+    attributes:
+      label: "`GET /ssf/status` output"
+      description: >
+        Run the following command and paste the JSON response.
+        Replace the actual token value — the command uses your env vars directly.
+      render: json
+      value: |
+        # curl -s -H "Authorization: Bearer $SSF_MANAGEMENT_TOKEN" $SSF_BASE_URL/ssf/status
+    validations:
+      required: false
+
+  - type: textarea
+    id: discovery
+    attributes:
+      label: "`GET /.well-known/ssf-configuration` output"
+      description: >
+        This endpoint is public — no auth required.
+        Run: `curl -s $SSF_BASE_URL/.well-known/ssf-configuration`
+      render: json
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: Anything else that might be relevant — reverse proxy setup, Docker network config, Authentik version, etc.
+    validations:
+      required: false

@@ -1,0 +1,35 @@
+name: Feature request
+description: Suggest a new feature or improvement.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or motivation
+      description: What problem does this solve? What use case are you trying to cover?
+      placeholder: "I'm trying to... but currently there's no way to..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: What specifically would you like to see added or changed?
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Have you tried any workarounds? Are there other approaches that could solve this?
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: spec_related
+    attributes:
+      label: SSF/CAEP spec compliance
+      options:
+        - label: This feature is related to SSF, CAEP, or RISC protocol compliance
