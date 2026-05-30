@@ -37,7 +37,7 @@ from app.scim.token import APPLE_TOKEN_URL, get_valid_access_token, load_tokens,
 
 logger = logging.getLogger(__name__)
 
-APPLE_AUTH_URL = "https://appleaccount.apple.com/auth/oauth2/v2/authorize"
+APPLE_AUTH_URL = "https://appleid.apple.com/auth/oauth2/v2/authorize"
 
 router = APIRouter(prefix="/apple-scim", tags=["Apple SCIM"])
 
