@@ -196,6 +196,16 @@ def run_preflight_checks() -> None:
     if settings.apple_scim_enabled:
         logger.info("%s Apple SCIM             enabled (sync every %ds)",
                     _OK, settings.apple_scim_sync_interval)
+        for url_name, url_val in [
+            ("APPLE_SCIM_AUTHORIZE_URL", settings.apple_scim_authorize_url),
+            ("APPLE_SCIM_TOKEN_URL", settings.apple_scim_token_url),
+        ]:
+            if "appleaccount.apple.com" in url_val:
+                logger.warning(
+                    "%s %s uses appleaccount.apple.com — "
+                    "Apple Business UI currently shows appleid.apple.com; verify before use",
+                    _WARN, url_name,
+                )
         _check_authentik_connectivity()
     else:
         missing = [
