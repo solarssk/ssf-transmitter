@@ -179,6 +179,16 @@ def run_preflight_checks() -> None:
         status = "exists" if db_path.exists() else "will be created"
         logger.info("%s Database               %s (%s)", _OK, db_path, status)
 
+    # SSF_PII_PEPPER
+    if settings.pii_pepper:
+        logger.info("%s SSF_PII_PEPPER         configured (%d chars)", _OK, len(settings.pii_pepper))
+    else:
+        logger.warning(
+            "%s SSF_PII_PEPPER         not set — falling back to SSF_MANAGEMENT_TOKEN for "
+            "PII pseudonymisation; set SSF_PII_PEPPER to a dedicated secret",
+            _WARN,
+        )
+
     # ------------------------------------------------------------------ #
     # Optional features                                                    #
     # ------------------------------------------------------------------ #
