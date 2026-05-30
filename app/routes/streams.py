@@ -4,25 +4,50 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Response
 
 from app.auth import require_management_auth
+from app.config import settings
 from app.database import create_stream, delete_stream, delete_stream_by_id, get_first_stream, update_stream
+from app.events.mapper import (
+    ACCOUNT_DISABLED,
+    ACCOUNT_ENABLED,
+    ACCOUNT_PURGED,
+    CREDENTIAL_CHANGE,
+    SESSION_REVOKED,
+)
 from app.events.pusher import push_verification_set
 from app.models import StreamCreateRequest, StreamPatchRequest
 from app.security.url_validation import validate_receiver_endpoint_url
+
+_EVENTS_SUPPORTED = [
+    SESSION_REVOKED,
+    CREDENTIAL_CHANGE,
+    ACCOUNT_DISABLED,
+    ACCOUNT_ENABLED,
+    ACCOUNT_PURGED,
+]
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/ssf", dependencies=[Depends(require_management_auth)])
 
 
 def _stream_response(stream) -> dict[str, Any]:
+    events_delivered = (
+        [e for e in stream.events_requested if e in _EVENTS_SUPPORTED]
+        if stream.events_requested
+        else _EVENTS_SUPPORTED
+    )
     return {
+        "iss": settings.ssf_issuer,
         "stream_id": stream.stream_id,
         "aud": stream.aud,
         "delivery": {
             "method": "urn:ietf:rfc:8935",
             "endpoint_url": stream.endpoint_url,
         },
+        "events_supported": _EVENTS_SUPPORTED,
         "events_requested": stream.events_requested,
+        "events_delivered": events_delivered,
         "status": stream.status,
+        "stream_model": "single-stream",
         "created_at": stream.created_at,
     }
 

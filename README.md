@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/solarssk/ssf-transmitter/actions/workflows/ci.yml/badge.svg)](https://github.com/solarssk/ssf-transmitter/actions/workflows/ci.yml)
 
-Standalone service that sits next to Authentik and forwards user security events (logout, password change, account disable/delete) to receivers implementing the [OpenID Shared Signals Framework](https://openid.net/specs/openid-sharedsignals-framework-1_0.html). One container supports multiple receivers simultaneously — each receiver is a separate stream with its own endpoint and token. Primary documented receiver: Apple Business Manager CAEP.
+Standalone service that sits next to Authentik and forwards user security events (logout, password change, account disable/delete) to receivers implementing the [OpenID Shared Signals Framework](https://openid.net/specs/openid-sharedsignals-framework-1_0.html). One container supports one active SSF stream — registering a new stream replaces the existing one. Multi-stream support (fan-out to multiple receivers) is planned for v1.1. Primary receiver: Apple Business Manager CAEP.
 
 Events are signed as RS256 JWTs (Security Event Tokens) and pushed over HTTPS. No admin panel — all configuration is environment variables.
 

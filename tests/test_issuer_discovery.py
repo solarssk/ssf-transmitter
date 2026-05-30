@@ -198,7 +198,7 @@ def test_wellknown_authorization_schemes():
     data = resp.json()
     assert "authorization_schemes" in data
     urns = [s.get("spec_urn") for s in data["authorization_schemes"]]
-    assert "urn:ietf:rfc:6749" in urns
+    assert "urn:ietf:rfc:6750" in urns
 
 
 # ---------------------------------------------------------------------------
