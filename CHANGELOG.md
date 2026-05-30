@@ -30,6 +30,14 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ---
 
+## [0.5.2-b2] — 2026-05-30
+
+### Added
+- Alert webhook (`APPLE_SCIM_ALERT_WEBHOOK_URL`) for `scim_client_secret_expired` and `scim_no_valid_token` events
+- Cooldown starts only after server is reached — transport failures do not consume the hourly window
+
+---
+
 ## [0.5.2-b1] — 2026-05-30
 
 ### Fixed
