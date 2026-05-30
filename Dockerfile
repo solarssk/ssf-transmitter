@@ -34,4 +34,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
      urllib.request.urlopen(f'http://localhost:{port}/jwks.json', timeout=4)" \
   || exit 1
 
-CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${SSF_CONTAINER_PORT:-8000} --proxy-headers --forwarded-allow-ips='*'"]
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${SSF_CONTAINER_PORT:-8000} --proxy-headers --forwarded-allow-ips='${SSF_FORWARDED_ALLOW_IPS:-*}'"]
