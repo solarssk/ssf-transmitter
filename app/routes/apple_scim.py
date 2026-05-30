@@ -47,6 +47,10 @@ router = APIRouter(prefix="/apple-scim", tags=["Apple SCIM"])
 # since the admin simply re-visits /authorize.
 _pending_states: set[str] = set()
 
+# Holds references to fire-and-forget background tasks so they are not
+# garbage-collected before they finish.
+_background_tasks: set[asyncio.Task[None]] = set()
+
 
 def _require_scim_configured() -> None:
     """Raise 503 when required Apple SCIM env vars are not set."""
@@ -153,9 +157,6 @@ async def callback(
 
     # Kick off an immediate sync in the background so the admin doesn't have
     # to manually POST /apple-scim/sync after every (re-)authorization.
-    from app.scim.apple import sync_users
-    from app.scim.authentik import get_users
-
     async def _background_sync() -> None:
         try:
             users = await get_users()
@@ -164,7 +165,9 @@ async def callback(
         except Exception:
             logger.exception("Apple SCIM: background sync after authorization failed")
 
-    asyncio.create_task(_background_sync())
+    task = asyncio.create_task(_background_sync())
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
 
     return {
         "status": "authorized",
