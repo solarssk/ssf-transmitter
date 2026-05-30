@@ -30,11 +30,10 @@ def _check_scim_authorized() -> None:
     """Check whether Apple SCIM OAuth tokens are stored in the database."""
     import sqlite3
     try:
-        con = sqlite3.connect(settings.database_path)
-        row = con.execute(
-            "SELECT expires_at FROM apple_scim_tokens WHERE id = 1"
-        ).fetchone()
-        con.close()
+        with sqlite3.connect(settings.database_path) as con:
+            row = con.execute(
+                "SELECT expires_at FROM apple_scim_tokens WHERE id = 1"
+            ).fetchone()
     except Exception:
         row = None
 
