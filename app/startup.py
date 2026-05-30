@@ -29,8 +29,9 @@ _VERSION = os.getenv("APP_VERSION", "dev")
 def _check_scim_authorized() -> None:
     """Check whether Apple SCIM OAuth tokens are stored in the database."""
     import sqlite3
+    from contextlib import closing
     try:
-        with sqlite3.connect(settings.database_path) as con:
+        with closing(sqlite3.connect(settings.database_path)) as con:
             row = con.execute(
                 "SELECT expires_at FROM apple_scim_tokens WHERE id = 1"
             ).fetchone()

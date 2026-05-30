@@ -39,7 +39,8 @@ async def send_alert(event: str, message: str, severity: str = "error") -> None:
         return
 
     now = time.monotonic()
-    if now - _last_sent.get(event, 0) < ALERT_COOLDOWN:
+    last = _last_sent.get(event)
+    if last is not None and now - last < ALERT_COOLDOWN:
         logger.debug("Alert suppressed (cooldown) event=%s", event)
         return
 
