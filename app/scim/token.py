@@ -18,6 +18,7 @@ import time
 import aiosqlite
 import httpx
 
+from app.alerts import send_alert
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -94,6 +95,20 @@ async def _refresh(refresh_token: str | None) -> str | None:
 
     if resp.status_code != 200:
         logger.error("Apple SCIM: token refresh failed status=%s body=%r", resp.status_code, resp.text[:300])
+        try:
+            error_code = resp.json().get("error", "")
+        except Exception:
+            error_code = ""
+        if error_code in ("invalid_client", "invalid_grant", "unauthorized_client"):
+            await send_alert(
+                event="scim_client_secret_expired",
+                message=(
+                    "Apple SCIM client_secret has expired — "
+                    "generate a new secret in Apple Business Manager, "
+                    "update APPLE_SCIM_CLIENT_SECRET and re-authorize"
+                ),
+                severity="critical",
+            )
         return None
 
     try:

@@ -11,6 +11,25 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ---
 
+## [0.5.2] — 2026-05-30
+
+### Fixed
+- Apple SCIM sync was returning 404 on every request — SCIM base URL had a hardcoded `/v2` segment that does not exist on Apple's endpoint; aligned with the URL shown in Apple Business Manager settings (`https://federation.apple.com/feeds/business/scim`)
+- SQLite connection leak in preflight `_check_scim_authorized` — now uses `with` context manager so the connection is always closed even if the query raises an exception
+
+### Added
+- **Apple SCIM alert webhook** (`APPLE_SCIM_ALERT_WEBHOOK_URL`) — when the client_secret expires or re-authorization is needed, the service POSTs a JSON alert to the configured URL; compatible with Ntfy, Slack, n8n, Make, Uptime Kuma push, etc.; rate-limited to one alert per event type per hour
+- Apple Business Manager API error codes `invalid_client` / `invalid_grant` / `unauthorized_client` are now detected in the token refresh path and trigger a `scim_client_secret_expired` alert
+- Preflight check now shows Apple SCIM OAuth authorization status at startup: `authorized (token valid)`, `token expired`, or `not authorized`
+- Preflight warns when `APPLE_SCIM_ALERT_WEBHOOK_URL` is not set
+- `/apple-scim/status` response now includes `alert_webhook_configured` field
+
+### Changed
+- CI pipeline now also runs on the `beta` branch (lint, tests, Trivy scan, SBOM)
+- GitHub release workflow marks pre-release tags (containing `-`) as GitHub pre-releases and does not update `latest`
+
+---
+
 ## [0.5.2-b1] — 2026-05-30
 
 ### Fixed

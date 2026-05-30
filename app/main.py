@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 async def _apple_scim_sync_loop() -> None:
     """Background task: sync users from Authentik to Apple every APPLE_SCIM_SYNC_INTERVAL seconds."""
+    from app.alerts import send_alert
     from app.scim.apple import sync_users
     from app.scim.authentik import get_users
     from app.scim.token import get_valid_access_token
@@ -30,6 +31,10 @@ async def _apple_scim_sync_loop() -> None:
             token = await get_valid_access_token()
             if not token:
                 logger.warning("Apple SCIM: skipping sync — no valid token; visit /apple-scim/authorize")
+                await send_alert(
+                    event="scim_no_valid_token",
+                    message="Apple SCIM sync skipped — no valid token. Visit /apple-scim/authorize to re-authorize",
+                )
                 continue
             users = await get_users()
             if users is not None:

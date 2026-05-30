@@ -128,6 +128,7 @@ class Settings:
     authentik_token: str | None = None
     apple_scim_group_id: str | None = None  # sync only members of this Authentik group UUID
     apple_scim_sync_interval: int = 3600    # seconds between automatic syncs (default: 1 hour)
+    apple_scim_alert_webhook_url: str | None = None  # POST alerts here when re-auth is needed
     apple_scim_authorize_url: str = "https://appleid.apple.com/auth/oauth2/v2/authorize"
     apple_scim_token_url: str = "https://appleid.apple.com/auth/oauth2/v2/token"
     # Set true to suppress the startup warning when SSF_ISSUER differs from SSF_BASE_URL.
@@ -191,6 +192,10 @@ class Settings:
             authentik_token=os.getenv("AUTHENTIK_TOKEN") or None,
             apple_scim_group_id=os.getenv("APPLE_SCIM_GROUP_ID") or None,
             apple_scim_sync_interval=_parse_sync_interval(os.getenv("APPLE_SCIM_SYNC_INTERVAL", "3600")),
+            apple_scim_alert_webhook_url=_parse_https_url(
+                os.getenv("APPLE_SCIM_ALERT_WEBHOOK_URL", ""),
+                "APPLE_SCIM_ALERT_WEBHOOK_URL",
+            ) if os.getenv("APPLE_SCIM_ALERT_WEBHOOK_URL") else None,
             apple_scim_authorize_url=_parse_https_url(
                 os.getenv("APPLE_SCIM_AUTHORIZE_URL", "https://appleid.apple.com/auth/oauth2/v2/authorize"),
                 "APPLE_SCIM_AUTHORIZE_URL",
