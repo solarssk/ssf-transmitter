@@ -11,6 +11,21 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ---
 
+## [0.5.3-b2] — 2026-06-01
+
+### Fixed
+- `found 0 existing users` → 409 loop every hour: `_get_existing_users` now builds a secondary `by_username` index so users without `externalId` in Apple's GET response are still matched and updated rather than POSTed into a 409
+- 409 on POST: instead of counting as error, queries `GET /Users?filter=userName eq "..."` (Authentik pattern) then PUT — recovers users that exist in Apple but aren't listed
+- SCIM filter literals now use RFC 7644 double quotes (was `repr()` single quotes which Apple may reject)
+- Healthcheck log completely suppressed at all log levels including DEBUG — no more `Docker healthcheck OK` flooding Portainer
+
+### Added
+- `SyncResult.conflicts` counter for unresolvable 409s (personal Apple ID conflict); actionable log message with link to ABM Activity Centre
+- `POST /apple-scim/sync` response includes `conflicts` field
+- Summary log when conflicts > 0: `⚠️ N account(s) pending user acceptance — go to https://business.apple.com/main/activity`
+
+---
+
 ## [0.5.3-b1] — 2026-05-31
 
 ### Fixed
