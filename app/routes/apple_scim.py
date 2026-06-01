@@ -231,5 +231,6 @@ async def sync(_auth: None = Depends(require_management_auth)) -> dict:
         "created": result.created,
         "updated": result.updated,
         "unchanged": result.unchanged,
+        "conflicts": result.conflicts,
         "errors": result.errors,
     }

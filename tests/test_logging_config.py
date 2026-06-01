@@ -6,16 +6,16 @@ import logging
 from unittest.mock import MagicMock, patch
 
 
-def test_healthcheck_log_is_debug_not_info(caplog):
-    """Docker healthcheck hits must be logged at DEBUG, not INFO.
+def test_healthcheck_is_completely_suppressed(caplog):
+    """Docker healthcheck hits must be completely dropped — no log at any level.
 
-    At LOG_LEVEL=INFO (default) healthcheck noise must not appear.
+    Logging even at DEBUG floods Portainer when LOG_LEVEL=DEBUG is used for
+    troubleshooting. The filter must return False and emit nothing.
     """
     from app.config import _HealthcheckFilter
 
     filt = _HealthcheckFilter()
 
-    # Simulate the uvicorn access log record for a healthcheck hit
     record = logging.LogRecord(
         name="uvicorn.access",
         level=logging.INFO,
@@ -26,15 +26,12 @@ def test_healthcheck_log_is_debug_not_info(caplog):
         exc_info=None,
     )
 
-    with caplog.at_level(logging.DEBUG, logger="app.health"):
+    with caplog.at_level(logging.DEBUG):
         result = filt.filter(record)
 
-    # Filter suppresses the access log record
     assert result is False
-    # But logs the healthcheck at DEBUG level
-    debug_records = [r for r in caplog.records if r.name == "app.health"]
-    assert len(debug_records) == 1
-    assert debug_records[0].levelno == logging.DEBUG
+    # Nothing logged — not even at DEBUG
+    assert caplog.records == []
 
 
 def test_non_healthcheck_access_log_passes_through():
