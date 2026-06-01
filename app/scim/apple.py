@@ -201,7 +201,12 @@ async def sync_users(access_token: str, scim_users: list[dict]) -> SyncResult:
         for user in scim_users:
             ext_id = user["externalId"]
             username_key = user.get("userName", "").lower()
-            apple_user = by_ext_id.get(ext_id) or by_username.get(username_key)
+            by_ext = by_ext_id.get(ext_id)
+            apple_user = by_ext or by_username.get(username_key)
+            # If found only via userName fallback the externalId linkage is broken —
+            # always PUT even when fields are unchanged so future email changes
+            # can still be tracked (we won't lose the user on the next sync).
+            needs_relink = apple_user is not None and by_ext is None
 
             try:
                 if apple_user is None:
@@ -218,8 +223,9 @@ async def sync_users(access_token: str, scim_users: list[dict]) -> SyncResult:
                             "Apple SCIM: create failed externalId=%s status=%s body=%r",
                             ext_id, resp.status_code, resp.text[:300],
                         )
-                elif _users_differ(apple_user, user):
-                    await _put_user(client, headers, apple_user, user, result)
+                elif needs_relink or _users_differ(apple_user, user):
+                    label = "relink" if needs_relink and not _users_differ(apple_user, user) else ""
+                    await _put_user(client, headers, apple_user, user, result, label=label)
                 else:
                     result.unchanged += 1
 
