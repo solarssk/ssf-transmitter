@@ -99,8 +99,8 @@ def _users_differ(existing: dict, new: dict) -> bool:
 
 
 def _build_put_body(user: dict, apple_id: str) -> dict:
-    """Build a PUT body: keep externalId (Apple stores it) and add Apple's id."""
-    body = dict(user)
+    """Build a PUT body: strip externalId (Apple rejects it on updates), add Apple's id."""
+    body = {k: v for k, v in user.items() if k != "externalId"}
     body["id"] = apple_id
     return body
 
@@ -147,7 +147,9 @@ async def _handle_409(
     Try to find the user via filter query and re-establish the link.
     """
     username = user.get("userName", "")
-    filter_url = f'{APPLE_SCIM_BASE}/Users?filter=userName%20eq%20{quote(repr(username))}'
+    # SCIM RFC 7644 filter literals use double quotes (not single quotes from repr())
+    scim_filter = quote('"' + username + '"')
+    filter_url = f"{APPLE_SCIM_BASE}/Users?filter=userName%20eq%20{scim_filter}"
     try:
         resp = await client.get(filter_url, headers=headers)
         if resp.status_code == 200:
@@ -155,8 +157,11 @@ async def _handle_409(
             if resources:
                 await _put_user(client, headers, resources[0], user, result, label="409-recovery")
                 return
-    except Exception:
-        logger.debug("Apple SCIM: filter query failed for userName=%s", username)
+        else:
+            logger.warning("Apple SCIM: 409-recovery filter query failed status=%s userName=%s",
+                           resp.status_code, username)
+    except httpx.HTTPError:
+        logger.warning("Apple SCIM: 409-recovery network error for userName=%s", username)
 
     # Could not locate user — flag as conflict with actionable message
     result.conflicts += 1
