@@ -1,8 +1,9 @@
 """Apple SCIM 2.0 client.
 
 Pushes users from Authentik to Apple Business Manager via Apple's SCIM endpoint.
-Uses externalId (Authentik PK) to correlate records across systems so that
-renames / email changes are handled as updates rather than create+delete.
+Uses externalId (Authentik PK) as the primary correlation key; userName (email)
+is a fallback for users whose externalId was lost (Apple strips it on full-replace
+PUT without the field, and does not accept it on subsequent updates).
 
 Apple SCIM base URL: https://federation.apple.com/feeds/business/scim
 Note: Apple's SCIM endpoint does not include /v2 in the public URL.
@@ -10,10 +11,11 @@ Note: Apple's SCIM endpoint does not include /v2 in the public URL.
 Sync strategy (Authentik pattern):
 1. GET all existing Apple users → index by externalId (primary) and userName (fallback)
 2. For each Authentik user:
-   - Found by externalId or userName, unchanged → skip
-   - Found by externalId or userName, changed  → PUT (full update, keeps externalId)
-   - Not found → POST; on 409 → query by userName filter then PUT
-3. Users in Apple absent from Authentik are left untouched (deactivate in Authentik first)
+   - Found (by either key), unchanged → skip (unchanged)
+   - Found (by either key), changed  → PUT (Apple rejects externalId on updates)
+   - Not found → POST; on 409 → query filter=userName eq "..." then PUT
+3. Users present in Apple but absent from Authentik are left untouched;
+   deactivate them in Authentik first (active=false propagates on next sync).
 """
 
 from __future__ import annotations
@@ -201,12 +203,7 @@ async def sync_users(access_token: str, scim_users: list[dict]) -> SyncResult:
         for user in scim_users:
             ext_id = user["externalId"]
             username_key = user.get("userName", "").lower()
-            by_ext = by_ext_id.get(ext_id)
-            apple_user = by_ext or by_username.get(username_key)
-            # If found only via userName fallback the externalId linkage is broken —
-            # always PUT even when fields are unchanged so future email changes
-            # can still be tracked (we won't lose the user on the next sync).
-            needs_relink = apple_user is not None and by_ext is None
+            apple_user = by_ext_id.get(ext_id) or by_username.get(username_key)
 
             try:
                 if apple_user is None:
@@ -223,9 +220,8 @@ async def sync_users(access_token: str, scim_users: list[dict]) -> SyncResult:
                             "Apple SCIM: create failed externalId=%s status=%s body=%r",
                             ext_id, resp.status_code, resp.text[:300],
                         )
-                elif needs_relink or _users_differ(apple_user, user):
-                    label = "relink" if needs_relink and not _users_differ(apple_user, user) else ""
-                    await _put_user(client, headers, apple_user, user, result, label=label)
+                elif _users_differ(apple_user, user):
+                    await _put_user(client, headers, apple_user, user, result)
                 else:
                     result.unchanged += 1
 
