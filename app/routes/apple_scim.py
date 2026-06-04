@@ -145,7 +145,19 @@ async def callback(
     data = resp.json()
     access_token = data.get("access_token")
     refresh_token = data.get("refresh_token")
-    expires_in = data.get("expires_in", 3600)
+    # Validate expires_in the same way token.py does — guard against Apple
+    # returning a non-integer or non-positive value.
+    raw_expires = data.get("expires_in")
+    try:
+        expires_in = int(raw_expires)
+        if expires_in <= 0:
+            raise ValueError("expires_in must be > 0")
+    except (TypeError, ValueError):
+        logger.warning(
+            "Apple SCIM: token exchange response has invalid expires_in=%r — defaulting to 3600",
+            raw_expires,
+        )
+        expires_in = 3600
 
     if not access_token:
         logger.error("Apple SCIM: token exchange response missing access_token %s", json_key_summary(data))
@@ -234,5 +246,8 @@ async def sync(_auth: None = Depends(require_management_auth)) -> dict:
         "updated": result.updated,
         "unchanged": result.unchanged,
         "conflicts": result.conflicts,
+        # conflict_usernames (email addresses) are intentionally not included in
+        # the API response to avoid exposing PII over HTTP. The full list appears
+        # in application logs at WARNING level.
         "errors": result.errors,
     }

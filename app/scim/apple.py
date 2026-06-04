@@ -223,9 +223,15 @@ async def sync_users(access_token: str, scim_users: list[dict]) -> SyncResult:
     async with httpx.AsyncClient(timeout=30.0) as client:
         by_ext_id, by_username = await _get_existing_users(client, headers)
 
-        recovered = sum(1 for u in scim_users if
-                        not by_ext_id.get(u["externalId"])
-                        and by_username.get(u.get("userName", "").lower()))
+        # Count users that will be recovered via userName fallback — mirrors the
+        # sync loop condition exactly: externalId miss AND username match has no
+        # externalId of its own (so we won't overwrite an unrelated record).
+        recovered = sum(
+            1 for u in scim_users
+            if not by_ext_id.get(u["externalId"])
+            and (m := by_username.get(u.get("userName", "").lower())) is not None
+            and not m.get("externalId")
+        )
         logger.info(
             "Apple SCIM: found %d existing users (%d by externalId, %d recovered by userName),"
             " syncing %d from Authentik",
