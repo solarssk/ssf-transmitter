@@ -11,6 +11,20 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ---
 
+## [0.5.3-b4] — 2026-06-04
+
+### Fixed
+- `updated=8 unchanged=0` on every sync — Apple omits `emails[].primary` flag in GET responses (RFC 7643 permits this); added `_primary_email()` helper with fallback to first email in list so the comparison no longer produces false positives
+- `userName` comparison is now case-insensitive (Apple may normalise to lowercase)
+- `KeyError` crash if Authentik returns a user without `pk` — validated before mapping
+- No-email skip now logs `ERROR` instead of `WARNING` with explicit note that deactivation will not reach Apple if email is removed before disabling the account
+
+### Added
+- Per-field `DEBUG` log in `_users_differ()` — shows exactly which field triggered a diff (useful for diagnosing future false positives)
+- Pre-sync validation: skip users with no `pk` or empty email with actionable log messages; warn on empty display name
+
+---
+
 ## [0.5.3-b3] — 2026-06-04
 
 ### Security
