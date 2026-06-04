@@ -239,7 +239,15 @@ async def sync_users(access_token: str, scim_users: list[dict]) -> SyncResult:
         for user in scim_users:
             ext_id = user["externalId"]
             username_key = user.get("userName", "").lower()
-            apple_user = by_ext_id.get(ext_id) or by_username.get(username_key)
+            by_ext = by_ext_id.get(ext_id)
+            if by_ext is not None:
+                apple_user = by_ext
+            else:
+                # Only use the username fallback when the matched Apple record has no
+                # externalId — if it has a *different* externalId it belongs to another
+                # Authentik user and overwriting it would corrupt that record.
+                username_match = by_username.get(username_key)
+                apple_user = username_match if username_match and not username_match.get("externalId") else None
 
             try:
                 if apple_user is None:
