@@ -86,22 +86,46 @@ async def _get_existing_users(
     return by_ext_id, by_username
 
 
+def _primary_email(user: dict) -> str | None:
+    """Return the primary email address from a SCIM user dict.
+
+    Apple may omit the ``primary`` flag from GET responses even though we send
+    ``"primary": true`` on POST/PUT (RFC 7643 allows servers to omit optional
+    attributes).  When no entry with ``primary: true`` is found, fall back to
+    the first email in the list so the comparison does not produce a spurious
+    mismatch on every sync cycle.
+    """
+    emails = user.get("emails", [])
+    for e in emails:
+        if e.get("primary") is True:
+            return e.get("value")
+    # No explicit primary — use first entry as RFC 7643 default
+    return emails[0].get("value") if emails else None
+
+
 def _users_differ(existing: dict, new: dict) -> bool:
     """Return True if any syncable field has changed.
 
-    Apple may omit `active` from GET responses when the value is True —
-    treat a missing field as True so we don't spuriously update every user.
+    Comparison rules:
+    - userName: case-insensitive (Apple may normalise to lowercase)
+    - active: missing field treated as True (Apple omits it when True)
+    - email: see _primary_email() for primary-flag fallback logic
     """
-    checks = [
-        existing.get("userName") != new.get("userName"),
-        existing.get("name", {}).get("givenName") != new.get("name", {}).get("givenName"),
-        existing.get("name", {}).get("familyName") != new.get("name", {}).get("familyName"),
-        existing.get("active", True) != new.get("active", True),
-    ]
-    existing_email = next((e["value"] for e in existing.get("emails", []) if e.get("primary")), None)
-    new_email = next((e["value"] for e in new.get("emails", []) if e.get("primary")), None)
-    checks.append(existing_email != new_email)
-    return any(checks)
+    diffs = {
+        "userName":   existing.get("userName", "").lower() != new.get("userName", "").lower(),
+        "givenName":  existing.get("name", {}).get("givenName") != new.get("name", {}).get("givenName"),
+        "familyName": existing.get("name", {}).get("familyName") != new.get("name", {}).get("familyName"),
+        "active":     existing.get("active", True) != new.get("active", True),
+        "email":      _primary_email(existing) != _primary_email(new),
+    }
+    if any(diffs.values()):
+        logger.debug(
+            "Apple SCIM: field diff for userName=%s — %s",
+            existing.get("userName") or new.get("userName"),
+            {k: v for k, v in diffs.items() if v},
+        )
+        return True
+    return False
 
 
 def _build_put_body(user: dict, apple_id: str) -> dict:
