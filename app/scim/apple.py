@@ -76,7 +76,9 @@ async def _get_existing_users(
         # Apple uses startIndex/itemsPerPage pagination (not cursor/next-link)
         total = data.get("totalResults", 0)
         start = data.get("startIndex", 1)
-        per_page = data.get("itemsPerPage", len(data.get("Resources", [])))
+        per_page = data.get("itemsPerPage") or len(data.get("Resources", []))
+        if per_page == 0:
+            break  # guard: empty page with totalResults > 0 would loop forever
         if start + per_page - 1 < total:
             url = f"{APPLE_SCIM_BASE}/Users?count=200&startIndex={start + per_page}"
         else:
