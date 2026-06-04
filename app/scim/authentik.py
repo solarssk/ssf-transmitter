@@ -107,12 +107,24 @@ async def get_users() -> list[dict] | None:
 
     mapped = []
     for u in all_users:
+        pk = u.get("pk")
+        if not pk:
+            logger.warning(
+                "Apple SCIM: skipping Authentik user with missing pk — cannot map to SCIM externalId"
+            )
+            continue
+        ext_id = str(pk)
         email = u.get("email") or ""
         name = u.get("name") or ""
-        ext_id = str(u.get("pk", ""))
         if not email:
-            logger.warning(
-                "Apple SCIM: skipping Authentik user pk=%s (no email) — cannot create Managed Apple Account",
+            # Log as ERROR — a user without email that was previously synced to Apple
+            # will NOT receive an active=false deactivation update because we cannot
+            # build a valid SCIM record without a userName. Clear the email in
+            # Authentik only after disabling the account so the deactivation syncs first.
+            logger.error(
+                "Apple SCIM: skipping Authentik user pk=%s (no email) — "
+                "cannot provision or deactivate in Apple without a userName; "
+                "disable the account before removing the email",
                 ext_id,
             )
             continue
