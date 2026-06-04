@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from app.scim.apple import _primary_email, _users_differ  # noqa: F401
+from app.scim.apple import _primary_email, _users_differ
 
 # ---------------------------------------------------------------------------
 # _primary_email
@@ -46,6 +46,11 @@ def _apple_user(
     email="user@example.com",
     email_primary=None,  # None = omit flag (simulates Apple response)
 ) -> dict:
+    """Build a fake Apple SCIM GET response user.
+
+    Set ``email_primary=None`` to simulate Apple omitting the ``primary`` flag
+    (the common case that triggered the false-positive bug).
+    """
     email_entry: dict = {"value": email}
     if email_primary is not None:
         email_entry["primary"] = email_primary
@@ -64,6 +69,7 @@ def _authentik_user(
     active=True,
     email="user@example.com",
 ) -> dict:
+    """Build a fake Authentik → SCIM mapped user (always includes ``primary: true``)."""
     return {
         "userName": username,
         "name": {"givenName": given, "familyName": family},
