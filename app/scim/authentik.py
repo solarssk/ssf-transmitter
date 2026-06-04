@@ -42,14 +42,14 @@ def _map_to_scim(user: dict) -> dict:
     return {
         "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
         "externalId": str(user["pk"]),
-        "userName": user.get("email") or user.get("username", ""),
+        "userName": (user.get("email") or user.get("username", "")).strip(),
         "name": {
             "givenName": given_name,
             "familyName": family_name,
             "formatted": full_name,
         },
         "emails": [
-            {"value": user.get("email") or "", "primary": True, "type": "work"}
+            {"value": (user.get("email") or "").strip(), "primary": True, "type": "work"}
         ],
         "active": user.get("is_active", True),
     }
@@ -114,7 +114,7 @@ async def get_users() -> list[dict] | None:
             )
             continue
         ext_id = str(pk)
-        email = u.get("email") or ""
+        email = (u.get("email") or "").strip()
         name = u.get("name") or ""
         if not email:
             # Log as ERROR — a user without email that was previously synced to Apple
