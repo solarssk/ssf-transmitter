@@ -130,7 +130,23 @@ def _users_differ(existing: dict, new: dict) -> bool:
 
 
 def _build_put_body(user: dict, apple_id: str) -> dict:
-    """Build a PUT body: strip externalId (Apple rejects it on updates), add Apple's id."""
+    """Build a PUT body for Apple SCIM, adding Apple's resource ``id``.
+
+    ``externalId`` is stripped because Apple rejects it on full-replace PUT
+    (the original 400 error before v0.5.3 was caused by a missing ``id``, not
+    the presence of ``externalId`` — but empirical testing showed Apple also
+    drops the stored ``externalId`` after a PUT that omits it).
+
+    Known limitation: every routine PUT (name/active change) erases the stable
+    ``externalId`` linkage in Apple's system.  After that, the record can only
+    be matched via the ``by_username`` fallback (which is restricted to records
+    without ``externalId`` to prevent cross-user overwrites).  If the user's
+    email later changes, the record becomes unmatchable and a new 409 cycle
+    begins.
+
+    TODO(v1.x): Replace full PUT with PATCH (RFC 7644 §3.5.2) so only changed
+    fields are sent and ``externalId`` is never accidentally cleared.
+    """
     body = {k: v for k, v in user.items() if k != "externalId"}
     body["id"] = apple_id
     return body
@@ -181,6 +197,9 @@ async def _handle_409(
     # SCIM RFC 7644 filter literals use double quotes (not single quotes from repr())
     scim_filter = quote('"' + username + '"')
     filter_url = f"{APPLE_SCIM_BASE}/Users?filter=userName%20eq%20{scim_filter}"
+    from app.config import settings  # late import — avoids circular at module load
+    safe_username = mask_email(username, log_pii=settings.log_pii,
+                               pii_key=settings.pii_pepper or settings.ssf_management_token)
     try:
         resp = await client.get(filter_url, headers=headers)
         if resp.status_code == 200:
@@ -194,13 +213,24 @@ async def _handle_409(
             else:
                 resources = payload.get("Resources", []) if isinstance(payload, dict) else []
                 if resources:
-                    await _put_user(client, headers, resources[0], user, result, label="409-recovery")
-                    return
+                    found = resources[0]
+                    # Only recover records that have no externalId — if the matched Apple
+                    # record belongs to a different Authentik user (has a different externalId),
+                    # overwriting it would corrupt that account.
+                    if found.get("externalId"):
+                        logger.warning(
+                            "Apple SCIM: 409-recovery skipped for %s — matched Apple record"
+                            " already has externalId=%s (different Authentik user)",
+                            safe_username, found["externalId"],
+                        )
+                    else:
+                        await _put_user(client, headers, found, user, result, label="409-recovery")
+                        return
         else:
             logger.warning("Apple SCIM: 409-recovery filter query failed status=%s userName=%s",
-                           resp.status_code, username)
+                           resp.status_code, safe_username)
     except httpx.HTTPError:
-        logger.warning("Apple SCIM: 409-recovery network error for userName=%s", username)
+        logger.warning("Apple SCIM: 409-recovery network error for userName=%s", safe_username)
 
     # Could not locate user — flag as conflict with actionable message.
     # Mask the email address per SSF_LOG_PII setting so it does not leak
