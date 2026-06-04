@@ -11,34 +11,46 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ---
 
-## [0.5.3] — 2026-06-04
+## [0.5.3] — 2026-06-05
 
 ### Fixed
-- **SCIM sync loop** (`updated=8 unchanged=0` every hour) — Apple omits `emails[].primary` flag in GET responses (RFC 7643 allows this); added `_primary_email()` helper with fallback to first email so comparison no longer produces false positives
+- **SCIM sync loop** (`updated=8 unchanged=0` every hour) — Apple omits `emails[].primary` flag in GET responses (RFC 7643 allows this); added `_primary_email()` helper with fallback to first email; email comparison is now also case-insensitive
 - `userName` comparison is now case-insensitive (Apple may normalise to lowercase)
-- `externalId` lost after PUT — v0.5.3-b1 regression where stripping `externalId` from PUT body caused Apple to lose the identifier; `by_username` fallback now permanently recovers users without `externalId`
-- `found 0 existing users` → 409 loop — users matched via `by_username` fallback, 409 on POST triggers `GET /Users?filter=userName eq "..."` then PUT (Authentik pattern)
-- `KeyError` crash if Authentik returns a user without `pk`
+- `externalId` lost after PUT — v0.5.3-b1 regression; `by_username` fallback permanently recovers users without `externalId` (restricted to unlinked records only — guards against overwriting another user's Apple account)
+- `found 0 existing users` → 409 loop — 409 on POST now triggers `GET /Users?filter=userName eq "..."` then PUT (Authentik pattern); recovery allowed when matched record has no `externalId` or the same `externalId`; skipped when a different `externalId` is present (would corrupt another user's account)
+- `KeyError` crash if Authentik returns a user without `pk` — validated before mapping
 - PUT `400 Invalid request` — Apple requires `id` in PUT body
 - SQLite connection leak in preflight `_check_scim_authorized` — `contextlib.closing`
 - Infinite pagination loop guard — `break` when `itemsPerPage=0`
 - Upstream HTTP response bodies (OAuth tokens, credentials) no longer appear in logs (CWE-532) — replaced with safe metadata via `app/security/http_logging.py`
 - Docker healthcheck log completely suppressed at all log levels including DEBUG
+- `expires_in` in OAuth callback now validated the same way as token refresh (`int()` cast, `> 0` check, fallback to 3600)
+- Conflict usernames (emails) in SCIM logs now masked via `mask_email()` per `SSF_LOG_PII` setting — no PII leaked in production logs
+- Whitespace-only email addresses (e.g. `" "`) now caught by pre-sync validation
+- 409-recovery PII masking applied to all failure log paths in `_handle_409`
 
 ### Added
 - `app/security/http_logging.py` — `response_metadata()` and `json_key_summary()` for safe HTTP diagnostics
-- `SyncResult.conflicts` counter for unresolvable 409s (personal Apple ID conflict)
+- `SyncResult.conflicts` counter for unresolvable 409s (personal Apple ID conflict); `conflict_usernames` intentionally omitted from API response (PII — appears in logs only)
 - Actionable log + link to ABM Activity Centre when conflicts detected
 - `POST /apple-scim/sync` response includes `conflicts` field
 - Preflight check shows Apple SCIM OAuth authorization status at startup
 - Preflight warns when `APPLE_SCIM_ALERT_WEBHOOK_URL` not set
-- Pre-sync validation: skip users with no `pk` or empty email; warn on empty display name
+- Pre-sync validation: skip users with no `pk` or empty/whitespace email (logs `ERROR`); warn on empty display name
 - Per-field DEBUG log in `_users_differ()` showing which field triggered a diff
+- `runtime_settings` table in SQLite — reserved for v1.x admin UI (key/value store for runtime-configurable settings without container restart)
 
 ### Changed
-- CI pipeline now runs on `beta` branch
-- Pre-release tags (containing `-`) correctly marked as GitHub pre-releases
+- CI pipeline now also runs on `beta` branch
+- Pre-release tags (containing `-`) correctly marked as GitHub pre-releases and do not update `latest`
 - Alert webhook cooldown starts only after server is reached (transport failures can retry)
+- `recovered` counter in sync log now matches actual sync-loop condition exactly
+
+### Dependencies
+- `uvicorn` → 0.49.0
+- `ruff` → 0.15.16
+- `actions/checkout` → 6.0.3
+- `github/codeql-action` → 4.36.2
 
 ---
 
