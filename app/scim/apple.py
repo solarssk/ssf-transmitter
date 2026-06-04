@@ -116,7 +116,7 @@ def _users_differ(existing: dict, new: dict) -> bool:
         "givenName":  existing.get("name", {}).get("givenName") != new.get("name", {}).get("givenName"),
         "familyName": existing.get("name", {}).get("familyName") != new.get("name", {}).get("familyName"),
         "active":     existing.get("active", True) != new.get("active", True),
-        "email":      _primary_email(existing) != _primary_email(new),
+        "email":      (_primary_email(existing) or "").lower() != (_primary_email(new) or "").lower(),
     }
     if any(diffs.values()):
         logger.debug(
@@ -183,10 +183,18 @@ async def _handle_409(
     try:
         resp = await client.get(filter_url, headers=headers)
         if resp.status_code == 200:
-            resources = resp.json().get("Resources", [])
-            if resources:
-                await _put_user(client, headers, resources[0], user, result, label="409-recovery")
-                return
+            try:
+                payload = resp.json()
+            except Exception:
+                logger.warning(
+                    "Apple SCIM: 409-recovery filter query returned non-JSON response=%s",
+                    response_metadata(resp),
+                )
+            else:
+                resources = payload.get("Resources", []) if isinstance(payload, dict) else []
+                if resources:
+                    await _put_user(client, headers, resources[0], user, result, label="409-recovery")
+                    return
         else:
             logger.warning("Apple SCIM: 409-recovery filter query failed status=%s userName=%s",
                            resp.status_code, username)
