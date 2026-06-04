@@ -27,6 +27,7 @@ from urllib.parse import quote
 import httpx
 
 from app.security.http_logging import response_metadata
+from app.security.pii import mask_email
 
 logger = logging.getLogger(__name__)
 
@@ -201,13 +202,18 @@ async def _handle_409(
     except httpx.HTTPError:
         logger.warning("Apple SCIM: 409-recovery network error for userName=%s", username)
 
-    # Could not locate user — flag as conflict with actionable message
+    # Could not locate user — flag as conflict with actionable message.
+    # Mask the email address per SSF_LOG_PII setting so it does not leak
+    # into production logs when privacy mode is active.
     result.conflicts += 1
     result.conflict_usernames.append(username)
+    from app.config import settings  # late import — avoids circular at module load
+    safe_username = mask_email(username, log_pii=settings.log_pii,
+                               pii_key=settings.pii_pepper or settings.ssf_management_token)
     logger.warning(
         "Apple SCIM: ⚠️  %s — USERNAME_CONFLICT: email already used as personal Apple ID"
         " | Action: ABM → Settings → Activity Centre → accept pending invitation",
-        username,
+        safe_username,
     )
 
 
