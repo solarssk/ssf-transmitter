@@ -26,6 +26,8 @@ from urllib.parse import quote
 
 import httpx
 
+from app.security.http_logging import response_metadata
+
 logger = logging.getLogger(__name__)
 
 APPLE_SCIM_BASE = "https://federation.apple.com/feeds/business/scim"
@@ -57,12 +59,12 @@ async def _get_existing_users(
     while url:
         resp = await client.get(url, headers=headers)
         if resp.status_code != 200:
-            logger.error("Apple SCIM list users failed status=%s body=%r", resp.status_code, resp.text[:300])
+            logger.error("Apple SCIM list users failed response=%s", response_metadata(resp))
             return by_ext_id, by_username
         try:
             data = resp.json()
         except Exception:
-            logger.error("Apple SCIM list users returned non-JSON body=%r", resp.text[:300])
+            logger.error("Apple SCIM list users returned non-JSON response=%s", response_metadata(resp))
             return by_ext_id, by_username
         for u in data.get("Resources", []):
             ext_id = u.get("externalId")
@@ -74,7 +76,9 @@ async def _get_existing_users(
         # Apple uses startIndex/itemsPerPage pagination (not cursor/next-link)
         total = data.get("totalResults", 0)
         start = data.get("startIndex", 1)
-        per_page = data.get("itemsPerPage", len(data.get("Resources", [])))
+        per_page = data.get("itemsPerPage") or len(data.get("Resources", []))
+        if per_page == 0:
+            break  # guard: empty page with totalResults > 0 would loop forever
         if start + per_page - 1 < total:
             url = f"{APPLE_SCIM_BASE}/Users?count=200&startIndex={start + per_page}"
         else:
@@ -131,8 +135,8 @@ async def _put_user(
     else:
         result.errors += 1
         logger.warning(
-            "Apple SCIM: update failed externalId=%s appleId=%s status=%s body=%r",
-            new_user.get("externalId"), apple_id, resp.status_code, resp.text[:300],
+            "Apple SCIM: update failed externalId=%s appleId=%s response=%s",
+            new_user.get("externalId"), apple_id, response_metadata(resp),
         )
 
 
@@ -217,8 +221,8 @@ async def sync_users(access_token: str, scim_users: list[dict]) -> SyncResult:
                     else:
                         result.errors += 1
                         logger.warning(
-                            "Apple SCIM: create failed externalId=%s status=%s body=%r",
-                            ext_id, resp.status_code, resp.text[:300],
+                            "Apple SCIM: create failed externalId=%s response=%s",
+                            ext_id, response_metadata(resp),
                         )
                 elif _users_differ(apple_user, user):
                     await _put_user(client, headers, apple_user, user, result)
