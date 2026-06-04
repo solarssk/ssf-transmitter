@@ -19,6 +19,7 @@ import logging
 import httpx
 
 from app.config import settings
+from app.security.http_logging import response_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -47,9 +48,7 @@ def _map_to_scim(user: dict) -> dict:
             "familyName": family_name,
             "formatted": full_name,
         },
-        "emails": [
-            {"value": user.get("email") or "", "primary": True, "type": "work"}
-        ],
+        "emails": [{"value": user.get("email") or "", "primary": True, "type": "work"}],
         "active": user.get("is_active", True),
     }
 
@@ -73,10 +72,7 @@ async def get_users() -> list[dict] | None:
     base = settings.authentik_url.rstrip("/")
 
     if settings.apple_scim_group_id:
-        url = (
-            f"{base}/api/v3/core/users/"
-            f"?groups_by_pk={settings.apple_scim_group_id}&type=internal&page_size=500"
-        )
+        url = f"{base}/api/v3/core/users/?groups_by_pk={settings.apple_scim_group_id}&type=internal&page_size=500"
     else:
         url = f"{base}/api/v3/core/users/?type=internal&page_size=500"
 
@@ -87,15 +83,14 @@ async def get_users() -> list[dict] | None:
                 resp = await client.get(url, headers=headers)
                 if resp.status_code != 200:
                     logger.error(
-                        "Authentik API error status=%s body=%r",
-                        resp.status_code,
-                        resp.text[:300],
+                        "Authentik API error response=%s",
+                        response_metadata(resp),
                     )
                     return None
                 try:
                     data = resp.json()
                 except Exception:
-                    logger.error("Authentik API returned non-JSON body=%r", resp.text[:300])
+                    logger.error("Authentik API returned non-JSON response=%s", response_metadata(resp))
                     return None
                 all_users.extend(data.get("results", []))
                 url = data.get("next")  # pagination — None when last page

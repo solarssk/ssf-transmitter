@@ -35,6 +35,7 @@ from app.config import settings
 from app.scim.apple import sync_users
 from app.scim.authentik import get_users
 from app.scim.token import APPLE_TOKEN_URL, get_valid_access_token, load_tokens, save_tokens
+from app.security.http_logging import json_key_summary, response_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -135,10 +136,10 @@ async def callback(
         raise HTTPException(status_code=502, detail="Network error contacting Apple token endpoint") from exc
 
     if resp.status_code != 200:
-        logger.error("Apple SCIM: token exchange failed status=%s body=%r", resp.status_code, resp.text[:500])
+        logger.error("Apple SCIM: token exchange failed response=%s", response_metadata(resp))
         raise HTTPException(
             status_code=502,
-            detail=f"Apple token endpoint returned {resp.status_code}: {resp.text[:200]}",
+            detail=f"Apple token endpoint returned {resp.status_code}",
         )
 
     data = resp.json()
@@ -147,12 +148,14 @@ async def callback(
     expires_in = data.get("expires_in", 3600)
 
     if not access_token:
-        raise HTTPException(status_code=502, detail=f"Apple did not return an access_token: {data}")
+        logger.error("Apple SCIM: token exchange response missing access_token %s", json_key_summary(data))
+        raise HTTPException(status_code=502, detail="Apple did not return an access_token")
 
     await save_tokens(access_token, refresh_token, expires_in)
     logger.info(
         "Apple SCIM: authorization complete has_refresh_token=%s expires_in=%s",
-        bool(refresh_token), expires_in,
+        bool(refresh_token),
+        expires_in,
     )
 
     # Kick off an immediate sync in the background so the admin doesn't have

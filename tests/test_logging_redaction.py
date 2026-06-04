@@ -39,11 +39,7 @@ def client():
 
 def _app_log_text(caplog) -> str:
     """Return formatted text of all log records emitted by the *app* namespace."""
-    return " ".join(
-        r.getMessage()
-        for r in caplog.records
-        if r.name.startswith("app.")
-    )
+    return " ".join(r.getMessage() for r in caplog.records if r.name.startswith("app."))
 
 
 # ---------------------------------------------------------------------------
@@ -130,9 +126,7 @@ def test_receiver_token_not_in_create_response(client: TestClient):
 
 def test_webhook_secret_not_logged_on_valid_request(client: TestClient, caplog):
     """Processing a valid signed webhook must not write the HMAC secret to app logs."""
-    body = json.dumps(
-        {"body": {"action": "authentik.core.auth.logout", "user": {"email": "u@example.com"}}}
-    ).encode()
+    body = json.dumps({"body": {"action": "authentik.core.auth.logout", "user": {"email": "u@example.com"}}}).encode()
     with caplog.at_level(logging.DEBUG, logger="app"):
         client.post("/webhook/authentik", content=body, headers=_signed_headers(body))
     assert _WEBHOOK_SECRET.decode() not in _app_log_text(caplog)
@@ -154,3 +148,71 @@ def test_webhook_secret_not_logged_on_invalid_hmac(client: TestClient, caplog):
 # tests/test_pii_and_body_limit.py (PR: PII masking + webhook body limit),
 # which adds SSF_LOG_PII support and the mask_email() call to webhook.py.
 # It is not included here because the feature is not yet on main.
+
+
+# ---------------------------------------------------------------------------
+# Upstream response bodies are never logged
+# ---------------------------------------------------------------------------
+
+
+def test_response_metadata_excludes_raw_body_secrets():
+    """HTTP failure metadata must include diagnostics without raw body content."""
+    import httpx
+
+    from app.security.http_logging import response_metadata
+
+    raw_secret = "upstream-refresh-token-secret"
+    resp = httpx.Response(401, json={"error": "invalid_client", "refresh_token": raw_secret})
+
+    metadata = response_metadata(resp)
+
+    assert raw_secret not in repr(metadata)
+    assert metadata["status_code"] == 401
+    assert metadata["body_len"] == len(resp.content)
+    assert metadata["body_sha256_8"]
+
+
+@pytest.mark.anyio
+async def test_apple_token_refresh_failure_does_not_log_response_body(monkeypatch, caplog):
+    """Apple token refresh errors must not log raw OAuth response bodies."""
+    import httpx
+
+    from app.scim import token as token_module
+
+    raw_client_secret = "expired-client-secret-from-upstream"
+    raw_refresh_token = "stored-refresh-token-secret"
+
+    class FakeAsyncClient:
+        def __init__(self, timeout: float):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, url, data):
+            return httpx.Response(
+                401,
+                json={
+                    "error": "invalid_client",
+                    "client_secret": raw_client_secret,
+                    "refresh_token": raw_refresh_token,
+                },
+            )
+
+    async def fake_send_alert(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(token_module.httpx, "AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr(token_module, "send_alert", fake_send_alert)
+
+    with caplog.at_level(logging.ERROR, logger="app"):
+        result = await token_module._refresh(raw_refresh_token)
+
+    assert result is None
+    log_text = _app_log_text(caplog)
+    assert raw_client_secret not in log_text
+    assert raw_refresh_token not in log_text
+    assert "body_sha256_8" in log_text

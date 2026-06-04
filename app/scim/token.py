@@ -20,6 +20,7 @@ import httpx
 
 from app.alerts import send_alert
 from app.config import settings
+from app.security.http_logging import json_key_summary, response_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -94,7 +95,7 @@ async def _refresh(refresh_token: str | None) -> str | None:
         return None
 
     if resp.status_code != 200:
-        logger.error("Apple SCIM: token refresh failed status=%s body=%r", resp.status_code, resp.text[:300])
+        logger.error("Apple SCIM: token refresh failed response=%s", response_metadata(resp))
         try:
             error_code = resp.json().get("error", "")
         except Exception:
@@ -114,7 +115,7 @@ async def _refresh(refresh_token: str | None) -> str | None:
     try:
         data = resp.json()
     except Exception:
-        logger.error("Apple SCIM: token refresh response is not valid JSON body=%r", resp.text[:300])
+        logger.error("Apple SCIM: token refresh response is not valid JSON response=%s", response_metadata(resp))
         return None
 
     access_token = data.get("access_token")
@@ -122,7 +123,7 @@ async def _refresh(refresh_token: str | None) -> str | None:
     raw_expires = data.get("expires_in")
 
     if not access_token or not isinstance(access_token, str):
-        logger.error("Apple SCIM: token refresh response missing access_token body=%r", data)
+        logger.error("Apple SCIM: token refresh response missing access_token %s", json_key_summary(data))
         return None
     try:
         expires_in = int(raw_expires)

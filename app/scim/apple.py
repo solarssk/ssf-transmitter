@@ -15,6 +15,8 @@ from dataclasses import dataclass
 
 import httpx
 
+from app.security.http_logging import response_metadata
+
 logger = logging.getLogger(__name__)
 
 APPLE_SCIM_BASE = "https://federation.apple.com/feeds/business/scim"
@@ -35,12 +37,12 @@ async def _get_existing_users(client: httpx.AsyncClient, headers: dict) -> dict[
     while url:
         resp = await client.get(url, headers=headers)
         if resp.status_code != 200:
-            logger.error("Apple SCIM list users failed status=%s body=%r", resp.status_code, resp.text[:300])
+            logger.error("Apple SCIM list users failed response=%s", response_metadata(resp))
             return users
         try:
             data = resp.json()
         except Exception:
-            logger.error("Apple SCIM list users returned non-JSON body=%r", resp.text[:300])
+            logger.error("Apple SCIM list users returned non-JSON response=%s", response_metadata(resp))
             return users
         for u in data.get("Resources", []):
             ext_id = u.get("externalId")
@@ -109,8 +111,9 @@ async def sync_users(access_token: str, scim_users: list[dict]) -> SyncResult:
                     else:
                         result.errors += 1
                         logger.warning(
-                            "Apple SCIM: create failed externalId=%s status=%s body=%r",
-                            ext_id, resp.status_code, resp.text[:300],
+                            "Apple SCIM: create failed externalId=%s response=%s",
+                            ext_id,
+                            response_metadata(resp),
                         )
                 elif _users_differ(apple_user, user):
                     # Update existing user (full PUT)
@@ -122,8 +125,10 @@ async def sync_users(access_token: str, scim_users: list[dict]) -> SyncResult:
                     else:
                         result.errors += 1
                         logger.warning(
-                            "Apple SCIM: update failed externalId=%s appleId=%s status=%s body=%r",
-                            ext_id, apple_id, resp.status_code, resp.text[:300],
+                            "Apple SCIM: update failed externalId=%s appleId=%s response=%s",
+                            ext_id,
+                            apple_id,
+                            response_metadata(resp),
                         )
                 else:
                     result.unchanged += 1
@@ -134,6 +139,9 @@ async def sync_users(access_token: str, scim_users: list[dict]) -> SyncResult:
 
     logger.info(
         "Apple SCIM sync complete created=%d updated=%d unchanged=%d errors=%d",
-        result.created, result.updated, result.unchanged, result.errors,
+        result.created,
+        result.updated,
+        result.unchanged,
+        result.errors,
     )
     return result
