@@ -214,14 +214,19 @@ async def _handle_409(
                 resources = payload.get("Resources", []) if isinstance(payload, dict) else []
                 if resources:
                     found = resources[0]
-                    # Only recover records that have no externalId — if the matched Apple
-                    # record belongs to a different Authentik user (has a different externalId),
-                    # overwriting it would corrupt that account.
-                    if found.get("externalId"):
+                    found_ext_id = found.get("externalId")
+                    ext_id = user.get("externalId")
+                    # Allow recovery when the matched Apple record has no externalId
+                    # OR the same externalId as the current user (it is our record,
+                    # just missing from the initial GET list).
+                    # Reject only when a *different* externalId is present — that means
+                    # the record belongs to another Authentik user and overwriting it
+                    # would corrupt that account.
+                    if found_ext_id and found_ext_id != ext_id:
                         logger.warning(
                             "Apple SCIM: 409-recovery skipped for %s — matched Apple record"
-                            " already has externalId=%s (different Authentik user)",
-                            safe_username, found["externalId"],
+                            " has externalId=%s belonging to a different user",
+                            safe_username, found_ext_id,
                         )
                     else:
                         await _put_user(client, headers, found, user, result, label="409-recovery")
