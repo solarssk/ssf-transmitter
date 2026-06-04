@@ -11,6 +11,37 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ---
 
+## [0.5.3] — 2026-06-04
+
+### Fixed
+- **SCIM sync loop** (`updated=8 unchanged=0` every hour) — Apple omits `emails[].primary` flag in GET responses (RFC 7643 allows this); added `_primary_email()` helper with fallback to first email so comparison no longer produces false positives
+- `userName` comparison is now case-insensitive (Apple may normalise to lowercase)
+- `externalId` lost after PUT — v0.5.3-b1 regression where stripping `externalId` from PUT body caused Apple to lose the identifier; `by_username` fallback now permanently recovers users without `externalId`
+- `found 0 existing users` → 409 loop — users matched via `by_username` fallback, 409 on POST triggers `GET /Users?filter=userName eq "..."` then PUT (Authentik pattern)
+- `KeyError` crash if Authentik returns a user without `pk`
+- PUT `400 Invalid request` — Apple requires `id` in PUT body
+- SQLite connection leak in preflight `_check_scim_authorized` — `contextlib.closing`
+- Infinite pagination loop guard — `break` when `itemsPerPage=0`
+- Upstream HTTP response bodies (OAuth tokens, credentials) no longer appear in logs (CWE-532) — replaced with safe metadata via `app/security/http_logging.py`
+- Docker healthcheck log completely suppressed at all log levels including DEBUG
+
+### Added
+- `app/security/http_logging.py` — `response_metadata()` and `json_key_summary()` for safe HTTP diagnostics
+- `SyncResult.conflicts` counter for unresolvable 409s (personal Apple ID conflict)
+- Actionable log + link to ABM Activity Centre when conflicts detected
+- `POST /apple-scim/sync` response includes `conflicts` field
+- Preflight check shows Apple SCIM OAuth authorization status at startup
+- Preflight warns when `APPLE_SCIM_ALERT_WEBHOOK_URL` not set
+- Pre-sync validation: skip users with no `pk` or empty email; warn on empty display name
+- Per-field DEBUG log in `_users_differ()` showing which field triggered a diff
+
+### Changed
+- CI pipeline now runs on `beta` branch
+- Pre-release tags (containing `-`) correctly marked as GitHub pre-releases
+- Alert webhook cooldown starts only after server is reached (transport failures can retry)
+
+---
+
 ## [0.5.3-b4] — 2026-06-04
 
 ### Fixed
