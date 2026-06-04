@@ -19,6 +19,7 @@ import logging
 import httpx
 
 from app.config import settings
+from app.security.http_logging import response_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -87,15 +88,14 @@ async def get_users() -> list[dict] | None:
                 resp = await client.get(url, headers=headers)
                 if resp.status_code != 200:
                     logger.error(
-                        "Authentik API error status=%s body=%r",
-                        resp.status_code,
-                        resp.text[:300],
+                        "Authentik API error response=%s",
+                        response_metadata(resp),
                     )
                     return None
                 try:
                     data = resp.json()
                 except Exception:
-                    logger.error("Authentik API returned non-JSON body=%r", resp.text[:300])
+                    logger.error("Authentik API returned non-JSON response=%s", response_metadata(resp))
                     return None
                 all_users.extend(data.get("results", []))
                 url = data.get("next")  # pagination — None when last page
