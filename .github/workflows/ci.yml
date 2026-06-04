@@ -37,6 +37,9 @@ jobs:
       - name: Test
         run: pytest
 
+      - name: Check for unused/missing dependencies
+        run: deptry .
+
       - name: Audit dependencies for known vulnerabilities
         run: pip-audit -r requirements.txt -r requirements-dev.txt
 

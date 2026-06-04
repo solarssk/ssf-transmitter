@@ -9,6 +9,13 @@ markers = [
     "no_dns_mock: skip the autouse mock_dns_resolve fixture (for tests that set up their own mocks)",
 ]
 
+[tool.deptry]
+# DEP003 (transitive dependency used directly) requires full pyproject.toml
+# dependency declaration to work correctly — skip it until dependencies are
+# migrated from requirements.txt to [project.dependencies].
+# DEP001 (missing) and DEP002 (unused) are still enforced.
+ignore = ["DEP003"]
+
 [tool.ruff]
 line-length = 120
 target-version = "py312"
