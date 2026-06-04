@@ -11,6 +11,17 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ---
 
+## [0.5.5] — 2026-06-05
+
+### Security
+- Replaced `python-jose` with `PyJWT[crypto]>=2.10.0` — `python-jose` has known CVEs (GHSA-cjwg-qfpm-7377 and others) and is poorly maintained
+
+### Dependencies
+- `PyJWT[crypto]` `>=2.10.0,<3.0.0` replaces `python-jose[cryptography]`
+- `uvicorn[standard]` → `uvicorn` — dropped unused extras (websockets, watchfiles, uvloop, httptools, python-dotenv)
+
+---
+
 ## [0.5.3] — 2026-06-05
 
 ### Fixed

@@ -3,7 +3,7 @@ import logging
 from urllib.parse import urlparse
 
 import httpx
-from jose import jwt
+import jwt
 
 from app.crypto import sign_set, sign_verification_set
 from app.database import Stream
@@ -77,7 +77,7 @@ async def push_set(stream: Stream, event: MappedEvent, email: str) -> bool | Non
 
     if logger.isEnabledFor(logging.DEBUG):
         try:
-            claims = jwt.get_unverified_claims(token)
+            claims = jwt.decode(token, algorithms=["RS256"], options={"verify_signature": False})
             safe = {k: v for k, v in claims.items() if k not in ("sub_id", "sub")}
             logger.debug("SET claims event_uri=%s aud=%s payload=%s", event.uri, stream.aud, safe)
         except Exception:
