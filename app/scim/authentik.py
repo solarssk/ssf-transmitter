@@ -104,4 +104,22 @@ async def get_users() -> list[dict] | None:
         return None
 
     logger.info("Fetched %d users from Authentik", len(all_users))
-    return [_map_to_scim(u) for u in all_users]
+
+    mapped = []
+    for u in all_users:
+        email = u.get("email") or ""
+        name = u.get("name") or ""
+        ext_id = str(u.get("pk", ""))
+        if not email:
+            logger.warning(
+                "Apple SCIM: skipping Authentik user pk=%s (no email) — cannot create Managed Apple Account",
+                ext_id,
+            )
+            continue
+        if not name.strip():
+            logger.warning(
+                "Apple SCIM: Authentik user pk=%s has no display name — givenName will be empty",
+                ext_id,
+            )
+        mapped.append(_map_to_scim(u))
+    return mapped
