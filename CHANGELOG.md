@@ -11,6 +11,100 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ---
 
+## [0.5.3] — 2026-06-05
+
+### Fixed
+- **SCIM sync loop** (`updated=8 unchanged=0` every hour) — Apple omits `emails[].primary` flag in GET responses (RFC 7643 allows this); added `_primary_email()` helper with fallback to first email; email comparison is now also case-insensitive
+- `userName` comparison is now case-insensitive (Apple may normalise to lowercase)
+- `externalId` lost after PUT — v0.5.3-b1 regression; `by_username` fallback permanently recovers users without `externalId` (restricted to unlinked records only — guards against overwriting another user's Apple account)
+- `found 0 existing users` → 409 loop — 409 on POST now triggers `GET /Users?filter=userName eq "..."` then PUT (Authentik pattern); recovery allowed when matched record has no `externalId` or the same `externalId`; skipped when a different `externalId` is present (would corrupt another user's account)
+- `KeyError` crash if Authentik returns a user without `pk` — validated before mapping
+- PUT `400 Invalid request` — Apple requires `id` in PUT body
+- SQLite connection leak in preflight `_check_scim_authorized` — `contextlib.closing`
+- Infinite pagination loop guard — `break` when `itemsPerPage=0`
+- Upstream HTTP response bodies (OAuth tokens, credentials) no longer appear in logs (CWE-532) — replaced with safe metadata via `app/security/http_logging.py`
+- Docker healthcheck log completely suppressed at all log levels including DEBUG
+- `expires_in` in OAuth callback now validated the same way as token refresh (`int()` cast, `> 0` check, fallback to 3600)
+- Conflict usernames (emails) in SCIM logs now masked via `mask_email()` per `SSF_LOG_PII` setting — no PII leaked in production logs
+- Whitespace-only email addresses (e.g. `" "`) now caught by pre-sync validation
+- 409-recovery PII masking applied to all failure log paths in `_handle_409`
+
+### Added
+- `app/security/http_logging.py` — `response_metadata()` and `json_key_summary()` for safe HTTP diagnostics
+- `SyncResult.conflicts` counter for unresolvable 409s (personal Apple ID conflict); `conflict_usernames` intentionally omitted from API response (PII — appears in logs only)
+- Actionable log + link to ABM Activity Centre when conflicts detected
+- `POST /apple-scim/sync` response includes `conflicts` field
+- Preflight check shows Apple SCIM OAuth authorization status at startup
+- Preflight warns when `APPLE_SCIM_ALERT_WEBHOOK_URL` not set
+- Pre-sync validation: skip users with no `pk` or empty/whitespace email (logs `ERROR`); warn on empty display name
+- Per-field DEBUG log in `_users_differ()` showing which field triggered a diff
+- `runtime_settings` table in SQLite — reserved for v1.x admin UI (key/value store for runtime-configurable settings without container restart)
+
+### Changed
+- CI pipeline now also runs on `beta` branch
+- Pre-release tags (containing `-`) correctly marked as GitHub pre-releases and do not update `latest`
+- Alert webhook cooldown starts only after server is reached (transport failures can retry)
+- `recovered` counter in sync log now matches actual sync-loop condition exactly
+
+### Dependencies
+- `uvicorn` → 0.49.0
+- `ruff` → 0.15.16
+- `actions/checkout` → 6.0.3
+- `github/codeql-action` → 4.36.2
+
+---
+
+## [0.5.3-b4] — 2026-06-04
+
+### Fixed
+- `updated=8 unchanged=0` on every sync — Apple omits `emails[].primary` flag in GET responses (RFC 7643 permits this); added `_primary_email()` helper with fallback to first email in list so the comparison no longer produces false positives
+- `userName` comparison is now case-insensitive (Apple may normalise to lowercase)
+- `KeyError` crash if Authentik returns a user without `pk` — validated before mapping
+- No-email skip now logs `ERROR` instead of `WARNING` with explicit note that deactivation will not reach Apple if email is removed before disabling the account
+
+### Added
+- Per-field `DEBUG` log in `_users_differ()` — shows exactly which field triggered a diff (useful for diagnosing future false positives)
+- Pre-sync validation: skip users with no `pk` or empty email with actionable log messages; warn on empty display name
+
+---
+
+## [0.5.3-b3] — 2026-06-04
+
+### Security
+- Upstream HTTP response bodies no longer appear in logs — replaced with safe metadata (status, content-type, body length, 8-char SHA256 hash); prevents OAuth/SCIM tokens and credentials from leaking into Portainer/log aggregators (CWE-532)
+
+### Fixed
+- Infinite pagination loop in `_get_existing_users` when Apple returns `itemsPerPage=0` or omits it with `totalResults > 0` — added explicit `break` guard
+
+### Added
+- `app/security/http_logging.py` — `response_metadata()` and `json_key_summary()` helpers for safe HTTP diagnostics
+- Tests for `response_metadata()` and `json_key_summary()` covering shape, determinism, and value redaction
+
+---
+
+## [0.5.3-b2] — 2026-06-01
+
+### Fixed
+- `found 0 existing users` → 409 loop every hour: `_get_existing_users` now builds a secondary `by_username` index so users without `externalId` in Apple's GET response are still matched and updated rather than POSTed into a 409
+- 409 on POST: instead of counting as error, queries `GET /Users?filter=userName eq "..."` (Authentik pattern) then PUT — recovers users that exist in Apple but aren't listed
+- SCIM filter literals now use RFC 7644 double quotes (was `repr()` single quotes which Apple may reject)
+- Healthcheck log completely suppressed at all log levels including DEBUG — no more `Docker healthcheck OK` flooding Portainer
+
+### Added
+- `SyncResult.conflicts` counter for unresolvable 409s (personal Apple ID conflict); actionable log message with link to ABM Activity Centre
+- `POST /apple-scim/sync` response includes `conflicts` field
+- Summary log when conflicts > 0: `⚠️ N account(s) pending user acceptance — go to https://business.apple.com/main/activity`
+
+---
+
+## [0.5.3-b1] — 2026-05-31
+
+### Fixed
+- Apple SCIM PUT updates failing with `400 Invalid request` — PUT body now strips `externalId` (immutable after creation) and includes Apple's resource `id` (`GN-...`) as required
+- `_users_differ()` treated missing `active` field (Apple omits it when `true`) as `None` vs `True`, causing all users to be flagged as changed on every sync cycle
+
+---
+
 ## [0.5.2] — 2026-05-30
 
 ### Fixed

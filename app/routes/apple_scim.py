@@ -35,6 +35,7 @@ from app.config import settings
 from app.scim.apple import sync_users
 from app.scim.authentik import get_users
 from app.scim.token import APPLE_TOKEN_URL, get_valid_access_token, load_tokens, save_tokens
+from app.security.http_logging import json_key_summary, response_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -135,19 +136,32 @@ async def callback(
         raise HTTPException(status_code=502, detail="Network error contacting Apple token endpoint") from exc
 
     if resp.status_code != 200:
-        logger.error("Apple SCIM: token exchange failed status=%s body=%r", resp.status_code, resp.text[:500])
+        logger.error("Apple SCIM: token exchange failed response=%s", response_metadata(resp))
         raise HTTPException(
             status_code=502,
-            detail=f"Apple token endpoint returned {resp.status_code}: {resp.text[:200]}",
+            detail=f"Apple token endpoint returned {resp.status_code}",
         )
 
     data = resp.json()
     access_token = data.get("access_token")
     refresh_token = data.get("refresh_token")
-    expires_in = data.get("expires_in", 3600)
+    # Validate expires_in the same way token.py does — guard against Apple
+    # returning a non-integer or non-positive value.
+    raw_expires = data.get("expires_in")
+    try:
+        expires_in = int(raw_expires)
+        if expires_in <= 0:
+            raise ValueError("expires_in must be > 0")
+    except (TypeError, ValueError):
+        logger.warning(
+            "Apple SCIM: token exchange response has invalid expires_in=%r — defaulting to 3600",
+            raw_expires,
+        )
+        expires_in = 3600
 
     if not access_token:
-        raise HTTPException(status_code=502, detail=f"Apple did not return an access_token: {data}")
+        logger.error("Apple SCIM: token exchange response missing access_token %s", json_key_summary(data))
+        raise HTTPException(status_code=502, detail="Apple did not return an access_token")
 
     await save_tokens(access_token, refresh_token, expires_in)
     logger.info(
@@ -231,5 +245,9 @@ async def sync(_auth: None = Depends(require_management_auth)) -> dict:
         "created": result.created,
         "updated": result.updated,
         "unchanged": result.unchanged,
+        "conflicts": result.conflicts,
+        # conflict_usernames (email addresses) are intentionally not included in
+        # the API response to avoid exposing PII over HTTP. The full list appears
+        # in application logs at WARNING level.
         "errors": result.errors,
     }

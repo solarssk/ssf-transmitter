@@ -5,20 +5,17 @@ import os
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
-_healthcheck_logger = logging.getLogger("app.health")
-
 
 class _HealthcheckFilter(logging.Filter):
-    """Replace the raw uvicorn access log entry for Docker healthcheck requests
-    with a single readable line from app.health so it's clear what is happening.
+    """Suppress uvicorn access log entries for Docker healthcheck requests.
+
+    The healthcheck hits /jwks.json from 127.0.0.1 every 30 s — logging it
+    at any level (even DEBUG) floods Portainer. Drop it completely.
     """
 
     def filter(self, record: logging.LogRecord) -> bool:
         msg = record.getMessage()
-        if "127.0.0.1" in msg and "/jwks.json" in msg:
-            _healthcheck_logger.debug("Docker healthcheck OK")
-            return False
-        return True
+        return not ("127.0.0.1" in msg and "/jwks.json" in msg)
 
 _WEBHOOK_AUTH_MODES = {"bearer", "hmac", "unsigned"}
 

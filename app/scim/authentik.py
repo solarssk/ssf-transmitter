@@ -19,6 +19,7 @@ import logging
 import httpx
 
 from app.config import settings
+from app.security.http_logging import response_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +35,12 @@ def _map_to_scim(user: dict) -> dict:
       Authentik is_active → active
     """
     full_name: str = user.get("name") or ""
+
+    # UI-CONFIGURABLE(v1.x): scim.name_split_mode
+    # Current: split display name on first space → givenName / familyName.
+    # Works for European names; CJK/Arabic names may need a different strategy.
+    # Future modes: "space" (default), "attributes" (Authentik first_name/last_name),
+    # "full_as_given" (entire name → givenName, empty familyName for CJK).
     parts = full_name.split(" ", 1)
     given_name = parts[0]
     family_name = parts[1] if len(parts) > 1 else ""
@@ -41,14 +48,14 @@ def _map_to_scim(user: dict) -> dict:
     return {
         "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
         "externalId": str(user["pk"]),
-        "userName": user.get("email") or user.get("username", ""),
+        "userName": (user.get("email") or user.get("username", "")).strip(),
         "name": {
             "givenName": given_name,
             "familyName": family_name,
             "formatted": full_name,
         },
         "emails": [
-            {"value": user.get("email") or "", "primary": True, "type": "work"}
+            {"value": (user.get("email") or "").strip(), "primary": True, "type": "work"}
         ],
         "active": user.get("is_active", True),
     }
@@ -87,15 +94,14 @@ async def get_users() -> list[dict] | None:
                 resp = await client.get(url, headers=headers)
                 if resp.status_code != 200:
                     logger.error(
-                        "Authentik API error status=%s body=%r",
-                        resp.status_code,
-                        resp.text[:300],
+                        "Authentik API error response=%s",
+                        response_metadata(resp),
                     )
                     return None
                 try:
                     data = resp.json()
                 except Exception:
-                    logger.error("Authentik API returned non-JSON body=%r", resp.text[:300])
+                    logger.error("Authentik API returned non-JSON response=%s", response_metadata(resp))
                     return None
                 all_users.extend(data.get("results", []))
                 url = data.get("next")  # pagination — None when last page
@@ -104,4 +110,34 @@ async def get_users() -> list[dict] | None:
         return None
 
     logger.info("Fetched %d users from Authentik", len(all_users))
-    return [_map_to_scim(u) for u in all_users]
+
+    mapped = []
+    for u in all_users:
+        pk = u.get("pk")
+        if not pk:
+            logger.warning(
+                "Apple SCIM: skipping Authentik user with missing pk — cannot map to SCIM externalId"
+            )
+            continue
+        ext_id = str(pk)
+        email = (u.get("email") or "").strip()
+        name = u.get("name") or ""
+        if not email:
+            # Log as ERROR — a user without email that was previously synced to Apple
+            # will NOT receive an active=false deactivation update because we cannot
+            # build a valid SCIM record without a userName. Clear the email in
+            # Authentik only after disabling the account so the deactivation syncs first.
+            logger.error(
+                "Apple SCIM: skipping Authentik user pk=%s (no email) — "
+                "cannot provision or deactivate in Apple without a userName; "
+                "disable the account before removing the email",
+                ext_id,
+            )
+            continue
+        if not name.strip():
+            logger.warning(
+                "Apple SCIM: Authentik user pk=%s has no display name — givenName will be empty",
+                ext_id,
+            )
+        mapped.append(_map_to_scim(u))
+    return mapped

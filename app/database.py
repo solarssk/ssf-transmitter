@@ -98,6 +98,19 @@ async def init_db() -> None:
             )
             """
         )
+        # Runtime settings — key/value store for configuration that can be
+        # changed without a container restart.  Reserved for the v1.x admin UI.
+        # Values are JSON-encoded so they can hold strings, booleans, lists, etc.
+        # Keys follow the pattern: "<module>.<setting>" e.g. "scim.name_split_mode"
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS runtime_settings (
+              key        TEXT PRIMARY KEY,
+              value      TEXT NOT NULL,
+              updated_at INTEGER NOT NULL
+            )
+            """
+        )
         await db.commit()
     logger.info("Initialized SQLite database at %s", settings.database_path)
 
