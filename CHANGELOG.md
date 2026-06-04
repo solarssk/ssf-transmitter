@@ -11,6 +11,20 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ---
 
+## [0.5.3-b3] — 2026-06-04
+
+### Security
+- Upstream HTTP response bodies no longer appear in logs — replaced with safe metadata (status, content-type, body length, 8-char SHA256 hash); prevents OAuth/SCIM tokens and credentials from leaking into Portainer/log aggregators (CWE-532)
+
+### Fixed
+- Infinite pagination loop in `_get_existing_users` when Apple returns `itemsPerPage=0` or omits it with `totalResults > 0` — added explicit `break` guard
+
+### Added
+- `app/security/http_logging.py` — `response_metadata()` and `json_key_summary()` helpers for safe HTTP diagnostics
+- Tests for `response_metadata()` and `json_key_summary()` covering shape, determinism, and value redaction
+
+---
+
 ## [0.5.3-b2] — 2026-06-01
 
 ### Fixed
