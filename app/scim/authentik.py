@@ -35,6 +35,12 @@ def _map_to_scim(user: dict) -> dict:
       Authentik is_active → active
     """
     full_name: str = user.get("name") or ""
+
+    # UI-CONFIGURABLE(v1.x): scim.name_split_mode
+    # Current: split display name on first space → givenName / familyName.
+    # Works for European names; CJK/Arabic names may need a different strategy.
+    # Future modes: "space" (default), "attributes" (Authentik first_name/last_name),
+    # "full_as_given" (entire name → givenName, empty familyName for CJK).
     parts = full_name.split(" ", 1)
     given_name = parts[0]
     family_name = parts[1] if len(parts) > 1 else ""
