@@ -16,6 +16,11 @@ markers = [
 # DEP001 (missing) and DEP002 (unused) are still enforced.
 ignore = ["DEP003"]
 
+[tool.deptry.per_rule_ignores]
+# uvicorn is not imported in Python code — it is invoked as a CLI entrypoint
+# in the Dockerfile CMD. Deptry cannot detect CLI-only runtime dependencies.
+DEP002 = ["uvicorn"]
+
 [tool.ruff]
 line-length = 120
 target-version = "py312"
