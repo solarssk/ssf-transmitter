@@ -29,10 +29,13 @@ Events are signed as RS256 JWTs (Security Event Tokens) and pushed over HTTPS. N
 
 | Endpoint | URL |
 |---|---|
+| Service root | `https://idp.example.com/shared-signals/` |
 | SSF Config | `https://idp.example.com/shared-signals/.well-known/ssf-configuration` |
 | JWKS | `https://idp.example.com/shared-signals/jwks.json` |
 | Stream management | `https://idp.example.com/shared-signals/ssf/streams` |
 | Status | `https://idp.example.com/shared-signals/ssf/status` |
+
+`/docs` and `/openapi.json` are off by default — set `SSF_ENABLE_OPENAPI=true` only in dev or a trusted LAN.
 
 Replace `idp.example.com` with your IdP hostname and `/shared-signals` with your `SSF_ROOT_PATH`.
 
