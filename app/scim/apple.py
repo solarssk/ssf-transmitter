@@ -96,6 +96,27 @@ def _normalize_email(value: object) -> str:
     return str(value or "").strip().lower()
 
 
+def _scim_log_username(username: str | None) -> str:
+    """Return a log-safe userName, masked unless SSF_LOG_PII is enabled."""
+    from app.config import settings  # late import — avoids circular at module load
+
+    return mask_email(
+        username or "",
+        log_pii=settings.log_pii,
+        pii_key=settings.pii_pepper or settings.ssf_management_token,
+    )
+
+
+def _format_changed_fields(diffs: dict[str, bool]) -> str:
+    """Format field diffs for human-readable logs (e.g. ``email, active``)."""
+    return ", ".join(name for name, changed in diffs.items() if changed) or "none"
+
+
+def _log_user_ref(user: dict) -> str:
+    """Compact user reference for log lines: ``pk=45 user=filip@...``."""
+    return f"pk={user.get('externalId')} user={_scim_log_username(user.get('userName'))}"
+
+
 def _can_recover_by_username(apple_user: dict, authentik_external_id: object) -> bool:
     """Return True when a userName match is safe to adopt for the current Authentik user.
 
@@ -156,9 +177,9 @@ def _users_differ(existing: dict, new: dict) -> bool:
     diffs = _field_diffs(existing, new)
     if any(diffs.values()):
         logger.debug(
-            "Apple SCIM: field diff for userName=%s — %s",
-            existing.get("userName") or new.get("userName"),
-            {k: v for k, v in diffs.items() if v},
+            "Apple SCIM: diff %s — changed: %s",
+            _log_user_ref(new),
+            _format_changed_fields(diffs),
         )
         return True
     return False
@@ -198,11 +219,10 @@ async def _put_user(
     resp = await client.patch(f"{APPLE_SCIM_BASE}/Users/{apple_id}", json=update_body, headers=headers)
     if resp.status_code in (200, 204):
         result.updated += 1
-        logger.debug(
-            "Apple SCIM: updated user%s externalId=%s userName=%s",
+        logger.info(
+            "Apple SCIM: updated %s%s",
+            _log_user_ref(new_user),
             f" ({label})" if label else "",
-            new_user.get("externalId"),
-            new_user.get("userName"),
         )
     else:
         result.errors += 1
@@ -230,7 +250,11 @@ async def _patch_external_id(
     if resp.status_code in (200, 204):
         result.updated += 1
         apple_user["externalId"] = external_id
-        logger.debug("Apple SCIM: patched externalId appleId=%s externalId=%s", apple_id, external_id)
+        logger.info(
+            "Apple SCIM: linked %s to appleId=%s (externalId repair)",
+            _log_user_ref(new_user),
+            apple_id,
+        )
         return True
     result.errors += 1
     logger.warning(
@@ -343,11 +367,11 @@ async def sync_users(access_token: str, scim_users: list[dict]) -> SyncResult:
             and (m := by_username.get(_normalize_identifier(u.get("userName")))) is not None
             and _can_recover_by_username(m, u["externalId"])
         )
+        apple_total = len(by_username)
         logger.info(
-            "Apple SCIM: found %d existing users (%d by externalId, %d recovered by userName),"
-            " syncing %d from Authentik",
-            len(by_ext_id) + len({k for k in by_username if k not in
-                                   {v.get("userName", "").lower() for v in by_ext_id.values()}}),
+            "Apple SCIM: sync start — apple=%d linked_by_external_id=%d"
+            " email_recovery=%d authentik=%d",
+            apple_total,
             len(by_ext_id),
             recovered,
             len(scim_users),
@@ -367,16 +391,10 @@ async def sync_users(access_token: str, scim_users: list[dict]) -> SyncResult:
                     recovered_by_username = True
                 else:
                     if username_match:
-                        from app.config import settings  # late import — avoids circular at module load
-                        safe_username = mask_email(
-                            user.get("userName", ""),
-                            log_pii=settings.log_pii,
-                            pii_key=settings.pii_pepper or settings.ssf_management_token,
-                        )
                         logger.warning(
-                            "Apple SCIM: userName match skipped for %s — Apple record has"
-                            " externalId=%s belonging to a different Authentik user",
-                            safe_username,
+                            "Apple SCIM: email match skipped for %s — Apple record externalId=%s"
+                            " belongs to a different Authentik user",
+                            _log_user_ref(user),
                             username_match.get("externalId"),
                         )
                     apple_user = None
@@ -387,8 +405,7 @@ async def sync_users(access_token: str, scim_users: list[dict]) -> SyncResult:
                     resp = await client.post(f"{APPLE_SCIM_BASE}/Users", json=user, headers=headers)
                     if resp.status_code in (200, 201):
                         result.created += 1
-                        logger.debug("Apple SCIM: created user externalId=%s userName=%s",
-                                     ext_id, user.get("userName"))
+                        logger.info("Apple SCIM: created %s", _log_user_ref(user))
                     elif resp.status_code == 409:
                         await _handle_409(client, headers, user, result)
                     else:
@@ -405,21 +422,23 @@ async def sync_users(access_token: str, scim_users: list[dict]) -> SyncResult:
                         external_id_patched = await _patch_external_id(client, headers, apple_user, user, result)
                         diffs = _field_diffs(apple_user, user, include_external_id=False)
                     if any(diffs.values()):
+                        changed = _format_changed_fields(diffs)
                         logger.debug(
-                            "Apple SCIM: field diff for userName=%s — %s",
-                            apple_user.get("userName") or user.get("userName"),
-                            {k: v for k, v in diffs.items() if v},
+                            "Apple SCIM: update %s — changed: %s",
+                            _log_user_ref(user),
+                            changed,
                         )
-                        await _put_user(client, headers, apple_user, user, result)
+                        await _put_user(client, headers, apple_user, user, result, label=changed)
                     elif not external_id_patched:
                         result.unchanged += 1
+                        logger.debug("Apple SCIM: unchanged %s", _log_user_ref(user))
 
             except httpx.HTTPError:
                 result.errors += 1
                 logger.exception("Apple SCIM: network error for externalId=%s", ext_id)
 
     logger.info(
-        "Apple SCIM sync complete created=%d updated=%d unchanged=%d conflicts=%d errors=%d",
+        "Apple SCIM: sync done — created=%d updated=%d unchanged=%d conflicts=%d errors=%d",
         result.created, result.updated, result.unchanged, result.conflicts, result.errors,
     )
     if result.conflicts > 0:

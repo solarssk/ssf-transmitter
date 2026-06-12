@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import pytest
 
-from app.scim.apple import _can_recover_by_username, _primary_email, _users_differ
+from app.scim.apple import (
+    _can_recover_by_username,
+    _format_changed_fields,
+    _primary_email,
+    _users_differ,
+)
 
 # ---------------------------------------------------------------------------
 # _primary_email
@@ -135,6 +140,14 @@ class TestUsersDiffer:
 # ---------------------------------------------------------------------------
 # _can_recover_by_username
 # ---------------------------------------------------------------------------
+
+class TestFormatChangedFields:
+    def test_lists_changed_fields(self):
+        assert _format_changed_fields({"email": True, "active": False, "userName": True}) == "email, userName"
+
+    def test_none_when_empty(self):
+        assert _format_changed_fields({"email": False, "active": False}) == "none"
+
 
 class TestCanRecoverByUsername:
     def test_allows_missing_external_id(self):
