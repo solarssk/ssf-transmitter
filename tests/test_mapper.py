@@ -5,6 +5,7 @@ from app.events.mapper import (
     CREDENTIAL_CHANGE,
     SESSION_REVOKED,
     MappedEvent,
+    extract_email,
     extract_source_txn,
     map_authentik_event,
 )
@@ -58,6 +59,23 @@ def test_maps_user_delete_to_account_purged_with_subject():
 def test_user_delete_without_subject_is_skipped():
     events = map_authentik_event({"body": {"action": "authentik.core.user.delete"}})
 
+    assert events == []
+
+
+def test_extract_email_rejects_non_string_values():
+    assert extract_email({"body": {"user": {"email": 12345}}}) is None
+    assert extract_email({"body": {"user": {"email": ["a@example.com"]}}}) is None
+
+
+def test_extract_email_strips_and_rejects_whitespace_only():
+    assert extract_email({"body": {"user": {"email": "  user@example.com  "}}}) == "user@example.com"
+    assert extract_email({"body": {"user": {"email": "   "}}}) is None
+
+
+def test_user_delete_with_whitespace_email_is_skipped():
+    events = map_authentik_event({
+        "body": {"action": "authentik.core.user.delete", "user": {"email": "   "}},
+    })
     assert events == []
 
 

@@ -96,9 +96,18 @@ def map_authentik_event(payload: dict[str, Any]) -> list[MappedEvent]:
 
 
 def extract_email(payload: dict[str, Any]) -> str | None:
+    """Return a normalized email from an Authentik webhook payload, or None."""
     body = payload.get("body") or payload
     user = body.get("user") or {}
-    return user.get("email")
+    raw = user.get("email")
+    if raw is None:
+        return None
+    if isinstance(raw, bytes):
+        raw = raw.decode("utf-8", errors="replace")
+    if not isinstance(raw, str):
+        return None
+    normalized = raw.strip()
+    return normalized or None
 
 
 def extract_action(payload: dict[str, Any]) -> str | None:

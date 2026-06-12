@@ -271,3 +271,20 @@ async def test_receiver_error_body_logged_only_when_enabled(monkeypatch, stream,
 
     assert delivered is False
     assert "receiver detail" in caplog.text
+
+
+@pytest.mark.anyio
+async def test_verification_receiver_error_body_logged_only_when_enabled(monkeypatch, stream, caplog):
+    FakeAsyncClient.requests = []
+    FakeAsyncClient.status_code = 400
+    FakeAsyncClient.response_text = "receiver detail"
+    monkeypatch.setattr(pusher, "sign_verification_set", lambda *a, **kw: "signed.jwt")
+    monkeypatch.setattr(pusher.httpx, "AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr(pusher, "settings", replace(pusher.settings, ssf_log_receiver_error_body=True))
+
+    import logging
+    with caplog.at_level(logging.DEBUG, logger="app.events.pusher"):
+        delivered = await pusher.push_verification_set(stream)
+
+    assert delivered is False
+    assert "receiver detail" in caplog.text

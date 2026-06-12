@@ -179,11 +179,18 @@ class _FakeResponse:
 
 
 class _FakeAppleClient:
-    apple_users: list[dict] = []
-    requests: list[tuple[str, str, dict | None]] = []
-
-    def __init__(self, timeout: float):
+    def __init__(
+        self,
+        timeout: float,
+        *,
+        apple_users: list[dict] | None = None,
+        holder: dict | None = None,
+    ):
         self.timeout = timeout
+        self.apple_users = list(apple_users) if apple_users is not None else []
+        self.requests: list[tuple[str, str, dict | None]] = []
+        if holder is not None:
+            holder["client"] = self
 
     async def __aenter__(self):
         return self
@@ -228,6 +235,21 @@ class _FakeAppleClient:
         return _FakeResponse(404, {})
 
 
+def _install_fake_apple_client(monkeypatch, *, apple_users: list[dict] | None = None) -> dict:
+    """Monkeypatch Apple httpx.AsyncClient with an isolated fake instance."""
+    from app.scim import apple
+
+    holder: dict[str, _FakeAppleClient] = {}
+    shared_users = list(apple_users) if apple_users is not None else []
+
+    class _BoundFakeAppleClient(_FakeAppleClient):
+        def __init__(self, timeout: float):
+            super().__init__(timeout, apple_users=shared_users, holder=holder)
+
+    monkeypatch.setattr(apple.httpx, "AsyncClient", _BoundFakeAppleClient)
+    return holder
+
+
 def _apple_existing(external_id="1", username="user@example.com", email="user@example.com", primary=None):
     user = _apple_user(username=username, email=email, email_primary=primary)
     user["id"] = "apple-1"
@@ -247,24 +269,23 @@ def _authentik_scim(external_id="1", username="user@example.com", email="user@ex
 async def test_sync_existing_same_email_in_emails_value_is_unchanged(monkeypatch):
     from app.scim import apple
 
-    _FakeAppleClient.apple_users = [_apple_existing()]
-    _FakeAppleClient.requests = []
-    monkeypatch.setattr(apple.httpx, "AsyncClient", _FakeAppleClient)
+    holder = _install_fake_apple_client(monkeypatch, apple_users=[_apple_existing()])
 
     result = await apple.sync_users("token", [_authentik_scim()])
 
     assert result.unchanged == 1
     assert result.updated == 0
-    assert [r[0] for r in _FakeAppleClient.requests] == ["GET"]
+    assert [r[0] for r in holder["client"].requests] == ["GET"]
 
 
 @pytest.mark.anyio
 async def test_sync_existing_same_email_different_case_is_unchanged(monkeypatch):
     from app.scim import apple
 
-    _FakeAppleClient.apple_users = [_apple_existing(username="USER@example.com", email="USER@example.com")]
-    _FakeAppleClient.requests = []
-    monkeypatch.setattr(apple.httpx, "AsyncClient", _FakeAppleClient)
+    _install_fake_apple_client(
+        monkeypatch,
+        apple_users=[_apple_existing(username="USER@example.com", email="USER@example.com")],
+    )
 
     result = await apple.sync_users("token", [_authentik_scim(username="user@example.com", email="user@example.com")])
 
@@ -276,31 +297,29 @@ async def test_sync_existing_same_email_different_case_is_unchanged(monkeypatch)
 async def test_sync_existing_changed_email_updates_once(monkeypatch):
     from app.scim import apple
 
-    _FakeAppleClient.apple_users = [_apple_existing(email="old@example.com")]
-    _FakeAppleClient.requests = []
-    monkeypatch.setattr(apple.httpx, "AsyncClient", _FakeAppleClient)
+    holder = _install_fake_apple_client(monkeypatch, apple_users=[_apple_existing(email="old@example.com")])
 
     result = await apple.sync_users("token", [_authentik_scim(email="new@example.com")])
+    first_requests = list(holder["client"].requests)
     second = await apple.sync_users("token", [_authentik_scim(email="new@example.com")])
+    all_requests = first_requests + holder["client"].requests
 
     assert result.updated == 1
     assert second.unchanged == 1
-    assert any(method == "PATCH" for method, _, _ in _FakeAppleClient.requests)
+    assert any(method == "PATCH" for method, _, _ in all_requests)
 
 
 @pytest.mark.anyio
 async def test_sync_skips_username_match_with_different_external_id(monkeypatch):
     from app.scim import apple
 
-    _FakeAppleClient.apple_users = [_apple_existing(external_id="99")]
-    _FakeAppleClient.requests = []
-    monkeypatch.setattr(apple.httpx, "AsyncClient", _FakeAppleClient)
+    holder = _install_fake_apple_client(monkeypatch, apple_users=[_apple_existing(external_id="99")])
 
     result = await apple.sync_users("token", [_authentik_scim(external_id="1")])
 
     assert result.updated == 0
     assert result.created == 1
-    methods = [r[0] for r in _FakeAppleClient.requests]
+    methods = [r[0] for r in holder["client"].requests]
     assert "PATCH" not in methods
     assert "PUT" not in methods
     assert methods == ["GET", "POST"]
@@ -310,14 +329,12 @@ async def test_sync_skips_username_match_with_different_external_id(monkeypatch)
 async def test_sync_recovered_by_username_missing_external_id_patches_once_then_unchanged(monkeypatch):
     from app.scim import apple
 
-    _FakeAppleClient.apple_users = [_apple_existing(external_id=None)]
-    _FakeAppleClient.requests = []
-    monkeypatch.setattr(apple.httpx, "AsyncClient", _FakeAppleClient)
+    holder = _install_fake_apple_client(monkeypatch, apple_users=[_apple_existing(external_id=None)])
 
     first = await apple.sync_users("token", [_authentik_scim(external_id="1")])
+    first_requests = list(holder["client"].requests)
     second = await apple.sync_users("token", [_authentik_scim(external_id="1")])
-
-    methods = [r[0] for r in _FakeAppleClient.requests]
+    methods = [r[0] for r in first_requests + holder["client"].requests]
     assert first.updated == 1
     assert second.unchanged == 1
     assert methods.count("PATCH") == 1

@@ -204,7 +204,7 @@ def _build_patch_body(user: dict) -> dict:
     }
 
 
-async def _put_user(
+async def _patch_user(
     client: httpx.AsyncClient,
     headers: dict,
     apple_user: dict,
@@ -321,7 +321,7 @@ async def _handle_409(
                             external_id_patched = await _patch_external_id(client, headers, found, user, result)
                             diffs = _field_diffs(found, user, include_external_id=False)
                         if any(diffs.values()):
-                            await _put_user(client, headers, found, user, result, label="409-recovery")
+                            await _patch_user(client, headers, found, user, result, label="409-recovery")
                         elif not external_id_patched:
                             result.unchanged += 1
                         return
@@ -428,7 +428,7 @@ async def sync_users(access_token: str, scim_users: list[dict]) -> SyncResult:
                             _log_user_ref(user),
                             changed,
                         )
-                        await _put_user(client, headers, apple_user, user, result, label=changed)
+                        await _patch_user(client, headers, apple_user, user, result, label=changed)
                     elif not external_id_patched:
                         result.unchanged += 1
                         logger.debug("Apple SCIM: unchanged %s", _log_user_ref(user))
