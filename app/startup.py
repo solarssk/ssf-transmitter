@@ -225,6 +225,17 @@ def run_preflight_checks() -> None:
     if settings.apple_scim_enabled:
         logger.info("%s Apple SCIM             enabled (sync every %ds)",
                     _OK, settings.apple_scim_sync_interval)
+        if settings.apple_scim_group_id:
+            logger.info(
+                "%s Apple SCIM group filter enabled (APPLE_SCIM_GROUP_ID=%s)",
+                _OK,
+                settings.apple_scim_group_id,
+            )
+        else:
+            logger.warning(
+                "%s Apple SCIM group filter disabled — all active Authentik users will be considered",
+                _WARN,
+            )
         if settings.apple_scim_alert_webhook_url:
             logger.info("%s Apple SCIM alerts      webhook configured", _OK)
         else:

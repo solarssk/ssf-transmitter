@@ -25,6 +25,7 @@ def test_maps_user_write_password_and_disabled_to_multiple_events():
         {
             "body": {
                 "action": "authentik.core.user.write",
+                "user": {"email": "user@example.com"},
                 "context": {
                     "changed_fields": ["password", "is_active"],
                     "is_active": False,
@@ -38,15 +39,26 @@ def test_maps_user_write_password_and_disabled_to_multiple_events():
     assert events[0].payload["credential_type"] == "password"
     assert events[0].payload["change_type"] == "update"
     assert events[1].uri == ACCOUNT_DISABLED
-    assert events[1].payload == {}
+    assert events[1].payload == {"subject": {"format": "email", "email": "user@example.com"}}
 
 
-def test_maps_user_delete_to_account_purged():
-    events = map_authentik_event({"body": {"action": "authentik.core.user.delete"}})
+def test_maps_user_delete_to_account_purged_with_subject():
+    events = map_authentik_event({
+        "body": {
+            "action": "authentik.core.user.delete",
+            "user": {"email": "deleted@example.com"},
+        }
+    })
 
     assert len(events) == 1
     assert events[0].uri == ACCOUNT_PURGED
-    assert events[0].payload == {}
+    assert events[0].payload == {"subject": {"format": "email", "email": "deleted@example.com"}}
+
+
+def test_user_delete_without_subject_is_skipped():
+    events = map_authentik_event({"body": {"action": "authentik.core.user.delete"}})
+
+    assert events == []
 
 
 def test_ignores_unmapped_event():

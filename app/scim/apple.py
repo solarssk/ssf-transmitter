@@ -2,8 +2,7 @@
 
 Pushes users from Authentik to Apple Business Manager via Apple's SCIM endpoint.
 Uses externalId (Authentik PK) as the primary correlation key; userName (email)
-is a fallback for users whose externalId was lost (Apple strips it on full-replace
-PUT without the field, and does not accept it on subsequent updates).
+is a fallback for users whose externalId is missing and needs one PATCH repair.
 
 Apple SCIM base URL: https://federation.apple.com/feeds/business/scim
 Note: Apple's SCIM endpoint does not include /v2 in the public URL.
@@ -12,8 +11,8 @@ Sync strategy (Authentik pattern):
 1. GET all existing Apple users → index by externalId (primary) and userName (fallback)
 2. For each Authentik user:
    - Found (by either key), unchanged → skip (unchanged)
-   - Found (by either key), changed  → PUT (Apple rejects externalId on updates)
-   - Not found → POST; on 409 → query filter=userName eq "..." then PUT
+   - Found (by either key), changed  → PATCH changed attributes while preserving externalId
+   - Not found → POST; on 409 → query filter=userName eq "..." then PATCH
 3. Users present in Apple but absent from Authentik are left untouched;
    deactivate them in Authentik first (active=false propagates on next sync).
 """
@@ -70,10 +69,10 @@ async def _get_existing_users(
         for u in data.get("Resources", []):
             ext_id = u.get("externalId")
             if ext_id:
-                by_ext_id[ext_id] = u
+                by_ext_id[str(ext_id).strip()] = u
             username = u.get("userName", "")
             if username:
-                by_username[username.lower()] = u
+                by_username[_normalize_identifier(username)] = u
         # Apple uses startIndex/itemsPerPage pagination (not cursor/next-link)
         total = data.get("totalResults", 0)
         start = data.get("startIndex", 1)
@@ -87,6 +86,16 @@ async def _get_existing_users(
     return by_ext_id, by_username
 
 
+def _normalize_identifier(value: object) -> str:
+    """Normalize a SCIM identifier for stable semantic comparisons."""
+    return str(value or "").strip().lower()
+
+
+def _normalize_email(value: object) -> str:
+    """Normalize an email address for comparison without changing payloads sent to Apple."""
+    return str(value or "").strip().lower()
+
+
 def _primary_email(user: dict) -> str | None:
     """Return the primary email address from a SCIM user dict.
 
@@ -94,31 +103,45 @@ def _primary_email(user: dict) -> str | None:
     ``"primary": true`` on POST/PUT (RFC 7643 allows servers to omit optional
     attributes).  When no entry with ``primary: true`` is found, fall back to
     the first email in the list so the comparison does not produce a spurious
-    mismatch on every sync cycle.
+    mismatch on every sync cycle.  Malformed entries are ignored safely.
     """
     emails = user.get("emails", [])
-    for e in emails:
-        if e.get("primary") is True:
-            return e.get("value")
-    # No explicit primary — use first entry as RFC 7643 default
-    return emails[0].get("value") if emails else None
+    if isinstance(emails, dict):
+        emails = [emails]
+    if not isinstance(emails, list):
+        return None
+
+    first_value: str | None = None
+    for email in emails:
+        if not isinstance(email, dict):
+            continue
+        value = email.get("value")
+        if first_value is None and value:
+            first_value = str(value).strip()
+        if email.get("primary") is True and value:
+            return str(value).strip()
+    return first_value
+
+
+def _field_diffs(existing: dict, new: dict, *, include_external_id: bool = True) -> dict[str, bool]:
+    """Return normalized syncable-field differences between Apple and Authentik users."""
+    diffs = {
+        "userName": _normalize_identifier(existing.get("userName")) != _normalize_identifier(new.get("userName")),
+        "givenName": str(existing.get("name", {}).get("givenName") or "").strip()
+        != str(new.get("name", {}).get("givenName") or "").strip(),
+        "familyName": str(existing.get("name", {}).get("familyName") or "").strip()
+        != str(new.get("name", {}).get("familyName") or "").strip(),
+        "active": bool(existing.get("active", True)) != bool(new.get("active", True)),
+        "email": _normalize_email(_primary_email(existing)) != _normalize_email(_primary_email(new)),
+    }
+    if include_external_id:
+        diffs["externalId"] = str(existing.get("externalId") or "").strip() != str(new.get("externalId") or "").strip()
+    return diffs
 
 
 def _users_differ(existing: dict, new: dict) -> bool:
-    """Return True if any syncable field has changed.
-
-    Comparison rules:
-    - userName: case-insensitive (Apple may normalise to lowercase)
-    - active: missing field treated as True (Apple omits it when True)
-    - email: see _primary_email() for primary-flag fallback logic
-    """
-    diffs = {
-        "userName":   existing.get("userName", "").lower() != new.get("userName", "").lower(),
-        "givenName":  existing.get("name", {}).get("givenName") != new.get("name", {}).get("givenName"),
-        "familyName": existing.get("name", {}).get("familyName") != new.get("name", {}).get("familyName"),
-        "active":     existing.get("active", True) != new.get("active", True),
-        "email":      (_primary_email(existing) or "").lower() != (_primary_email(new) or "").lower(),
-    }
+    """Return True if any syncable field has changed after semantic normalization."""
+    diffs = _field_diffs(existing, new)
     if any(diffs.values()):
         logger.debug(
             "Apple SCIM: field diff for userName=%s — %s",
@@ -129,27 +152,23 @@ def _users_differ(existing: dict, new: dict) -> bool:
     return False
 
 
-def _build_put_body(user: dict, apple_id: str) -> dict:
-    """Build a PUT body for Apple SCIM, adding Apple's resource ``id``.
+def _build_patch_body(user: dict) -> dict:
+    """Build an RFC 7644 PATCH body for Apple SCIM user updates.
 
-    ``externalId`` is stripped because Apple rejects it on full-replace PUT
-    (the original 400 error before v0.5.3 was caused by a missing ``id``, not
-    the presence of ``externalId`` — but empirical testing showed Apple also
-    drops the stored ``externalId`` after a PUT that omits it).
-
-    Known limitation: every routine PUT (name/active change) erases the stable
-    ``externalId`` linkage in Apple's system.  After that, the record can only
-    be matched via the ``by_username`` fallback (which is restricted to records
-    without ``externalId`` to prevent cross-user overwrites).  If the user's
-    email later changes, the record becomes unmatchable and a new 409 cycle
-    begins.
-
-    TODO(v1.x): Replace full PUT with PATCH (RFC 7644 §3.5.2) so only changed
-    fields are sent and ``externalId`` is never accidentally cleared.
+    PATCH keeps ``externalId`` stable while replacing only the attributes this
+    service owns, avoiding the repeated update loop caused by full-replace PUT
+    responses that omit or drop optional fields.
     """
-    body = {k: v for k, v in user.items() if k != "externalId"}
-    body["id"] = apple_id
-    return body
+    return {
+        "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+        "Operations": [
+            {"op": "Replace", "path": "externalId", "value": str(user.get("externalId") or "").strip()},
+            {"op": "Replace", "path": "userName", "value": user.get("userName")},
+            {"op": "Replace", "path": "name", "value": user.get("name", {})},
+            {"op": "Replace", "path": "emails", "value": user.get("emails", [])},
+            {"op": "Replace", "path": "active", "value": user.get("active", True)},
+        ],
+    }
 
 
 async def _put_user(
@@ -161,10 +180,10 @@ async def _put_user(
     *,
     label: str = "",
 ) -> None:
-    """PUT a user update. Shared by normal update path and 409-recovery path."""
+    """PATCH a user update. Shared by normal update path and 409-recovery path."""
     apple_id = apple_user["id"]
-    update_body = _build_put_body(new_user, apple_id)
-    resp = await client.put(f"{APPLE_SCIM_BASE}/Users/{apple_id}", json=update_body, headers=headers)
+    update_body = _build_patch_body(new_user)
+    resp = await client.patch(f"{APPLE_SCIM_BASE}/Users/{apple_id}", json=update_body, headers=headers)
     if resp.status_code in (200, 204):
         result.updated += 1
         logger.debug(
@@ -181,13 +200,43 @@ async def _put_user(
         )
 
 
+async def _patch_external_id(
+    client: httpx.AsyncClient,
+    headers: dict,
+    apple_user: dict,
+    new_user: dict,
+    result: SyncResult,
+) -> bool:
+    """Patch the Apple SCIM externalId when a user was recovered by userName."""
+    apple_id = apple_user["id"]
+    external_id = str(new_user.get("externalId") or "").strip()
+    body = {
+        "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+        "Operations": [{"op": "Replace", "path": "externalId", "value": external_id}],
+    }
+    resp = await client.patch(f"{APPLE_SCIM_BASE}/Users/{apple_id}", json=body, headers=headers)
+    if resp.status_code in (200, 204):
+        result.updated += 1
+        apple_user["externalId"] = external_id
+        logger.debug("Apple SCIM: patched externalId appleId=%s externalId=%s", apple_id, external_id)
+        return True
+    result.errors += 1
+    logger.warning(
+        "Apple SCIM: externalId patch failed externalId=%s appleId=%s response=%s",
+        external_id,
+        apple_id,
+        response_metadata(resp),
+    )
+    return False
+
+
 async def _handle_409(
     client: httpx.AsyncClient,
     headers: dict,
     user: dict,
     result: SyncResult,
 ) -> None:
-    """Handle 409 on POST using Authentik pattern: query by userName then PUT.
+    """Handle 409 on POST using Authentik pattern: query by userName then PATCH.
 
     409 + scimType=uniqueness → user exists in Apple but wasn't returned in GET list
     (typically USERNAME_CONFLICT_WITH_EXISTING_APPLE_ID — personal Apple ID on same email).
@@ -229,7 +278,16 @@ async def _handle_409(
                             safe_username, found_ext_id,
                         )
                     else:
-                        await _put_user(client, headers, found, user, result, label="409-recovery")
+                        diffs = _field_diffs(found, user)
+                        external_id_patched = False
+                        non_external_diffs = {k: v for k, v in diffs.items() if k != "externalId"}
+                        if diffs.get("externalId") and not any(non_external_diffs.values()):
+                            external_id_patched = await _patch_external_id(client, headers, found, user, result)
+                            diffs = _field_diffs(found, user, include_external_id=False)
+                        if any(diffs.values()):
+                            await _put_user(client, headers, found, user, result, label="409-recovery")
+                        elif not external_id_patched:
+                            result.unchanged += 1
                         return
         else:
             logger.warning("Apple SCIM: 409-recovery filter query failed status=%s userName=%s",
@@ -270,8 +328,8 @@ async def sync_users(access_token: str, scim_users: list[dict]) -> SyncResult:
         recovered = sum(
             1 for u in scim_users
             if not by_ext_id.get(u["externalId"])
-            and (m := by_username.get(u.get("userName", "").lower())) is not None
-            and not m.get("externalId")
+            and (m := by_username.get(_normalize_identifier(u.get("userName")))) is not None
+            and str(m.get("externalId") or "").strip() != str(u.get("externalId") or "").strip()
         )
         logger.info(
             "Apple SCIM: found %d existing users (%d by externalId, %d recovered by userName),"
@@ -285,16 +343,15 @@ async def sync_users(access_token: str, scim_users: list[dict]) -> SyncResult:
 
         for user in scim_users:
             ext_id = user["externalId"]
-            username_key = user.get("userName", "").lower()
+            username_key = _normalize_identifier(user.get("userName"))
             by_ext = by_ext_id.get(ext_id)
+            recovered_by_username = False
             if by_ext is not None:
                 apple_user = by_ext
             else:
-                # Only use the username fallback when the matched Apple record has no
-                # externalId — if it has a *different* externalId it belongs to another
-                # Authentik user and overwriting it would corrupt that record.
                 username_match = by_username.get(username_key)
-                apple_user = username_match if username_match and not username_match.get("externalId") else None
+                apple_user = username_match
+                recovered_by_username = username_match is not None
 
             try:
                 if apple_user is None:
@@ -311,10 +368,22 @@ async def sync_users(access_token: str, scim_users: list[dict]) -> SyncResult:
                             "Apple SCIM: create failed externalId=%s response=%s",
                             ext_id, response_metadata(resp),
                         )
-                elif _users_differ(apple_user, user):
-                    await _put_user(client, headers, apple_user, user, result)
                 else:
-                    result.unchanged += 1
+                    diffs = _field_diffs(apple_user, user)
+                    external_id_patched = False
+                    non_external_diffs = {k: v for k, v in diffs.items() if k != "externalId"}
+                    if recovered_by_username and diffs.get("externalId") and not any(non_external_diffs.values()):
+                        external_id_patched = await _patch_external_id(client, headers, apple_user, user, result)
+                        diffs = _field_diffs(apple_user, user, include_external_id=False)
+                    if any(diffs.values()):
+                        logger.debug(
+                            "Apple SCIM: field diff for userName=%s — %s",
+                            apple_user.get("userName") or user.get("userName"),
+                            {k: v for k, v in diffs.items() if v},
+                        )
+                        await _put_user(client, headers, apple_user, user, result)
+                    elif not external_id_patched:
+                        result.unchanged += 1
 
             except httpx.HTTPError:
                 result.errors += 1

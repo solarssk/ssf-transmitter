@@ -1,4 +1,5 @@
 import hashlib
+from dataclasses import replace
 
 import pytest
 
@@ -231,3 +232,42 @@ async def test_push_set_allows_all_when_events_requested_empty(monkeypatch, stre
     delivered = await pusher.push_set(stream, event, "user@example.com")
 
     assert delivered is True
+
+@pytest.mark.anyio
+async def test_push_set_passes_account_event_subject_payload_to_signer(monkeypatch, stream):
+    captured = {}
+
+    def _capture_sign_set(*args, **kwargs):
+        captured.update(kwargs)
+        return "signed.jwt"
+
+    event = MappedEvent(
+        uri="https://schemas.openid.net/secevent/risc/event-type/account-purged",
+        payload={"subject": {"format": "email", "email": "deleted@example.com"}},
+    )
+    FakeAsyncClient.requests = []
+    FakeAsyncClient.status_code = 202
+    monkeypatch.setattr(pusher, "sign_set", _capture_sign_set)
+    monkeypatch.setattr(pusher.httpx, "AsyncClient", FakeAsyncClient)
+
+    delivered = await pusher.push_set(stream, event, "deleted@example.com")
+
+    assert delivered is True
+    assert captured["event_payload"] == {"subject": {"format": "email", "email": "deleted@example.com"}}
+
+
+@pytest.mark.anyio
+async def test_receiver_error_body_logged_only_when_enabled(monkeypatch, stream, event, caplog):
+    FakeAsyncClient.requests = []
+    FakeAsyncClient.status_code = 400
+    FakeAsyncClient.response_text = "receiver detail"
+    monkeypatch.setattr(pusher, "sign_set", lambda *a, **kw: "signed.jwt")
+    monkeypatch.setattr(pusher.httpx, "AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr(pusher, "settings", replace(pusher.settings, ssf_log_receiver_error_body=True))
+
+    import logging
+    with caplog.at_level(logging.DEBUG, logger="app.events.pusher"):
+        delivered = await pusher.push_set(stream, event, "user@example.com")
+
+    assert delivered is False
+    assert "receiver detail" in caplog.text

@@ -79,13 +79,13 @@ async def get_users() -> list[dict] | None:
     headers = {"Authorization": f"Bearer {settings.authentik_token}"}
     base = settings.authentik_url.rstrip("/")
 
-    if settings.apple_scim_group_id:
-        url = (
-            f"{base}/api/v3/core/users/"
-            f"?groups_by_pk={settings.apple_scim_group_id}&type=internal&page_size=500"
-        )
+    group_id = (settings.apple_scim_group_id or "").strip()
+    if group_id:
+        url = f"{base}/api/v3/core/groups/{group_id}/users/?type=internal&page_size=500"
+        logger.info("Apple SCIM: Authentik group filtering enabled group_id=%s", group_id)
     else:
         url = f"{base}/api/v3/core/users/?type=internal&page_size=500"
+        logger.info("Apple SCIM: Authentik group filtering disabled — syncing all active users")
 
     all_users: list[dict] = []
     try:
@@ -93,10 +93,19 @@ async def get_users() -> list[dict] | None:
             while url:
                 resp = await client.get(url, headers=headers)
                 if resp.status_code != 200:
-                    logger.error(
-                        "Authentik API error response=%s",
-                        response_metadata(resp),
-                    )
+                    if group_id and resp.status_code in (403, 404):
+                        logger.error(
+                            "Apple SCIM: configured APPLE_SCIM_GROUP_ID=%s could not be read "
+                            "(Authentik status=%s). Verify the group UUID exists and AUTHENTIK_TOKEN "
+                            "has permission to read group members.",
+                            group_id,
+                            resp.status_code,
+                        )
+                    else:
+                        logger.error(
+                            "Authentik API error response=%s",
+                            response_metadata(resp),
+                        )
                     return None
                 try:
                     data = resp.json()
@@ -109,7 +118,10 @@ async def get_users() -> list[dict] | None:
         logger.exception("Failed to fetch users from Authentik")
         return None
 
-    logger.info("Fetched %d users from Authentik", len(all_users))
+    if group_id:
+        logger.info("Fetched %d Authentik users from Apple SCIM group %s", len(all_users), group_id)
+    else:
+        logger.info("Fetched %d active Authentik users", len(all_users))
 
     mapped = []
     for u in all_users:

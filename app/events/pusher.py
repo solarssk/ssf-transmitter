@@ -5,6 +5,7 @@ from urllib.parse import urlparse
 import httpx
 import jwt
 
+from app.config import settings
 from app.crypto import sign_set, sign_verification_set
 from app.database import Stream
 from app.events.mapper import MappedEvent
@@ -112,7 +113,15 @@ async def push_set(stream: Stream, event: MappedEvent, email: str) -> bool | Non
             response.status_code,
             body_hash,
         )
-        if logger.isEnabledFor(logging.DEBUG):
+        if settings.ssf_log_receiver_error_body:
+            logger.debug(
+                "Receiver error body event_uri=%s status_code=%s body_hash=%s body=%r",
+                event.uri,
+                response.status_code,
+                body_hash,
+                response.text[:2048],
+            )
+        elif logger.isEnabledFor(logging.DEBUG):
             logger.debug("Receiver error body_hash=%s body_len=%d", body_hash, len(response.content))
         return False
 
@@ -168,7 +177,14 @@ async def push_verification_set(stream: "Stream", state: str | None = None) -> b
             response.status_code,
             body_hash,
         )
-        if logger.isEnabledFor(logging.DEBUG):
+        if settings.ssf_log_receiver_error_body:
+            logger.debug(
+                "Receiver verification error body status_code=%s body_hash=%s body=%r",
+                response.status_code,
+                body_hash,
+                response.text[:2048],
+            )
+        elif logger.isEnabledFor(logging.DEBUG):
             logger.debug("Receiver error body_hash=%s body_len=%d", body_hash, len(response.content))
         return False
 

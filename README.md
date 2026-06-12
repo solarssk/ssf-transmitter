@@ -51,6 +51,17 @@ Replace `idp.example.com` with your IdP hostname and `/shared-signals` with your
 | Threat model | [SECURITY.md](SECURITY.md) |
 | Changelog | [CHANGELOG.md](CHANGELOG.md) |
 
+
+## Apple SCIM group filtering
+
+Set `APPLE_SCIM_GROUP_ID` to an Authentik group UUID to sync only members of a dedicated Apple group, for example **Apple Accounts**:
+
+```env
+APPLE_SCIM_GROUP_ID=978bff1a-5f55-4068-808c-45e09bb196d4
+```
+
+Leaving `APPLE_SCIM_GROUP_ID` empty preserves the legacy behavior: all active internal Authentik users are considered for Apple SCIM sync. In production, use a dedicated group and exclude local backup, break-glass/admin, technical/service, and Authentik-only accounts.
+
 ## Development
 
 ```bash

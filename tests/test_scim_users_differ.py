@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from app.scim.apple import _primary_email, _users_differ
 
 # ---------------------------------------------------------------------------
@@ -129,3 +131,159 @@ class TestUsersDiffer:
         existing["emails"] = []
         new = _authentik_user(email="user@example.com")
         assert _users_differ(existing, new) is True
+
+# ---------------------------------------------------------------------------
+# sync_users idempotence / externalId repair
+# ---------------------------------------------------------------------------
+
+class _FakeResponse:
+    def __init__(self, status_code: int, payload: dict | None = None):
+        self.status_code = status_code
+        self._payload = payload or {}
+        self.content = b""
+        self.text = ""
+        self.headers = {}
+
+    def json(self):
+        return self._payload
+
+
+class _FakeAppleClient:
+    apple_users: list[dict] = []
+    requests: list[tuple[str, str, dict | None]] = []
+
+    def __init__(self, timeout: float):
+        self.timeout = timeout
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+    async def get(self, url, headers):
+        self.requests.append(("GET", url, None))
+        return _FakeResponse(200, {
+            "Resources": self.apple_users,
+            "totalResults": len(self.apple_users),
+            "startIndex": 1,
+            "itemsPerPage": len(self.apple_users),
+        })
+
+    async def post(self, url, json, headers):
+        self.requests.append(("POST", url, json))
+        created = {**json, "id": f"apple-{json['externalId']}"}
+        self.apple_users.append(created)
+        return _FakeResponse(201, created)
+
+    async def put(self, url, json, headers):
+        self.requests.append(("PUT", url, json))
+        apple_id = url.rsplit("/", 1)[-1]
+        for idx, user in enumerate(self.apple_users):
+            if user.get("id") == apple_id:
+                self.apple_users[idx] = {**json}
+                return _FakeResponse(200, self.apple_users[idx])
+        return _FakeResponse(404, {})
+
+    async def patch(self, url, json, headers):
+        self.requests.append(("PATCH", url, json))
+        apple_id = url.rsplit("/", 1)[-1]
+        for user in self.apple_users:
+            if user.get("id") == apple_id:
+                for op in json.get("Operations", []):
+                    path = op.get("path")
+                    if path:
+                        user[path] = op.get("value")
+                return _FakeResponse(200, user)
+        return _FakeResponse(404, {})
+
+
+def _apple_existing(external_id="1", username="user@example.com", email="user@example.com", primary=None):
+    user = _apple_user(username=username, email=email, email_primary=primary)
+    user["id"] = "apple-1"
+    if external_id is not None:
+        user["externalId"] = external_id
+    return user
+
+
+def _authentik_scim(external_id="1", username="user@example.com", email="user@example.com"):
+    user = _authentik_user(username=username, email=email)
+    user["externalId"] = external_id
+    user["schemas"] = ["urn:ietf:params:scim:schemas:core:2.0:User"]
+    return user
+
+
+@pytest.mark.anyio
+async def test_sync_existing_same_email_in_emails_value_is_unchanged(monkeypatch):
+    from app.scim import apple
+
+    _FakeAppleClient.apple_users = [_apple_existing()]
+    _FakeAppleClient.requests = []
+    monkeypatch.setattr(apple.httpx, "AsyncClient", _FakeAppleClient)
+
+    result = await apple.sync_users("token", [_authentik_scim()])
+
+    assert result.unchanged == 1
+    assert result.updated == 0
+    assert [r[0] for r in _FakeAppleClient.requests] == ["GET"]
+
+
+@pytest.mark.anyio
+async def test_sync_existing_same_email_different_case_is_unchanged(monkeypatch):
+    from app.scim import apple
+
+    _FakeAppleClient.apple_users = [_apple_existing(username="USER@example.com", email="USER@example.com")]
+    _FakeAppleClient.requests = []
+    monkeypatch.setattr(apple.httpx, "AsyncClient", _FakeAppleClient)
+
+    result = await apple.sync_users("token", [_authentik_scim(username="user@example.com", email="user@example.com")])
+
+    assert result.unchanged == 1
+    assert result.updated == 0
+
+
+@pytest.mark.anyio
+async def test_sync_existing_changed_email_updates_once(monkeypatch):
+    from app.scim import apple
+
+    _FakeAppleClient.apple_users = [_apple_existing(email="old@example.com")]
+    _FakeAppleClient.requests = []
+    monkeypatch.setattr(apple.httpx, "AsyncClient", _FakeAppleClient)
+
+    result = await apple.sync_users("token", [_authentik_scim(email="new@example.com")])
+    second = await apple.sync_users("token", [_authentik_scim(email="new@example.com")])
+
+    assert result.updated == 1
+    assert second.unchanged == 1
+    assert any(method == "PATCH" for method, _, _ in _FakeAppleClient.requests)
+
+
+@pytest.mark.anyio
+async def test_sync_recovered_by_username_missing_external_id_patches_once_then_unchanged(monkeypatch):
+    from app.scim import apple
+
+    _FakeAppleClient.apple_users = [_apple_existing(external_id=None)]
+    _FakeAppleClient.requests = []
+    monkeypatch.setattr(apple.httpx, "AsyncClient", _FakeAppleClient)
+
+    first = await apple.sync_users("token", [_authentik_scim(external_id="1")])
+    second = await apple.sync_users("token", [_authentik_scim(external_id="1")])
+
+    methods = [r[0] for r in _FakeAppleClient.requests]
+    assert first.updated == 1
+    assert second.unchanged == 1
+    assert methods.count("PATCH") == 1
+
+
+def test_primary_email_prefers_primary_when_multiple_emails():
+    user = {"emails": [
+        {"value": "alias@example.com", "primary": False},
+        {"value": "primary@example.com", "primary": True},
+    ]}
+    assert _primary_email(user) == "primary@example.com"
+
+
+def test_email_whitespace_and_case_do_not_diff():
+    existing = _apple_user(email=" USER@example.com ")
+    new = _authentik_user(email="user@example.com")
+    assert _users_differ(existing, new) is False
