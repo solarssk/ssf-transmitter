@@ -11,6 +11,14 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ---
 
+## [0.5.9] — 2026-06-12 — Release title polish
+
+### Added
+- **GitHub release title subtitles** — tag pushes now derive release titles from the third segment of the matching CHANGELOG heading, so published releases can use `vX.Y.Z — subtitle` instead of a plain version number
+
+### Changed
+- **Historical CHANGELOG headings** — backfilled release subtitles so existing sections match the short names already used in GitHub releases
+
 ## [0.5.7] — 2026-06-12 — SCIM hardening, RISC fixes & discovery
 
 ### Fixed
