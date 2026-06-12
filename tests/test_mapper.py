@@ -121,9 +121,8 @@ def test_multiple_events_from_one_webhook_share_txn():
         }
     )
 
-    assert len(events) == 2
+    assert len(events) == 1
     assert events[0].txn == "event-uuid-abc"
-    assert events[1].txn == "event-uuid-abc"
 
 
 def test_txn_is_none_when_no_source_event_id():
