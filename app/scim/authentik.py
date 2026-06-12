@@ -81,7 +81,10 @@ async def get_users() -> list[dict] | None:
 
     group_id = (settings.apple_scim_group_id or "").strip()
     if group_id:
-        url = f"{base}/api/v3/core/groups/{group_id}/users/?type=internal&page_size=500"
+        url = (
+            f"{base}/api/v3/core/users/"
+            f"?groups_by_pk={group_id}&type=internal&page_size=500"
+        )
         logger.info("Apple SCIM: Authentik group filtering enabled group_id=%s", group_id)
     else:
         url = f"{base}/api/v3/core/users/?type=internal&page_size=500"
@@ -93,11 +96,11 @@ async def get_users() -> list[dict] | None:
             while url:
                 resp = await client.get(url, headers=headers)
                 if resp.status_code != 200:
-                    if group_id and resp.status_code in (403, 404):
+                    if group_id and resp.status_code == 403:
                         logger.error(
                             "Apple SCIM: configured APPLE_SCIM_GROUP_ID=%s could not be read "
-                            "(Authentik status=%s). Verify the group UUID exists and AUTHENTIK_TOKEN "
-                            "has permission to read group members.",
+                            "(Authentik status=%s). Verify AUTHENTIK_TOKEN has permission to list users "
+                            "filtered by group membership.",
                             group_id,
                             resp.status_code,
                         )

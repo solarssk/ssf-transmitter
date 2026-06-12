@@ -96,6 +96,18 @@ def _normalize_email(value: object) -> str:
     return str(value or "").strip().lower()
 
 
+def _can_recover_by_username(apple_user: dict, authentik_external_id: object) -> bool:
+    """Return True when a userName match is safe to adopt for the current Authentik user.
+
+    Recovery is allowed when the Apple record has no ``externalId`` (lost linkage) or
+    already carries the same ``externalId``.  A *different* ``externalId`` means the
+    record belongs to another Authentik user — adopting it would corrupt that account.
+    """
+    found_ext = str(apple_user.get("externalId") or "").strip()
+    current_ext = str(authentik_external_id or "").strip()
+    return not found_ext or found_ext == current_ext
+
+
 def _primary_email(user: dict) -> str | None:
     """Return the primary email address from a SCIM user dict.
 
@@ -263,7 +275,6 @@ async def _handle_409(
                 resources = payload.get("Resources", []) if isinstance(payload, dict) else []
                 if resources:
                     found = resources[0]
-                    found_ext_id = found.get("externalId")
                     ext_id = user.get("externalId")
                     # Allow recovery when the matched Apple record has no externalId
                     # OR the same externalId as the current user (it is our record,
@@ -271,7 +282,8 @@ async def _handle_409(
                     # Reject only when a *different* externalId is present — that means
                     # the record belongs to another Authentik user and overwriting it
                     # would corrupt that account.
-                    if found_ext_id and found_ext_id != ext_id:
+                    if not _can_recover_by_username(found, ext_id):
+                        found_ext_id = found.get("externalId")
                         logger.warning(
                             "Apple SCIM: 409-recovery skipped for %s — matched Apple record"
                             " has externalId=%s belonging to a different user",
@@ -327,9 +339,9 @@ async def sync_users(access_token: str, scim_users: list[dict]) -> SyncResult:
         # externalId of its own (so we won't overwrite an unrelated record).
         recovered = sum(
             1 for u in scim_users
-            if not by_ext_id.get(u["externalId"])
+            if not by_ext_id.get(str(u["externalId"]).strip())
             and (m := by_username.get(_normalize_identifier(u.get("userName")))) is not None
-            and str(m.get("externalId") or "").strip() != str(u.get("externalId") or "").strip()
+            and _can_recover_by_username(m, u["externalId"])
         )
         logger.info(
             "Apple SCIM: found %d existing users (%d by externalId, %d recovered by userName),"
@@ -350,8 +362,25 @@ async def sync_users(access_token: str, scim_users: list[dict]) -> SyncResult:
                 apple_user = by_ext
             else:
                 username_match = by_username.get(username_key)
-                apple_user = username_match
-                recovered_by_username = username_match is not None
+                if username_match and _can_recover_by_username(username_match, ext_id):
+                    apple_user = username_match
+                    recovered_by_username = True
+                else:
+                    if username_match:
+                        from app.config import settings  # late import — avoids circular at module load
+                        safe_username = mask_email(
+                            user.get("userName", ""),
+                            log_pii=settings.log_pii,
+                            pii_key=settings.pii_pepper or settings.ssf_management_token,
+                        )
+                        logger.warning(
+                            "Apple SCIM: userName match skipped for %s — Apple record has"
+                            " externalId=%s belonging to a different Authentik user",
+                            safe_username,
+                            username_match.get("externalId"),
+                        )
+                    apple_user = None
+                    recovered_by_username = False
 
             try:
                 if apple_user is None:

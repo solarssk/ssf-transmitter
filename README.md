@@ -64,11 +64,13 @@ Leaving `APPLE_SCIM_GROUP_ID` empty preserves the legacy behavior: all active in
 
 ## Development
 
+Requires **Python 3.12** (see `.python-version`; matches CI and the Docker image).
+
 ```bash
-python -m venv .venv && . .venv/bin/activate
+python3.12 -m venv .venv && . .venv/bin/activate
 pip install -r requirements-dev.txt
 ruff check .
 pytest
 ```
 
-GitHub Actions runs linting, tests, and a Docker image build on every push to `main` and on pull requests targeting `main`.
+GitHub Actions runs linting, tests, dependency checks, and a Docker image build on **every push and pull request** — no manual test run is required before merge; forked copies get the same workflow when Actions are enabled.

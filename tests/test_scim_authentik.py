@@ -77,7 +77,8 @@ async def test_group_filter_fetches_only_group_members(monkeypatch):
 
     assert [u["userName"] for u in users] == ["member@example.com"]
     assert FakeAsyncClient.requests == [
-        f"https://authentik.example.test/api/v3/core/groups/{group_id}/users/?type=internal&page_size=500"
+        "https://authentik.example.test/api/v3/core/users/"
+        f"?groups_by_pk={group_id}&type=internal&page_size=500"
     ]
 
 
@@ -112,10 +113,10 @@ async def test_user_without_email_inside_group_is_skipped_with_clear_error(monke
 
 
 @pytest.mark.anyio
-async def test_invalid_group_id_fails_clearly(monkeypatch, caplog):
-    group_id = "missing-group"
+async def test_group_filter_auth_failure_fails_clearly(monkeypatch, caplog):
+    group_id = "978bff1a-5f55-4068-808c-45e09bb196d4"
     FakeAsyncClient.requests = []
-    FakeAsyncClient.responses = [FakeResponse(404, {})]
+    FakeAsyncClient.responses = [FakeResponse(403, {})]
     monkeypatch.setattr(authentik.httpx, "AsyncClient", FakeAsyncClient)
     monkeypatch.setattr(authentik, "settings", _settings(group_id))
 
@@ -123,4 +124,4 @@ async def test_invalid_group_id_fails_clearly(monkeypatch, caplog):
         users = await authentik.get_users()
 
     assert users is None
-    assert "APPLE_SCIM_GROUP_ID=missing-group could not be read" in caplog.text
+    assert f"APPLE_SCIM_GROUP_ID={group_id} could not be read" in caplog.text

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.scim.apple import _primary_email, _users_differ
+from app.scim.apple import _can_recover_by_username, _primary_email, _users_differ
 
 # ---------------------------------------------------------------------------
 # _primary_email
@@ -133,6 +133,23 @@ class TestUsersDiffer:
         assert _users_differ(existing, new) is True
 
 # ---------------------------------------------------------------------------
+# _can_recover_by_username
+# ---------------------------------------------------------------------------
+
+class TestCanRecoverByUsername:
+    def test_allows_missing_external_id(self):
+        assert _can_recover_by_username({"userName": "a@example.com"}, "1") is True
+
+    def test_allows_matching_external_id(self):
+        apple_user = {"userName": "a@example.com", "externalId": "42"}
+        assert _can_recover_by_username(apple_user, "42") is True
+
+    def test_rejects_different_external_id(self):
+        apple_user = {"userName": "a@example.com", "externalId": "17"}
+        assert _can_recover_by_username(apple_user, "42") is False
+
+
+# ---------------------------------------------------------------------------
 # sync_users idempotence / externalId repair
 # ---------------------------------------------------------------------------
 
@@ -256,6 +273,24 @@ async def test_sync_existing_changed_email_updates_once(monkeypatch):
     assert result.updated == 1
     assert second.unchanged == 1
     assert any(method == "PATCH" for method, _, _ in _FakeAppleClient.requests)
+
+
+@pytest.mark.anyio
+async def test_sync_skips_username_match_with_different_external_id(monkeypatch):
+    from app.scim import apple
+
+    _FakeAppleClient.apple_users = [_apple_existing(external_id="99")]
+    _FakeAppleClient.requests = []
+    monkeypatch.setattr(apple.httpx, "AsyncClient", _FakeAppleClient)
+
+    result = await apple.sync_users("token", [_authentik_scim(external_id="1")])
+
+    assert result.updated == 0
+    assert result.created == 1
+    methods = [r[0] for r in _FakeAppleClient.requests]
+    assert "PATCH" not in methods
+    assert "PUT" not in methods
+    assert methods == ["GET", "POST"]
 
 
 @pytest.mark.anyio
