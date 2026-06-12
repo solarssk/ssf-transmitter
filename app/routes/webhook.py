@@ -1,3 +1,5 @@
+"""Authentik webhook receiver and SSF event dispatch."""
+
 from __future__ import annotations
 
 import hashlib

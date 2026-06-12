@@ -1,1 +1,1 @@
-
+"""SSF Transmitter application package."""

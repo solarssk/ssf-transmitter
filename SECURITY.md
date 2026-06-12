@@ -33,11 +33,17 @@ This document covers the threat model, trust boundaries, and security properties
 
 ### Public endpoints (no authentication required)
 
+- `GET /` — minimal service discovery (service name, version, link to SSF well-known)
 - `GET /.well-known/ssf-configuration`
 - `GET /jwks.json`
 - `GET /apple-scim/status` (Apple SCIM OAuth status, no sensitive data)
 - `GET /apple-scim/authorize` (initiates OAuth flow)
 - `GET /apple-scim/callback` (OAuth callback)
+
+### OpenAPI / Swagger (disabled by default)
+
+- `GET /docs`, `GET /redoc`, and `GET /openapi.json` are **not** exposed unless `SSF_ENABLE_OPENAPI=true`.
+- Keep the flag `false` on production deployments reachable from untrusted networks. Enable only in dev or a trusted LAN when you need interactive API exploration.
 
 ### Webhook endpoint
 

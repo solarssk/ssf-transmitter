@@ -194,6 +194,14 @@ def test_set_payload_event_body_is_empty_dict_by_default():
     assert events[EVENT_URI] == {}
 
 
+def test_risc_account_purged_has_empty_event_body_and_top_level_sub_id():
+    uri = "https://schemas.openid.net/secevent/risc/event-type/account-purged"
+    token = sign_set(event_uri=uri, audience=AUDIENCE, email=EMAIL, event_payload={})
+    payload = _decode_payload(token)
+    assert payload["events"][uri] == {}
+    assert payload["sub_id"] == {"format": "email", "email": EMAIL}
+
+
 def test_set_payload_event_body_contains_provided_payload():
     ep = {"event_timestamp": 1234567890, "initiating_entity": "policy",
           "reason_admin": {"en": "Test"}}

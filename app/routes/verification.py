@@ -1,3 +1,5 @@
+"""Receiver-initiated SSF verification SET endpoint."""
+
 from __future__ import annotations
 
 import logging
@@ -14,6 +16,8 @@ router = APIRouter(prefix="/ssf", dependencies=[Depends(require_management_auth)
 
 
 class VerificationRequest(BaseModel):
+    """Optional body for POST /ssf/verification."""
+
     state: str | None = None
 
     @model_validator(mode="before")

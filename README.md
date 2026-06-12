@@ -29,10 +29,13 @@ Events are signed as RS256 JWTs (Security Event Tokens) and pushed over HTTPS. N
 
 | Endpoint | URL |
 |---|---|
+| Service root | `https://idp.example.com/shared-signals/` |
 | SSF Config | `https://idp.example.com/shared-signals/.well-known/ssf-configuration` |
 | JWKS | `https://idp.example.com/shared-signals/jwks.json` |
 | Stream management | `https://idp.example.com/shared-signals/ssf/streams` |
 | Status | `https://idp.example.com/shared-signals/ssf/status` |
+
+`/docs` and `/openapi.json` are off by default — set `SSF_ENABLE_OPENAPI=true` only in dev or a trusted LAN.
 
 Replace `idp.example.com` with your IdP hostname and `/shared-signals` with your `SSF_ROOT_PATH`.
 
@@ -51,13 +54,26 @@ Replace `idp.example.com` with your IdP hostname and `/shared-signals` with your
 | Threat model | [SECURITY.md](SECURITY.md) |
 | Changelog | [CHANGELOG.md](CHANGELOG.md) |
 
+
+## Apple SCIM group filtering
+
+Set `APPLE_SCIM_GROUP_ID` to an Authentik group UUID to sync only members of a dedicated Apple group, for example **Apple Accounts**:
+
+```env
+APPLE_SCIM_GROUP_ID=978bff1a-5f55-4068-808c-45e09bb196d4
+```
+
+Leaving `APPLE_SCIM_GROUP_ID` empty preserves the legacy behavior: all active internal Authentik users are considered for Apple SCIM sync. In production, use a dedicated group and exclude local backup, break-glass/admin, technical/service, and Authentik-only accounts.
+
 ## Development
 
+Requires **Python 3.12** (see `.python-version`; matches CI and the Docker image).
+
 ```bash
-python -m venv .venv && . .venv/bin/activate
+python3.12 -m venv .venv && . .venv/bin/activate
 pip install -r requirements-dev.txt
 ruff check .
 pytest
 ```
 
-GitHub Actions runs linting, tests, and a Docker image build on every push to `main` and on pull requests targeting `main`.
+GitHub Actions runs linting, tests, dependency checks, and a Docker image build on **every push and pull request** — no manual test run is required before merge; forked copies get the same workflow when Actions are enabled.

@@ -1,15 +1,19 @@
+"""FastAPI application entry point and Apple SCIM background sync loop."""
+
 from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+import app.config as config
 from app.config import configure_logging, settings
 from app.crypto import ensure_keys
 from app.database import init_db
-from app.routes import apple_scim, jwks, streams, verification, webhook, wellknown
+from app.routes import apple_scim, jwks, root, streams, verification, webhook, wellknown
 from app.startup import run_preflight_checks
 
 configure_logging()
@@ -45,6 +49,7 @@ async def _apple_scim_sync_loop() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """Run startup preflight, initialize keys/DB, and manage background tasks."""
     run_preflight_checks()  # logs ✅/⚠️/❌ for each check; exits with 0 if any ❌
     ensure_keys()
     await init_db()
@@ -64,10 +69,32 @@ async def lifespan(app: FastAPI):
             logger.info("Apple SCIM: sync loop stopped")
 
 
-app = FastAPI(root_path=settings.ssf_root_path, title="SSF Transmitter", lifespan=lifespan)
-app.include_router(wellknown.router)
-app.include_router(jwks.router)
-app.include_router(streams.router)
-app.include_router(verification.router)
-app.include_router(webhook.router)
-app.include_router(apple_scim.router)
+def create_app() -> FastAPI:
+    """Build the FastAPI application (reads :data:`settings` at call time)."""
+    cfg = config.settings
+    openapi_enabled = cfg.ssf_enable_openapi
+    docs_url = "/docs" if openapi_enabled else None
+    redoc_url = "/redoc" if openapi_enabled else None
+    openapi_url = "/openapi.json" if openapi_enabled else None
+
+    application = FastAPI(
+        root_path=cfg.ssf_root_path,
+        title="SSF Transmitter",
+        version=os.getenv("APP_VERSION", "dev"),
+        lifespan=lifespan,
+        docs_url=docs_url,
+        redoc_url=redoc_url,
+        openapi_url=openapi_url,
+    )
+    application.include_router(root.router)
+    application.include_router(wellknown.router)
+    application.include_router(jwks.router)
+    application.include_router(streams.router)
+    application.include_router(verification.router)
+    application.include_router(webhook.router)
+    application.include_router(apple_scim.router)
+    root.register_exception_handlers(application)
+    return application
+
+
+app = create_app()

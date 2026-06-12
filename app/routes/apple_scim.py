@@ -172,6 +172,7 @@ async def callback(
     # Kick off an immediate sync in the background so the admin doesn't have
     # to manually POST /apple-scim/sync after every (re-)authorization.
     async def _background_sync() -> None:
+        """Run an immediate SCIM sync after OAuth authorization completes."""
         try:
             users = await get_users()
             if users is not None:

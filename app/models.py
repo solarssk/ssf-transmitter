@@ -53,6 +53,8 @@ SUPPORTED_DELIVERY_METHODS: frozenset[str] = frozenset(
 
 
 class StreamStatus(StrEnum):
+    """Lifecycle state of an SSF push stream."""
+
     enabled = "enabled"
     paused = "paused"
     disabled = "disabled"
@@ -111,6 +113,7 @@ class DeliveryConfig(BaseModel):
     @field_validator("method")
     @classmethod
     def _validate_method(cls, v: str | None) -> str | None:
+        """Reject delivery methods outside the supported SSF push set."""
         if v is not None and v not in SUPPORTED_DELIVERY_METHODS:
             raise ValueError(
                 f"Unsupported delivery method: {v!r}. "
@@ -137,11 +140,13 @@ class StreamCreateRequest(BaseModel):
     @field_validator("aud", mode="before")
     @classmethod
     def _normalize_aud(cls, v: object) -> str:
+        """Coerce aud from a string or single-element list."""
         return _coerce_aud(v)
 
     @field_validator("events_requested")
     @classmethod
     def _validate_events(cls, v: list[str]) -> list[str]:
+        """Canonicalize and validate requested event URIs."""
         return _validate_event_uris(v)
 
 
@@ -158,9 +163,11 @@ class StreamPatchRequest(BaseModel):
     @field_validator("aud", mode="before")
     @classmethod
     def _normalize_aud(cls, v: object) -> str | None:
+        """Coerce aud from a string or single-element list when provided."""
         return None if v is None else _coerce_aud(v)
 
     @field_validator("events_requested")
     @classmethod
     def _validate_events(cls, v: list[str] | None) -> list[str] | None:
+        """Canonicalize and validate requested event URIs when provided."""
         return None if v is None else _validate_event_uris(v)
