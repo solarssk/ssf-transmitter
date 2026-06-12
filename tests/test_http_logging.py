@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import httpx
 
-from app.security.http_logging import json_key_summary, response_metadata
+from app.security.http_logging import json_key_summary, response_metadata, safe_response_body_text
 
 
 class TestResponseMetadata:
@@ -63,3 +63,27 @@ class TestJsonKeySummary:
 
     def test_empty_dict(self):
         assert json_key_summary({}) == "object_keys=[]"
+
+
+class TestSafeResponseBodyText:
+    def test_redacts_sensitive_keys_and_emails_from_json(self):
+        resp = httpx.Response(
+            400,
+            json={
+                "detail": "invalid user alice@example.com",
+                "access_token": "SECRET",
+                "nested": {"refresh_token": "ALSO_SECRET"},
+            },
+        )
+        safe = safe_response_body_text(resp, log_pii=False, pii_key="pepper")
+        assert "SECRET" not in safe
+        assert "ALSO_SECRET" not in safe
+        assert "alice@example.com" not in safe
+        assert "[redacted]" in safe
+        assert "[pii:" in safe
+
+    def test_redacts_email_from_plain_text(self):
+        resp = httpx.Response(400, text="invalid request for bob@example.com")
+        safe = safe_response_body_text(resp, log_pii=False, pii_key="pepper")
+        assert "bob@example.com" not in safe
+        assert "[pii:" in safe

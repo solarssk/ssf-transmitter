@@ -96,10 +96,26 @@ def test_stream_lifecycle_does_not_expose_receiver_token(client: TestClient):
     fetched = client.get("/ssf/streams", headers=MGMT_HEADERS)
     assert fetched.status_code == 200
     assert fetched.json()["stream_id"] == created["stream_id"]
+    fetched_by_id = client.get(f"/ssf/streams/{created['stream_id']}", headers=MGMT_HEADERS)
+    assert fetched_by_id.status_code == 200
+    assert fetched_by_id.json()["stream_id"] == created["stream_id"]
 
     patched = client.patch("/ssf/streams", json={"status": "paused"}, headers=MGMT_HEADERS)
     assert patched.status_code == 200
     assert patched.json()["status"] == "paused"
+    patched_by_id = client.patch(
+        f"/ssf/streams/{created['stream_id']}",
+        json={"status": "enabled"},
+        headers=MGMT_HEADERS,
+    )
+    assert patched_by_id.status_code == 200
+    assert patched_by_id.json()["status"] == "enabled"
+
+    verify = client.post(f"/ssf/streams/{created['stream_id']}/verify", headers=MGMT_HEADERS)
+    assert verify.status_code in (202, 502)
+    by_id_status = client.get(f"/ssf/streams/{created['stream_id']}/status", headers=MGMT_HEADERS)
+    assert by_id_status.status_code == 200
+    assert by_id_status.json()["stream_id"] == created["stream_id"]
 
     deleted = client.delete("/ssf/streams", headers=MGMT_HEADERS)
     assert deleted.status_code == 204

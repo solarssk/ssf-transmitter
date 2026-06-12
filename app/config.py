@@ -21,6 +21,13 @@ class _HealthcheckFilter(logging.Filter):
         return not ("127.0.0.1" in msg and "/jwks.json" in msg)
 
 _WEBHOOK_AUTH_MODES = {"bearer", "hmac", "unsigned"}
+_APPLE_SCIM_UPDATE_MODES = {
+    "patch_all",
+    "external_id_only",
+    "emails_only",
+    "username_only",
+    "replace_all",
+}
 
 
 def _strip_trailing_slash(value: str) -> str:
@@ -44,6 +51,17 @@ def _parse_sync_interval(value: str) -> int:
     if interval < 1:
         raise ValueError(f"APPLE_SCIM_SYNC_INTERVAL must be >= 1 second, got {interval}")
     return interval
+
+
+def _parse_apple_scim_update_mode(value: str | None) -> str:
+    """Validate APPLE_SCIM_UPDATE_MODE against the supported experiment set."""
+    mode = (value or "patch_all").strip().lower()
+    if mode not in _APPLE_SCIM_UPDATE_MODES:
+        raise ValueError(
+            "APPLE_SCIM_UPDATE_MODE must be one of: "
+            f"{', '.join(sorted(_APPLE_SCIM_UPDATE_MODES))}"
+        )
+    return mode
 
 
 def _parse_management_token(value: str | None) -> str:
@@ -133,6 +151,8 @@ class Settings:
     apple_scim_alert_webhook_url: str | None = None  # POST alerts here when re-auth is needed
     apple_scim_authorize_url: str = "https://appleid.apple.com/auth/oauth2/v2/authorize"
     apple_scim_token_url: str = "https://appleid.apple.com/auth/oauth2/v2/token"
+    apple_scim_log_error_body: bool = False
+    apple_scim_update_mode: str = "patch_all"
     # Set true to suppress the startup warning when SSF_ISSUER differs from SSF_BASE_URL.
     # Only needed during migration from older deployments where these values diverge.
     ssf_allow_custom_issuer: bool = False
@@ -211,6 +231,8 @@ class Settings:
                 os.getenv("APPLE_SCIM_TOKEN_URL", "https://appleid.apple.com/auth/oauth2/v2/token"),
                 "APPLE_SCIM_TOKEN_URL",
             ),
+            apple_scim_log_error_body=os.getenv("APPLE_SCIM_LOG_ERROR_BODY", "false").lower() == "true",
+            apple_scim_update_mode=_parse_apple_scim_update_mode(os.getenv("APPLE_SCIM_UPDATE_MODE")),
             ssf_allow_custom_issuer=os.getenv("SSF_ALLOW_CUSTOM_ISSUER", "false").lower() == "true",
             ssf_log_color=os.getenv("SSF_LOG_COLOR", "false").lower() == "true",
             ssf_log_receiver_error_body=os.getenv("SSF_LOG_RECEIVER_ERROR_BODY", "false").lower() == "true",
@@ -236,6 +258,8 @@ class Settings:
             "apple_scim_enabled": self.apple_scim_enabled,
             "apple_scim_group_filter_enabled": bool(self.apple_scim_group_id),
             "apple_scim_group_id": self.apple_scim_group_id or "",
+            "apple_scim_update_mode": self.apple_scim_update_mode,
+            "apple_scim_log_error_body": self.apple_scim_log_error_body,
             "ssf_enable_openapi": self.ssf_enable_openapi,
         }
 

@@ -194,8 +194,8 @@ def test_set_payload_event_body_is_empty_dict_by_default():
     assert events[EVENT_URI] == {}
 
 
-def test_risc_account_purged_has_empty_event_body_and_top_level_sub_id():
-    uri = "https://schemas.openid.net/secevent/risc/event-type/account-purged"
+def test_verification_set_event_body_uses_ssf_verification_uri():
+    uri = "https://schemas.openid.net/secevent/ssf/event-type/verification"
     token = sign_set(event_uri=uri, audience=AUDIENCE, email=EMAIL, event_payload={})
     payload = _decode_payload(token)
     assert payload["events"][uri] == {}
