@@ -11,6 +11,24 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ---
 
+## [0.5.9] — 2026-06-12 — SSF stabilization, SCIM diagnostics & release title polish
+
+### Fixed
+- **SSF event catalog** — transmitter now emits only the confirmed minimum set: `verification`, `session-revoked`, and `credential-change`; unsupported `account-*` lifecycle events are no longer published while Apple compatibility is being stabilized
+- **Apple SCIM 400 diagnostics** — long JSON error bodies are now fully parsed and redacted before truncation, so `access_token`, `refresh_token`, `client_secret`, and similar fields cannot leak into debug logs when `APPLE_SCIM_LOG_ERROR_BODY=true`
+- **Mapper/test drift after event reduction** — regression tests now match the reduced event set and CI lint/test checks pass on the updated branch
+
+### Added
+- **Per-stream SSF lifecycle endpoints** — stream management now supports `GET`, `PATCH`, `DELETE`, `status`, and `verify` flows scoped by `stream_id`, alongside the existing singleton endpoints
+- **Apple SCIM update experiments** — `APPLE_SCIM_UPDATE_MODE` allows controlled comparisons between `patch_all`, `external_id_only`, `emails_only`, `username_only`, and `replace_all`
+- **Apple SCIM invalid-request counter** — sync responses and logs now expose `update_400_invalid_request` to separate malformed update attempts from other sync failures
+- **Safe long-body redaction test coverage** — regression test added for oversized JSON error payloads containing nested secrets
+
+### Changed
+- **SSF discovery and stream contract** — supported event metadata now reflects the narrowed Apple-safe subset and verification-first stream lifecycle
+- **Apple SCIM failure logging** — write failures now log operation, field set, resource context, response metadata, and optional redacted response snippets for easier diagnosis
+- **GitHub release titles** — tag pushes now derive release titles from the CHANGELOG subtitle, and historical CHANGELOG headings were backfilled to match existing release names
+
 ## [0.5.7] — 2026-06-12 — SCIM hardening, RISC fixes & discovery
 
 ### Fixed
