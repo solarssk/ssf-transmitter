@@ -106,6 +106,7 @@ def test_stream_lifecycle_does_not_expose_receiver_token(client: TestClient):
 
     missing = client.get("/ssf/streams", headers=MGMT_HEADERS)
     assert missing.status_code == 404
+    assert missing.json() == {"detail": "No stream configured"}
 
 
 def test_status_reports_no_stream_or_enabled_stream(client: TestClient):
@@ -211,6 +212,15 @@ def test_service_root_returns_html_for_browsers(client: TestClient):
     assert "text/html" in response.headers["content-type"]
     assert "SSF Transmitter" in response.text
     assert "/.well-known/ssf-configuration" in response.text
+
+
+def test_route_404_preserves_api_detail(client: TestClient):
+    client.delete("/ssf/streams", headers=MGMT_HEADERS)
+
+    response = client.post("/ssf/verification", headers=MGMT_HEADERS)
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "No stream configured"}
 
 
 def test_unknown_path_returns_structured_json_404(client: TestClient):

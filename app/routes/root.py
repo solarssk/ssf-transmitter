@@ -43,6 +43,11 @@ def not_found_payload(path: str) -> dict[str, str]:
     }
 
 
+def is_unmatched_route(exc: StarletteHTTPException) -> bool:
+    """True for router misses; False when a matched route raised HTTP 404."""
+    return exc.status_code == 404 and exc.detail == "Not Found"
+
+
 def _discovery_html() -> str:
     version = html.escape(app_version())
     discovery = html.escape(DISCOVERY_PATH)
@@ -92,7 +97,7 @@ def register_exception_handlers(app) -> None:
 
     @app.exception_handler(StarletteHTTPException)
     async def http_exception_handler(request: Request, exc: StarletteHTTPException):
-        if exc.status_code == 404:
+        if is_unmatched_route(exc):
             path = request.url.path
             if wants_html(request):
                 return HTMLResponse(_not_found_html(path), status_code=404)
