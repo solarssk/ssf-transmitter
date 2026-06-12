@@ -5,9 +5,29 @@ The service is typically deployed behind a reverse proxy that handles TLS.
 
 All management endpoints require `Authorization: Bearer <SSF_MANAGEMENT_TOKEN>`.
 
+Unknown paths return `404` with a JSON or HTML body that points to `/.well-known/ssf-configuration` (content negotiation via `Accept`).
+
 ---
 
 ## Discovery
+
+### `GET /`
+
+Minimal public service discovery. No authentication required.
+
+Returns HTML when `Accept` includes `text/html` (and not JSON-only); otherwise JSON:
+
+```json
+{
+  "service": "SSF Transmitter",
+  "version": "0.5.7",
+  "discovery": "/.well-known/ssf-configuration"
+}
+```
+
+`version` comes from the `APP_VERSION` environment variable (`dev` when unset).
+
+---
 
 ### `GET /.well-known/ssf-configuration`
 
@@ -245,3 +265,26 @@ Possible `status` values when no SET is delivered:
 | `https://schemas.openid.net/secevent/risc/event-type/account-purged` | User deleted |
 
 Legacy `caep/event-type/account-*` URIs are accepted in `events_requested` and canonicalized to `risc/event-type/` automatically.
+
+---
+
+## SET JWT structure
+
+Each pushed SET is an RS256 JWT with `typ: secevent+jwt`. Relevant claims:
+
+| Claim | Notes |
+|---|---|
+| `iss` | `SSF_ISSUER` |
+| `aud` | Single-element array with the stream audience |
+| `sub_id` | `{"format": "email", "email": "<user>"}` for Authentik-derived events |
+| `events` | Map of event URI → event-specific body |
+
+**CAEP** events (`session-revoked`, `credential-change`) use an empty `{}` event body.
+
+**RISC** lifecycle events (`account-disabled`, `account-enabled`, `account-purged`) also use an empty `{}` event body. The subject is **not** duplicated inside `events` — only the top-level `sub_id` identifies the user. Verification SETs use `sub_id` with `format: opaque` (stream UUID) instead.
+
+---
+
+## OpenAPI / Swagger
+
+`GET /docs`, `GET /redoc`, and `GET /openapi.json` are disabled unless `SSF_ENABLE_OPENAPI=true`. Keep the flag `false` on production deployments reachable from untrusted networks.

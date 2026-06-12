@@ -1,11 +1,13 @@
 import hashlib
 import hmac
 import json
+from dataclasses import replace
 
 import pytest
 from fastapi.testclient import TestClient
 
-from app.main import app
+import app.config as config
+from app.main import app, create_app
 
 
 @pytest.fixture()
@@ -104,6 +106,7 @@ def test_stream_lifecycle_does_not_expose_receiver_token(client: TestClient):
 
     missing = client.get("/ssf/streams", headers=MGMT_HEADERS)
     assert missing.status_code == 404
+    assert missing.json() == {"detail": "No stream configured"}
 
 
 def test_status_reports_no_stream_or_enabled_stream(client: TestClient):
@@ -189,3 +192,72 @@ def test_webhook_delivers_mapped_event_without_logging_or_posting_real_token(cli
             "receiver-secret-token",
         )
     ]
+
+
+def test_service_root_returns_json_discovery(client: TestClient):
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "service": "SSF Transmitter",
+        "version": "dev",
+        "discovery": "/.well-known/ssf-configuration",
+    }
+
+
+def test_service_root_returns_html_for_browsers(client: TestClient):
+    response = client.get("/", headers={"Accept": "text/html"})
+
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]
+    assert "SSF Transmitter" in response.text
+    assert "/.well-known/ssf-configuration" in response.text
+
+
+def test_route_404_preserves_api_detail(client: TestClient):
+    client.delete("/ssf/streams", headers=MGMT_HEADERS)
+
+    response = client.post("/ssf/verification", headers=MGMT_HEADERS)
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "No stream configured"}
+
+
+def test_unknown_path_returns_structured_json_404(client: TestClient):
+    response = client.get("/does-not-exist")
+
+    assert response.status_code == 404
+    assert response.json() == {
+        "error": "not_found",
+        "path": "/does-not-exist",
+        "hint": "/.well-known/ssf-configuration",
+    }
+
+
+def test_unknown_path_returns_html_404_for_browsers(client: TestClient):
+    response = client.get("/does-not-exist", headers={"Accept": "text/html"})
+
+    assert response.status_code == 404
+    assert "text/html" in response.headers["content-type"]
+    assert "Not Found" in response.text
+    assert "/does-not-exist" in response.text
+
+
+def test_openapi_docs_disabled_by_default(client: TestClient):
+    assert client.get("/docs").status_code == 404
+    assert client.get("/openapi.json").status_code == 404
+
+
+def test_openapi_docs_available_when_enabled(monkeypatch):
+    monkeypatch.setattr(
+        config,
+        "settings",
+        replace(config.settings, ssf_enable_openapi=True),
+    )
+    with TestClient(create_app()) as openapi_client:
+        docs = openapi_client.get("/docs")
+        schema = openapi_client.get("/openapi.json")
+
+    assert docs.status_code == 200
+    assert schema.status_code == 200
+    assert schema.json()["info"]["version"] == "dev"

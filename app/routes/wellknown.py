@@ -1,3 +1,5 @@
+"""SSF discovery metadata (/.well-known/ssf-configuration)."""
+
 from fastapi import APIRouter
 
 from app.config import settings
@@ -7,6 +9,7 @@ router = APIRouter()
 
 @router.get("/.well-known/ssf-configuration")
 async def ssf_configuration() -> dict:
+    """Return the SSF transmitter metadata document."""
     return {
         "issuer": settings.ssf_issuer,
         "jwks_uri": settings.public_url("/jwks.json"),

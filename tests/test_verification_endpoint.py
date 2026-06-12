@@ -28,6 +28,7 @@ def test_post_verification_returns_404_without_stream(client):
     with patch("app.routes.verification.get_first_stream", new_callable=AsyncMock, return_value=None):
         resp = client.post("/ssf/verification", headers=MGMT_HEADERS)
     assert resp.status_code == 404
+    assert resp.json() == {"detail": "No stream configured"}
 
 
 def test_post_verification_returns_202_for_existing_stream(client):

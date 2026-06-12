@@ -2,7 +2,14 @@
 
 from __future__ import annotations
 
-from app.scim.apple import _primary_email, _users_differ
+import pytest
+
+from app.scim.apple import (
+    _can_recover_by_username,
+    _format_changed_fields,
+    _primary_email,
+    _users_differ,
+)
 
 # ---------------------------------------------------------------------------
 # _primary_email
@@ -129,3 +136,219 @@ class TestUsersDiffer:
         existing["emails"] = []
         new = _authentik_user(email="user@example.com")
         assert _users_differ(existing, new) is True
+
+# ---------------------------------------------------------------------------
+# _can_recover_by_username
+# ---------------------------------------------------------------------------
+
+class TestFormatChangedFields:
+    def test_lists_changed_fields(self):
+        assert _format_changed_fields({"email": True, "active": False, "userName": True}) == "email, userName"
+
+    def test_none_when_empty(self):
+        assert _format_changed_fields({"email": False, "active": False}) == "none"
+
+
+class TestCanRecoverByUsername:
+    def test_allows_missing_external_id(self):
+        assert _can_recover_by_username({"userName": "a@example.com"}, "1") is True
+
+    def test_allows_matching_external_id(self):
+        apple_user = {"userName": "a@example.com", "externalId": "42"}
+        assert _can_recover_by_username(apple_user, "42") is True
+
+    def test_rejects_different_external_id(self):
+        apple_user = {"userName": "a@example.com", "externalId": "17"}
+        assert _can_recover_by_username(apple_user, "42") is False
+
+
+# ---------------------------------------------------------------------------
+# sync_users idempotence / externalId repair
+# ---------------------------------------------------------------------------
+
+class _FakeResponse:
+    def __init__(self, status_code: int, payload: dict | None = None):
+        self.status_code = status_code
+        self._payload = payload or {}
+        self.content = b""
+        self.text = ""
+        self.headers = {}
+
+    def json(self):
+        return self._payload
+
+
+class _FakeAppleClient:
+    def __init__(
+        self,
+        timeout: float,
+        *,
+        apple_users: list[dict] | None = None,
+        holder: dict | None = None,
+    ):
+        self.timeout = timeout
+        self.apple_users = list(apple_users) if apple_users is not None else []
+        self.requests: list[tuple[str, str, dict | None]] = []
+        if holder is not None:
+            holder["client"] = self
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+    async def get(self, url, headers):
+        self.requests.append(("GET", url, None))
+        return _FakeResponse(200, {
+            "Resources": self.apple_users,
+            "totalResults": len(self.apple_users),
+            "startIndex": 1,
+            "itemsPerPage": len(self.apple_users),
+        })
+
+    async def post(self, url, json, headers):
+        self.requests.append(("POST", url, json))
+        created = {**json, "id": f"apple-{json['externalId']}"}
+        self.apple_users.append(created)
+        return _FakeResponse(201, created)
+
+    async def put(self, url, json, headers):
+        self.requests.append(("PUT", url, json))
+        apple_id = url.rsplit("/", 1)[-1]
+        for idx, user in enumerate(self.apple_users):
+            if user.get("id") == apple_id:
+                self.apple_users[idx] = {**json}
+                return _FakeResponse(200, self.apple_users[idx])
+        return _FakeResponse(404, {})
+
+    async def patch(self, url, json, headers):
+        self.requests.append(("PATCH", url, json))
+        apple_id = url.rsplit("/", 1)[-1]
+        for user in self.apple_users:
+            if user.get("id") == apple_id:
+                for op in json.get("Operations", []):
+                    path = op.get("path")
+                    if path:
+                        user[path] = op.get("value")
+                return _FakeResponse(200, user)
+        return _FakeResponse(404, {})
+
+
+def _install_fake_apple_client(monkeypatch, *, apple_users: list[dict] | None = None) -> dict:
+    """Monkeypatch Apple httpx.AsyncClient with an isolated fake instance."""
+    from app.scim import apple
+
+    holder: dict[str, _FakeAppleClient] = {}
+    shared_users = list(apple_users) if apple_users is not None else []
+
+    class _BoundFakeAppleClient(_FakeAppleClient):
+        def __init__(self, timeout: float):
+            super().__init__(timeout, apple_users=shared_users, holder=holder)
+
+    monkeypatch.setattr(apple.httpx, "AsyncClient", _BoundFakeAppleClient)
+    return holder
+
+
+def _apple_existing(external_id="1", username="user@example.com", email="user@example.com", primary=None):
+    user = _apple_user(username=username, email=email, email_primary=primary)
+    user["id"] = "apple-1"
+    if external_id is not None:
+        user["externalId"] = external_id
+    return user
+
+
+def _authentik_scim(external_id="1", username="user@example.com", email="user@example.com"):
+    user = _authentik_user(username=username, email=email)
+    user["externalId"] = external_id
+    user["schemas"] = ["urn:ietf:params:scim:schemas:core:2.0:User"]
+    return user
+
+
+@pytest.mark.anyio
+async def test_sync_existing_same_email_in_emails_value_is_unchanged(monkeypatch):
+    from app.scim import apple
+
+    holder = _install_fake_apple_client(monkeypatch, apple_users=[_apple_existing()])
+
+    result = await apple.sync_users("token", [_authentik_scim()])
+
+    assert result.unchanged == 1
+    assert result.updated == 0
+    assert [r[0] for r in holder["client"].requests] == ["GET"]
+
+
+@pytest.mark.anyio
+async def test_sync_existing_same_email_different_case_is_unchanged(monkeypatch):
+    from app.scim import apple
+
+    _install_fake_apple_client(
+        monkeypatch,
+        apple_users=[_apple_existing(username="USER@example.com", email="USER@example.com")],
+    )
+
+    result = await apple.sync_users("token", [_authentik_scim(username="user@example.com", email="user@example.com")])
+
+    assert result.unchanged == 1
+    assert result.updated == 0
+
+
+@pytest.mark.anyio
+async def test_sync_existing_changed_email_updates_once(monkeypatch):
+    from app.scim import apple
+
+    holder = _install_fake_apple_client(monkeypatch, apple_users=[_apple_existing(email="old@example.com")])
+
+    result = await apple.sync_users("token", [_authentik_scim(email="new@example.com")])
+    first_requests = list(holder["client"].requests)
+    second = await apple.sync_users("token", [_authentik_scim(email="new@example.com")])
+    all_requests = first_requests + holder["client"].requests
+
+    assert result.updated == 1
+    assert second.unchanged == 1
+    assert any(method == "PATCH" for method, _, _ in all_requests)
+
+
+@pytest.mark.anyio
+async def test_sync_skips_username_match_with_different_external_id(monkeypatch):
+    from app.scim import apple
+
+    holder = _install_fake_apple_client(monkeypatch, apple_users=[_apple_existing(external_id="99")])
+
+    result = await apple.sync_users("token", [_authentik_scim(external_id="1")])
+
+    assert result.updated == 0
+    assert result.created == 1
+    methods = [r[0] for r in holder["client"].requests]
+    assert "PATCH" not in methods
+    assert "PUT" not in methods
+    assert methods == ["GET", "POST"]
+
+
+@pytest.mark.anyio
+async def test_sync_recovered_by_username_missing_external_id_patches_once_then_unchanged(monkeypatch):
+    from app.scim import apple
+
+    holder = _install_fake_apple_client(monkeypatch, apple_users=[_apple_existing(external_id=None)])
+
+    first = await apple.sync_users("token", [_authentik_scim(external_id="1")])
+    first_requests = list(holder["client"].requests)
+    second = await apple.sync_users("token", [_authentik_scim(external_id="1")])
+    methods = [r[0] for r in first_requests + holder["client"].requests]
+    assert first.updated == 1
+    assert second.unchanged == 1
+    assert methods.count("PATCH") == 1
+
+
+def test_primary_email_prefers_primary_when_multiple_emails():
+    user = {"emails": [
+        {"value": "alias@example.com", "primary": False},
+        {"value": "primary@example.com", "primary": True},
+    ]}
+    assert _primary_email(user) == "primary@example.com"
+
+
+def test_email_whitespace_and_case_do_not_diff():
+    existing = _apple_user(email=" USER@example.com ")
+    new = _authentik_user(email="user@example.com")
+    assert _users_differ(existing, new) is False

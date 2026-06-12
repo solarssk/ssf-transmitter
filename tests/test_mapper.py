@@ -5,6 +5,7 @@ from app.events.mapper import (
     CREDENTIAL_CHANGE,
     SESSION_REVOKED,
     MappedEvent,
+    extract_email,
     extract_source_txn,
     map_authentik_event,
 )
@@ -25,6 +26,7 @@ def test_maps_user_write_password_and_disabled_to_multiple_events():
         {
             "body": {
                 "action": "authentik.core.user.write",
+                "user": {"email": "user@example.com"},
                 "context": {
                     "changed_fields": ["password", "is_active"],
                     "is_active": False,
@@ -41,12 +43,54 @@ def test_maps_user_write_password_and_disabled_to_multiple_events():
     assert events[1].payload == {}
 
 
-def test_maps_user_delete_to_account_purged():
-    events = map_authentik_event({"body": {"action": "authentik.core.user.delete"}})
+def test_maps_user_delete_to_account_purged_without_event_level_subject():
+    events = map_authentik_event({
+        "body": {
+            "action": "authentik.core.user.delete",
+            "user": {"email": "deleted@example.com"},
+        }
+    })
 
     assert len(events) == 1
     assert events[0].uri == ACCOUNT_PURGED
     assert events[0].payload == {}
+
+
+def test_account_enabled_payload_is_empty():
+    events = map_authentik_event({
+        "body": {
+            "action": "authentik.core.user.write",
+            "user": {"email": "user@example.com"},
+            "context": {"changed_fields": ["is_active"], "is_active": True},
+        }
+    })
+
+    assert len(events) == 1
+    assert events[0].uri == ACCOUNT_ENABLED
+    assert events[0].payload == {}
+
+
+def test_user_delete_without_email_is_skipped():
+    events = map_authentik_event({"body": {"action": "authentik.core.user.delete"}})
+
+    assert events == []
+
+
+def test_extract_email_rejects_non_string_values():
+    assert extract_email({"body": {"user": {"email": 12345}}}) is None
+    assert extract_email({"body": {"user": {"email": ["a@example.com"]}}}) is None
+
+
+def test_extract_email_strips_and_rejects_whitespace_only():
+    assert extract_email({"body": {"user": {"email": "  user@example.com  "}}}) == "user@example.com"
+    assert extract_email({"body": {"user": {"email": "   "}}}) is None
+
+
+def test_user_delete_with_whitespace_email_is_skipped():
+    events = map_authentik_event({
+        "body": {"action": "authentik.core.user.delete", "user": {"email": "   "}},
+    })
+    assert events == []
 
 
 def test_ignores_unmapped_event():

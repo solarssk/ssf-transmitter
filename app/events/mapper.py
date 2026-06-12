@@ -1,3 +1,5 @@
+"""Map Authentik webhook payloads to SSF/CAEP/RISC Security Event types."""
+
 from __future__ import annotations
 
 import logging
@@ -24,14 +26,17 @@ class MappedEvent:
 
 
 def _event_timestamp() -> int:
+    """Return the current Unix timestamp for CAEP event payloads."""
     return int(time.time())
 
 
 def map_authentik_event(payload: dict[str, Any]) -> list[MappedEvent]:
+    """Translate an Authentik webhook body into zero or more SSF mapped events."""
     body = payload.get("body") or payload
     action = body.get("action")
     context = body.get("context") or {}
     txn = extract_source_txn(payload)
+    email = extract_email(payload)
 
     if action == "authentik.core.auth.login_failed":
         logger.info("Skipping Authentik event action=%s reason=login_failed", action)
@@ -47,6 +52,14 @@ def map_authentik_event(payload: dict[str, Any]) -> list[MappedEvent]:
             txn=txn,
         )]
     if action == "authentik.core.user.delete":
+        if not email:
+            logger.warning(
+                "Skipping Authentik user.delete mapping to account-purged — "
+                "webhook did not include a resolvable user email for sub_id"
+            )
+            return []
+        # RISC account lifecycle events carry no event-level subject — SSF §5.1
+        # identifies the user via the top-level sub_id claim in sign_set().
         return [MappedEvent(uri=ACCOUNT_PURGED, payload={}, txn=txn)]
     if action != "authentik.core.user.write":
         logger.warning("Unmapped Authentik event action=%s", action)
@@ -80,12 +93,22 @@ def map_authentik_event(payload: dict[str, Any]) -> list[MappedEvent]:
 
 
 def extract_email(payload: dict[str, Any]) -> str | None:
+    """Return a normalized email from an Authentik webhook payload, or None."""
     body = payload.get("body") or payload
     user = body.get("user") or {}
-    return user.get("email")
+    raw = user.get("email")
+    if raw is None:
+        return None
+    if isinstance(raw, bytes):
+        raw = raw.decode("utf-8", errors="replace")
+    if not isinstance(raw, str):
+        return None
+    normalized = raw.strip()
+    return normalized or None
 
 
 def extract_action(payload: dict[str, Any]) -> str | None:
+    """Return the Authentik action string from a webhook payload."""
     body = payload.get("body") or payload
     return body.get("action")
 
