@@ -137,6 +137,8 @@ class Settings:
     # Set SSF_LOG_RECEIVER_ERROR_BODY=true only during controlled troubleshooting.
     # When false, receiver error bodies are never logged; only a body hash is logged.
     ssf_log_receiver_error_body: bool = False
+    # Expose Swagger UI (/docs), ReDoc (/redoc), and /openapi.json. Default false.
+    ssf_enable_openapi: bool = False
 
     @property
     def allow_unsigned_webhook(self) -> bool:
@@ -207,6 +209,7 @@ class Settings:
             ssf_allow_custom_issuer=os.getenv("SSF_ALLOW_CUSTOM_ISSUER", "false").lower() == "true",
             ssf_log_color=os.getenv("SSF_LOG_COLOR", "false").lower() == "true",
             ssf_log_receiver_error_body=os.getenv("SSF_LOG_RECEIVER_ERROR_BODY", "false").lower() == "true",
+            ssf_enable_openapi=os.getenv("SSF_ENABLE_OPENAPI", "false").lower() == "true",
         )
 
     def public_url(self, path: str) -> str:
@@ -228,6 +231,7 @@ class Settings:
             "apple_scim_enabled": self.apple_scim_enabled,
             "apple_scim_group_filter_enabled": bool(self.apple_scim_group_id),
             "apple_scim_group_id": self.apple_scim_group_id or "",
+            "ssf_enable_openapi": self.ssf_enable_openapi,
         }
 
 

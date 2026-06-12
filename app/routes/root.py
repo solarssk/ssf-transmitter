@@ -1,0 +1,100 @@
+"""Root discovery page and human-friendly 404 responses."""
+
+from __future__ import annotations
+
+import html
+import os
+
+from fastapi import APIRouter, Request
+from fastapi.responses import HTMLResponse, JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
+
+SERVICE_NAME = "SSF Transmitter"
+DISCOVERY_PATH = "/.well-known/ssf-configuration"
+
+router = APIRouter()
+
+
+def app_version() -> str:
+    return os.getenv("APP_VERSION", "dev")
+
+
+def wants_html(request: Request) -> bool:
+    """Return True when the client prefers an HTML response over JSON."""
+    accept = request.headers.get("accept", "")
+    if "application/json" in accept and "text/html" not in accept:
+        return False
+    return "text/html" in accept
+
+
+def discovery_payload() -> dict[str, str]:
+    return {
+        "service": SERVICE_NAME,
+        "version": app_version(),
+        "discovery": DISCOVERY_PATH,
+    }
+
+
+def not_found_payload(path: str) -> dict[str, str]:
+    return {
+        "error": "not_found",
+        "path": path,
+        "hint": DISCOVERY_PATH,
+    }
+
+
+def _discovery_html() -> str:
+    version = html.escape(app_version())
+    discovery = html.escape(DISCOVERY_PATH)
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>{SERVICE_NAME}</title>
+</head>
+<body>
+  <h1>{SERVICE_NAME}</h1>
+  <p>Version {version}</p>
+  <p>SSF discovery: <a href="{discovery}">{discovery}</a></p>
+</body>
+</html>
+"""
+
+
+def _not_found_html(path: str) -> str:
+    safe_path = html.escape(path)
+    discovery = html.escape(DISCOVERY_PATH)
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Not Found — {SERVICE_NAME}</title>
+</head>
+<body>
+  <h1>Not Found</h1>
+  <p>No route for <code>{safe_path}</code>.</p>
+  <p>SSF discovery: <a href="{discovery}">{discovery}</a></p>
+</body>
+</html>
+"""
+
+
+@router.get("/")
+async def service_root(request: Request):
+    """Minimal service discovery — public SSF metadata only, no management paths."""
+    if wants_html(request):
+        return HTMLResponse(_discovery_html())
+    return discovery_payload()
+
+
+def register_exception_handlers(app) -> None:
+    """Register a 404 handler with HTML/JSON content negotiation."""
+
+    @app.exception_handler(StarletteHTTPException)
+    async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+        if exc.status_code == 404:
+            path = request.url.path
+            if wants_html(request):
+                return HTMLResponse(_not_found_html(path), status_code=404)
+            return JSONResponse(not_found_payload(path), status_code=404)
+        return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
