@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from app.scim.apple import (
+    _build_update_request,
     _can_recover_by_username,
     _format_changed_fields,
     _primary_email,
@@ -160,6 +161,32 @@ class TestCanRecoverByUsername:
     def test_rejects_different_external_id(self):
         apple_user = {"userName": "a@example.com", "externalId": "17"}
         assert _can_recover_by_username(apple_user, "42") is False
+
+
+class TestBuildUpdateRequest:
+    def test_patch_all_mode_builds_patch_operations(self):
+        user = _authentik_user()
+        user["externalId"] = "42"
+        method, body, fields = _build_update_request(user, "patch_all")
+        assert method == "PATCH"
+        assert fields == ["externalId", "userName", "name", "emails", "active"]
+        assert [op["path"] for op in body["Operations"]] == fields
+
+    def test_external_id_only_mode_builds_single_operation(self):
+        user = _authentik_user()
+        user["externalId"] = "42"
+        method, body, fields = _build_update_request(user, "external_id_only")
+        assert method == "PATCH"
+        assert fields == ["externalId"]
+        assert body["Operations"] == [{"op": "Replace", "path": "externalId", "value": "42"}]
+
+    def test_replace_all_mode_builds_put(self):
+        user = _authentik_user()
+        user["externalId"] = "42"
+        method, body, fields = _build_update_request(user, "replace_all")
+        assert method == "PUT"
+        assert body == user
+        assert fields == ["externalId", "userName", "name", "emails", "active"]
 
 
 # ---------------------------------------------------------------------------

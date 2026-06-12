@@ -21,11 +21,14 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from typing import Any
 from urllib.parse import quote
 
 import httpx
 
+from app.config import settings
 from app.security.http_logging import response_metadata
+from app.security.http_logging import safe_response_body_text
 from app.security.pii import mask_email
 
 logger = logging.getLogger(__name__)
@@ -43,6 +46,7 @@ class SyncResult:
     unchanged: int = 0
     conflicts: int = 0   # users that exist but have a personal Apple ID conflict
     errors: int = 0
+    update_400_invalid_request: int = 0
     conflict_usernames: list[str] = field(default_factory=list)
 
 
@@ -100,8 +104,6 @@ def _normalize_email(value: object) -> str:
 
 def _scim_log_username(username: str | None) -> str:
     """Return a log-safe userName, masked unless SSF_LOG_PII is enabled."""
-    from app.config import settings  # late import — avoids circular at module load
-
     return mask_email(
         username or "",
         log_pii=settings.log_pii,
@@ -187,23 +189,90 @@ def _users_differ(existing: dict, new: dict) -> bool:
     return False
 
 
-def _build_patch_body(user: dict) -> dict:
-    """Build an RFC 7644 PATCH body for Apple SCIM user updates.
+def _classify_update_400(response: httpx.Response) -> bool:
+    """Return True when an Apple 400 likely represents an invalid update request."""
+    if response.status_code != 400:
+        return False
+    try:
+        payload = response.json()
+    except Exception:
+        return True
+    if isinstance(payload, dict):
+        if payload.get("scimType") or payload.get("detail") or payload.get("status"):
+            return True
+    return True
 
-    PATCH keeps ``externalId`` stable while replacing only the attributes this
-    service owns, avoiding the repeated update loop caused by full-replace PUT
-    responses that omit or drop optional fields.
-    """
-    return {
+
+def _update_fields_for_mode(mode: str) -> list[str]:
+    """Return the requested field set for the configured update experiment."""
+    if mode == "external_id_only":
+        return ["externalId"]
+    if mode == "emails_only":
+        return ["emails"]
+    if mode == "username_only":
+        return ["userName"]
+    if mode == "replace_all":
+        return ["externalId", "userName", "name", "emails", "active"]
+    return ["externalId", "userName", "name", "emails", "active"]
+
+
+def _build_update_request(user: dict, mode: str) -> tuple[str, dict[str, Any], list[str]]:
+    """Build the outbound Apple SCIM update request for the configured mode."""
+    fields = _update_fields_for_mode(mode)
+    if mode == "replace_all":
+        return "PUT", user, fields
+
+    operations: list[dict[str, Any]] = []
+    for field in fields:
+        if field == "externalId":
+            value: Any = str(user.get("externalId") or "").strip()
+        elif field == "userName":
+            value = user.get("userName")
+        elif field == "name":
+            value = user.get("name", {})
+        elif field == "emails":
+            value = user.get("emails", [])
+        else:
+            value = user.get("active", True)
+        operations.append({"op": "Replace", "path": field, "value": value})
+    return "PATCH", {
         "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
-        "Operations": [
-            {"op": "Replace", "path": "externalId", "value": str(user.get("externalId") or "").strip()},
-            {"op": "Replace", "path": "userName", "value": user.get("userName")},
-            {"op": "Replace", "path": "name", "value": user.get("name", {})},
-            {"op": "Replace", "path": "emails", "value": user.get("emails", [])},
-            {"op": "Replace", "path": "active", "value": user.get("active", True)},
-        ],
-    }
+        "Operations": operations,
+    }, fields
+
+
+def _log_update_failure(
+    *,
+    operation: str,
+    http_method: str,
+    response: httpx.Response,
+    user: dict,
+    changed_fields: list[str],
+    apple_id: str | None = None,
+) -> None:
+    """Log Apple SCIM write failures with stable, PII-safe diagnostics."""
+    body = None
+    if settings.apple_scim_log_error_body:
+        body = safe_response_body_text(
+            response,
+            log_pii=settings.log_pii,
+            pii_key=settings.pii_pepper or settings.ssf_management_token,
+        )
+    logger.warning(
+        "Apple SCIM: %s failed operation=%s externalId=%s appleId=%s userName=%s "
+        "fields=%s endpoint=/Users/%s method=%s status=%s response=%s redacted_body=%s",
+        operation,
+        operation,
+        user.get("externalId"),
+        apple_id,
+        _scim_log_username(user.get("userName")),
+        changed_fields,
+        apple_id or "",
+        http_method,
+        response.status_code,
+        response_metadata(response),
+        body,
+    )
 
 
 async def _patch_user(
@@ -217,20 +286,31 @@ async def _patch_user(
 ) -> None:
     """PATCH a user update. Shared by normal update path and 409-recovery path."""
     apple_id = apple_user["id"]
-    update_body = _build_patch_body(new_user)
-    resp = await client.patch(f"{APPLE_SCIM_BASE}/Users/{apple_id}", json=update_body, headers=headers)
+    method, update_body, changed_fields = _build_update_request(new_user, settings.apple_scim_update_mode)
+    if method == "PUT":
+        resp = await client.put(f"{APPLE_SCIM_BASE}/Users/{apple_id}", json=update_body, headers=headers)
+    else:
+        resp = await client.patch(f"{APPLE_SCIM_BASE}/Users/{apple_id}", json=update_body, headers=headers)
     if resp.status_code in (200, 204):
         result.updated += 1
         logger.info(
-            "Apple SCIM: updated %s%s",
+            "Apple SCIM: updated %s%s mode=%s fields=%s",
             _log_user_ref(new_user),
             f" ({label})" if label else "",
+            settings.apple_scim_update_mode,
+            changed_fields,
         )
     else:
         result.errors += 1
-        logger.warning(
-            "Apple SCIM: update failed externalId=%s appleId=%s response=%s",
-            new_user.get("externalId"), apple_id, response_metadata(resp),
+        if _classify_update_400(resp):
+            result.update_400_invalid_request += 1
+        _log_update_failure(
+            operation="update",
+            http_method=method,
+            response=resp,
+            user=new_user,
+            changed_fields=changed_fields,
+            apple_id=apple_id,
         )
 
 
@@ -259,11 +339,15 @@ async def _patch_external_id(
         )
         return True
     result.errors += 1
-    logger.warning(
-        "Apple SCIM: externalId patch failed externalId=%s appleId=%s response=%s",
-        external_id,
-        apple_id,
-        response_metadata(resp),
+    if _classify_update_400(resp):
+        result.update_400_invalid_request += 1
+    _log_update_failure(
+        operation="external_id_repair",
+        http_method="PATCH",
+        response=resp,
+        user=new_user,
+        changed_fields=["externalId"],
+        apple_id=apple_id,
     )
     return False
 
@@ -284,7 +368,6 @@ async def _handle_409(
     # SCIM RFC 7644 filter literals use double quotes (not single quotes from repr())
     scim_filter = quote('"' + username + '"')
     filter_url = f"{APPLE_SCIM_BASE}/Users?filter=userName%20eq%20{scim_filter}"
-    from app.config import settings  # late import — avoids circular at module load
     safe_username = mask_email(username, log_pii=settings.log_pii,
                                pii_key=settings.pii_pepper or settings.ssf_management_token)
     try:
@@ -338,7 +421,6 @@ async def _handle_409(
     # into production logs when privacy mode is active.
     result.conflicts += 1
     result.conflict_usernames.append(username)
-    from app.config import settings  # late import — avoids circular at module load
     safe_username = mask_email(username, log_pii=settings.log_pii,
                                pii_key=settings.pii_pepper or settings.ssf_management_token)
     logger.warning(
@@ -372,11 +454,12 @@ async def sync_users(access_token: str, scim_users: list[dict]) -> SyncResult:
         apple_total = len(by_username)
         logger.info(
             "Apple SCIM: sync start — apple=%d linked_by_external_id=%d"
-            " email_recovery=%d authentik=%d",
+            " email_recovery=%d authentik=%d update_mode=%s",
             apple_total,
             len(by_ext_id),
             recovered,
             len(scim_users),
+            settings.apple_scim_update_mode,
         )
 
         for user in scim_users:
@@ -412,9 +495,12 @@ async def sync_users(access_token: str, scim_users: list[dict]) -> SyncResult:
                         await _handle_409(client, headers, user, result)
                     else:
                         result.errors += 1
-                        logger.warning(
-                            "Apple SCIM: create failed externalId=%s response=%s",
-                            ext_id, response_metadata(resp),
+                        _log_update_failure(
+                            operation="create",
+                            http_method="POST",
+                            response=resp,
+                            user=user,
+                            changed_fields=["externalId", "userName", "name", "emails", "active"],
                         )
                 else:
                     diffs = _field_diffs(apple_user, user)
@@ -440,8 +526,14 @@ async def sync_users(access_token: str, scim_users: list[dict]) -> SyncResult:
                 logger.exception("Apple SCIM: network error for externalId=%s", ext_id)
 
     logger.info(
-        "Apple SCIM: sync done — created=%d updated=%d unchanged=%d conflicts=%d errors=%d",
-        result.created, result.updated, result.unchanged, result.conflicts, result.errors,
+        "Apple SCIM: sync done — created=%d updated=%d unchanged=%d conflicts=%d "
+        "errors=%d update_400_invalid_request=%d",
+        result.created,
+        result.updated,
+        result.unchanged,
+        result.conflicts,
+        result.errors,
+        result.update_400_invalid_request,
     )
     if result.conflicts > 0:
         logger.warning(

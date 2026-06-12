@@ -11,9 +11,6 @@ logger = logging.getLogger(__name__)
 
 SESSION_REVOKED = "https://schemas.openid.net/secevent/caep/event-type/session-revoked"
 CREDENTIAL_CHANGE = "https://schemas.openid.net/secevent/caep/event-type/credential-change"
-ACCOUNT_DISABLED = "https://schemas.openid.net/secevent/risc/event-type/account-disabled"
-ACCOUNT_ENABLED = "https://schemas.openid.net/secevent/risc/event-type/account-enabled"
-ACCOUNT_PURGED = "https://schemas.openid.net/secevent/risc/event-type/account-purged"
 
 
 @dataclass(frozen=True)
@@ -52,15 +49,8 @@ def map_authentik_event(payload: dict[str, Any]) -> list[MappedEvent]:
             txn=txn,
         )]
     if action == "authentik.core.user.delete":
-        if not email:
-            logger.warning(
-                "Skipping Authentik user.delete mapping to account-purged — "
-                "webhook did not include a resolvable user email for sub_id"
-            )
-            return []
-        # RISC account lifecycle events carry no event-level subject — SSF §5.1
-        # identifies the user via the top-level sub_id claim in sign_set().
-        return [MappedEvent(uri=ACCOUNT_PURGED, payload={}, txn=txn)]
+        logger.info("Skipping Authentik event action=%s reason=event_not_supported", action)
+        return []
     if action != "authentik.core.user.write":
         logger.warning("Unmapped Authentik event action=%s", action)
         return []
@@ -81,10 +71,11 @@ def map_authentik_event(payload: dict[str, Any]) -> list[MappedEvent]:
         ))
 
     if "is_active" in changed_fields:
-        if context.get("is_active") is False:
-            events.append(MappedEvent(uri=ACCOUNT_DISABLED, payload={}, txn=txn))
-        elif context.get("is_active") is True:
-            events.append(MappedEvent(uri=ACCOUNT_ENABLED, payload={}, txn=txn))
+        logger.info(
+            "Skipping Authentik account state change action=%s reason=event_not_supported is_active=%s",
+            action,
+            context.get("is_active"),
+        )
 
     if not events:
         logger.warning("Authentik user.write event did not map to SSF event changed_fields=%s", changed_fields)

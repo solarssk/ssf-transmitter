@@ -251,4 +251,6 @@ async def sync(_auth: None = Depends(require_management_auth)) -> dict:
         # the API response to avoid exposing PII over HTTP. The full list appears
         # in application logs at WARNING level.
         "errors": result.errors,
+        "update_400_invalid_request": result.update_400_invalid_request,
+        "update_mode": settings.apple_scim_update_mode,
     }
