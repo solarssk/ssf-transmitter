@@ -15,27 +15,16 @@ from pydantic import BaseModel, ConfigDict, field_validator
 
 SUPPORTED_EVENT_URIS: frozenset[str] = frozenset(
     {
+        "https://schemas.openid.net/secevent/ssf/event-type/verification",
         "https://schemas.openid.net/secevent/caep/event-type/session-revoked",
         "https://schemas.openid.net/secevent/caep/event-type/credential-change",
-        # Final RISC URIs for account-state events (moved from caep/ namespace in the final spec)
-        "https://schemas.openid.net/secevent/risc/event-type/account-disabled",
-        "https://schemas.openid.net/secevent/risc/event-type/account-enabled",
-        "https://schemas.openid.net/secevent/risc/event-type/account-purged",
     }
 )
 
-# Legacy caep/ URIs for account events that pre-1.0 receivers may send in events_requested.
-# Accepted on input; canonicalized to risc/ before storage and emission.
-_LEGACY_CAEP_ACCOUNT_URIS: dict[str, str] = {
-    "https://schemas.openid.net/secevent/caep/event-type/account-disabled": "https://schemas.openid.net/secevent/risc/event-type/account-disabled",
-    "https://schemas.openid.net/secevent/caep/event-type/account-enabled": "https://schemas.openid.net/secevent/risc/event-type/account-enabled",
-    "https://schemas.openid.net/secevent/caep/event-type/account-purged": "https://schemas.openid.net/secevent/risc/event-type/account-purged",
-}
-
 
 def canonicalize_event_uri(uri: str) -> str:
-    """Return the canonical URI for an event, mapping legacy caep/ account URIs to risc/."""
-    return _LEGACY_CAEP_ACCOUNT_URIS.get(uri, uri)
+    """Return the canonical URI for an event."""
+    return uri
 
 SUPPORTED_DELIVERY_METHODS: frozenset[str] = frozenset(
     {

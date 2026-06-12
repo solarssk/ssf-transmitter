@@ -242,7 +242,7 @@ async def test_push_set_passes_empty_risc_event_payload_to_signer(monkeypatch, s
         return "signed.jwt"
 
     event = MappedEvent(
-        uri="https://schemas.openid.net/secevent/risc/event-type/account-purged",
+        uri="https://schemas.openid.net/secevent/ssf/event-type/verification",
         payload={},
     )
     FakeAsyncClient.requests = []

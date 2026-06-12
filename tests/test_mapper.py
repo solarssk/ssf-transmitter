@@ -1,7 +1,4 @@
 from app.events.mapper import (
-    ACCOUNT_DISABLED,
-    ACCOUNT_ENABLED,
-    ACCOUNT_PURGED,
     CREDENTIAL_CHANGE,
     SESSION_REVOKED,
     MappedEvent,
@@ -35,15 +32,13 @@ def test_maps_user_write_password_and_disabled_to_multiple_events():
         }
     )
 
-    assert len(events) == 2
+    assert len(events) == 1
     assert events[0].uri == CREDENTIAL_CHANGE
     assert events[0].payload["credential_type"] == "password"
     assert events[0].payload["change_type"] == "update"
-    assert events[1].uri == ACCOUNT_DISABLED
-    assert events[1].payload == {}
 
 
-def test_maps_user_delete_to_account_purged_without_event_level_subject():
+def test_user_delete_is_skipped_until_apple_confirms_support():
     events = map_authentik_event({
         "body": {
             "action": "authentik.core.user.delete",
@@ -51,12 +46,10 @@ def test_maps_user_delete_to_account_purged_without_event_level_subject():
         }
     })
 
-    assert len(events) == 1
-    assert events[0].uri == ACCOUNT_PURGED
-    assert events[0].payload == {}
+    assert events == []
 
 
-def test_account_enabled_payload_is_empty():
+def test_account_enabled_change_is_skipped_until_supported():
     events = map_authentik_event({
         "body": {
             "action": "authentik.core.user.write",
@@ -65,9 +58,7 @@ def test_account_enabled_payload_is_empty():
         }
     })
 
-    assert len(events) == 1
-    assert events[0].uri == ACCOUNT_ENABLED
-    assert events[0].payload == {}
+    assert events == []
 
 
 def test_user_delete_without_email_is_skipped():
@@ -114,8 +105,6 @@ def test_is_active_in_context_but_not_in_changed_fields_does_not_emit_account_ev
 
     uris = [e.uri for e in events]
     assert CREDENTIAL_CHANGE in uris
-    assert ACCOUNT_DISABLED not in uris
-    assert ACCOUNT_ENABLED not in uris
 
 
 def test_multiple_events_from_one_webhook_share_txn():
@@ -132,9 +121,8 @@ def test_multiple_events_from_one_webhook_share_txn():
         }
     )
 
-    assert len(events) == 2
+    assert len(events) == 1
     assert events[0].txn == "event-uuid-abc"
-    assert events[1].txn == "event-uuid-abc"
 
 
 def test_txn_is_none_when_no_source_event_id():

@@ -42,6 +42,16 @@ def _stream_response(stream) -> dict[str, Any]:
     }
 
 
+async def _get_stream_or_404(stream_id: str | None = None):
+    """Return the current stream, optionally asserting the provided ID matches it."""
+    stream = await get_first_stream()
+    if not stream:
+        raise HTTPException(status_code=404, detail="No stream configured")
+    if stream_id is not None and stream.stream_id != stream_id:
+        raise HTTPException(status_code=404, detail="Stream not found")
+    return stream
+
+
 @router.post("/streams", status_code=201)
 async def create_stream_endpoint(request: StreamCreateRequest) -> dict[str, Any]:
     """Create a new SSF stream and confirm delivery by pushing a verification SET."""
@@ -93,10 +103,13 @@ async def create_stream_endpoint(request: StreamCreateRequest) -> dict[str, Any]
 @router.get("/streams")
 async def get_stream_endpoint() -> dict[str, Any]:
     """Return the current SSF stream configuration."""
-    stream = await get_first_stream()
-    if not stream:
-        raise HTTPException(status_code=404, detail="No stream configured")
-    return _stream_response(stream)
+    return _stream_response(await _get_stream_or_404())
+
+
+@router.get("/streams/{stream_id}")
+async def get_stream_by_id_endpoint(stream_id: str) -> dict[str, Any]:
+    """Return a stream by ID."""
+    return _stream_response(await _get_stream_or_404(stream_id))
 
 
 @router.patch("/streams")
@@ -133,10 +146,26 @@ async def patch_stream_endpoint(request: StreamPatchRequest) -> dict[str, Any]:
     return _stream_response(stream)
 
 
+@router.patch("/streams/{stream_id}")
+async def patch_stream_by_id_endpoint(stream_id: str, request: StreamPatchRequest) -> dict[str, Any]:
+    """Update a stream by ID."""
+    await _get_stream_or_404(stream_id)
+    return await patch_stream_endpoint(request)
+
+
 @router.delete("/streams", status_code=204)
 async def delete_stream_endpoint() -> Response:
     """Delete the current SSF stream."""
     await delete_stream()
+    return Response(status_code=204)
+
+
+@router.delete("/streams/{stream_id}", status_code=204)
+async def delete_stream_by_id_endpoint(stream_id: str) -> Response:
+    """Delete a stream by ID."""
+    deleted = await delete_stream_by_id(stream_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Stream not found")
     return Response(status_code=204)
 
 
@@ -166,3 +195,25 @@ async def stream_status() -> dict[str, Any]:
         "aud": stream.aud,
         "events_requested": stream.events_requested,
     }
+
+
+@router.get("/streams/{stream_id}/status")
+async def stream_status_by_id(stream_id: str) -> dict[str, Any]:
+    """Return the current status for a stream by ID."""
+    stream = await _get_stream_or_404(stream_id)
+    return {
+        "status": stream.status,
+        "stream_id": stream.stream_id,
+        "aud": stream.aud,
+        "events_requested": stream.events_requested,
+    }
+
+
+@router.post("/streams/{stream_id}/verify", status_code=202)
+async def verify_stream_by_id(stream_id: str) -> Response:
+    """Push a verification SET for a stream by ID."""
+    stream = await _get_stream_or_404(stream_id)
+    pushed = await push_verification_set(stream)
+    if not pushed:
+        raise HTTPException(status_code=502, detail="Verification SET delivery failed")
+    return Response(status_code=202)
