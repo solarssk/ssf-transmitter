@@ -9,6 +9,22 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Fixed
+- **RISC lifecycle SET payloads** — `account-purged`, `account-disabled`, and `account-enabled` no longer inject a `subject` object into the per-event `events` body; user identity stays in the top-level `sub_id` claim per SSF 1.0 §5.1 (strict receivers such as Apple reject schema-invalid RISC bodies)
+- **Apple SCIM 409 recovery** — username-based recovery after `409 Conflict` only when the matched Apple user has no `externalId` or the same `externalId` as Authentik (prevents overwriting another user's managed Apple ID)
+- **Apple SCIM group filter** — group membership fetched via Authentik `GET /api/v3/core/groups/{pk}/` instead of a non-existent users sub-resource
+- **Apple SCIM updates** — user changes sent with `PATCH` instead of `PUT`
+- **Webhook email extraction** — whitespace-only or non-string `email` values treated as missing
+
+### Added
+- **`GET /`** — minimal public discovery (service name, `APP_VERSION`, link to `/.well-known/ssf-configuration`); HTML or JSON via `Accept`
+- **Custom 404 responses** — unknown paths return JSON or HTML with a hint to the SSF well-known URL instead of a bare FastAPI error
+- **`SSF_ENABLE_OPENAPI`** — gates `/docs`, `/redoc`, and `/openapi.json` (default `false`)
+
+### Changed
+- FastAPI `version` reads `APP_VERSION` (set at image build time; `dev` locally)
+- SCIM sync logs use structured fields instead of empty `{}` placeholders
+
 ---
 
 ## [0.5.6] — 2026-06-05

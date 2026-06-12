@@ -1,3 +1,5 @@
+"""SSF stream management API (create, read, update, delete)."""
+
 import logging
 from typing import Any
 
@@ -17,6 +19,7 @@ router = APIRouter(prefix="/ssf", dependencies=[Depends(require_management_auth)
 
 
 def _stream_response(stream) -> dict[str, Any]:
+    """Serialize a Stream row into the SSF stream management response shape."""
     events_delivered = (
         [e for e in stream.events_requested if e in _EVENTS_SUPPORTED]
         if stream.events_requested is not None

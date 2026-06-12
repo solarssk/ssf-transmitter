@@ -1,3 +1,5 @@
+"""RSA key management and Security Event Token (SET) JWT signing."""
+
 from __future__ import annotations
 
 import base64
@@ -22,11 +24,13 @@ JWKS_PATH = "jwks.json"
 
 
 def _b64url_uint(value: int) -> str:
+    """Encode an unsigned integer as a base64url string without padding."""
     raw = value.to_bytes((value.bit_length() + 7) // 8, "big")
     return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
 
 
 def _public_jwk(private_key: rsa.RSAPrivateKey) -> dict[str, str]:
+    """Build a JWK dict for the public half of an RSA signing key."""
     public_key = private_key.public_key()
     numbers = public_key.public_numbers()
     public_pem = public_key.public_bytes(

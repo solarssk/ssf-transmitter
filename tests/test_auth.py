@@ -33,12 +33,14 @@ def test_no_auth_header_returns_401(client: TestClient):
     """POST /ssf/streams without Authorization header returns 401."""
     resp = client.post("/ssf/streams", json={})
     assert resp.status_code == 401
+    assert resp.headers.get("www-authenticate") == "Bearer"
 
 
 def test_malformed_auth_header_returns_401(client: TestClient):
     """Authorization header without 'Bearer ' prefix is rejected with 401."""
     resp = client.post("/ssf/streams", json={}, headers={"Authorization": VALID_TOKEN})
     assert resp.status_code == 401
+    assert resp.headers.get("www-authenticate") == "Bearer"
 
 
 def test_wrong_token_returns_403(client: TestClient):

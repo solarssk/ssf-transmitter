@@ -142,3 +142,19 @@ Every push to `main` builds and publishes:
 
 In Portainer, redeploy the stack and enable image pulling when you want to update to the newest `latest` image.
 
+
+## Apple SCIM group filtering
+
+Apple SCIM sync is optional. When the Apple SCIM and Authentik API variables are configured, the transmitter can limit provisioning to a dedicated Authentik group by setting `APPLE_SCIM_GROUP_ID` to that group's UUID:
+
+```env
+APPLE_SCIM_GROUP_ID=978bff1a-5f55-4068-808c-45e09bb196d4
+```
+
+Recommended setup:
+
+1. Create a dedicated Authentik group such as **Apple Accounts**.
+2. Add only users that should have Apple Managed Accounts.
+3. Exclude local backup accounts, break-glass/admin accounts, technical accounts, service accounts, and Authentik-only accounts.
+
+If `APPLE_SCIM_GROUP_ID` is left empty, the transmitter preserves the legacy behavior and considers all active internal Authentik users for Apple SCIM sync. Use group filtering in production to avoid accidentally provisioning or validating accounts that should never be sent to Apple.
