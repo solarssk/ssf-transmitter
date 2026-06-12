@@ -1,7 +1,7 @@
 from app.events.mapper import (
     CREDENTIAL_CHANGE,
-    MappedEvent,
     SESSION_REVOKED,
+    MappedEvent,
     extract_email,
     extract_source_txn,
     map_authentik_event,

@@ -27,8 +27,7 @@ from urllib.parse import quote
 import httpx
 
 from app.config import settings
-from app.security.http_logging import response_metadata
-from app.security.http_logging import safe_response_body_text
+from app.security.http_logging import response_metadata, safe_response_body_text
 from app.security.pii import mask_email
 
 logger = logging.getLogger(__name__)
@@ -197,9 +196,10 @@ def _classify_update_400(response: httpx.Response) -> bool:
         payload = response.json()
     except Exception:
         return True
-    if isinstance(payload, dict):
-        if payload.get("scimType") or payload.get("detail") or payload.get("status"):
-            return True
+    if isinstance(payload, dict) and (
+        payload.get("scimType") or payload.get("detail") or payload.get("status")
+    ):
+        return True
     return True
 
 
@@ -223,18 +223,18 @@ def _build_update_request(user: dict, mode: str) -> tuple[str, dict[str, Any], l
         return "PUT", user, fields
 
     operations: list[dict[str, Any]] = []
-    for field in fields:
-        if field == "externalId":
+    for field_name in fields:
+        if field_name == "externalId":
             value: Any = str(user.get("externalId") or "").strip()
-        elif field == "userName":
+        elif field_name == "userName":
             value = user.get("userName")
-        elif field == "name":
+        elif field_name == "name":
             value = user.get("name", {})
-        elif field == "emails":
+        elif field_name == "emails":
             value = user.get("emails", [])
         else:
             value = user.get("active", True)
-        operations.append({"op": "Replace", "path": field, "value": value})
+        operations.append({"op": "Replace", "path": field_name, "value": value})
     return "PATCH", {
         "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
         "Operations": operations,

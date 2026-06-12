@@ -33,7 +33,6 @@ def map_authentik_event(payload: dict[str, Any]) -> list[MappedEvent]:
     action = body.get("action")
     context = body.get("context") or {}
     txn = extract_source_txn(payload)
-    email = extract_email(payload)
 
     if action == "authentik.core.auth.login_failed":
         logger.info("Skipping Authentik event action=%s reason=login_failed", action)
