@@ -87,3 +87,17 @@ class TestSafeResponseBodyText:
         safe = safe_response_body_text(resp, log_pii=False, pii_key="pepper")
         assert "bob@example.com" not in safe
         assert "[pii:" in safe
+
+    def test_redacts_long_json_before_truncation(self):
+        resp = httpx.Response(
+            400,
+            json={
+                "detail": "x" * 700,
+                "access_token": "SECRET",
+                "nested": {"client_secret": "ALSO_SECRET"},
+            },
+        )
+        safe = safe_response_body_text(resp, log_pii=False, pii_key="pepper", limit=512)
+        assert "SECRET" not in safe
+        assert "ALSO_SECRET" not in safe
+        assert "[redacted]" in safe

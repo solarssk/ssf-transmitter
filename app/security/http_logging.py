@@ -67,11 +67,11 @@ def safe_response_body_text(
     limit: int = 512,
 ) -> str:
     """Return a redacted, bounded preview of an HTTP response body for logs."""
-    raw_text = response.text[:limit]
+    raw_text = response.text
     try:
         parsed = json.loads(raw_text)
     except json.JSONDecodeError:
-        return redact_text(raw_text, log_pii=log_pii, pii_key=pii_key)
+        return redact_text(raw_text[:limit], log_pii=log_pii, pii_key=pii_key)
 
     def _sanitize(value: object) -> object:
         if isinstance(value, Mapping):
@@ -89,4 +89,5 @@ def safe_response_body_text(
             return redact_text(value, log_pii=log_pii, pii_key=pii_key)
         return value
 
-    return json.dumps(_sanitize(parsed), ensure_ascii=True, sort_keys=True)[:limit]
+    sanitized = json.dumps(_sanitize(parsed), ensure_ascii=True, sort_keys=True)
+    return sanitized[:limit]
