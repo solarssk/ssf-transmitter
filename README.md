@@ -67,10 +67,10 @@ Leaving `APPLE_SCIM_GROUP_ID` empty preserves the legacy behavior: all active in
 
 ## Development
 
-Requires **Python 3.12** (see `.python-version`; matches CI and the Docker image).
+Requires **Python 3.14** (see `.python-version`; matches CI and the Docker image).
 
 ```bash
-python3.12 -m venv .venv && . .venv/bin/activate
+python3.14 -m venv .venv && . .venv/bin/activate
 pip install -r requirements-dev.txt
 ruff check .
 pytest

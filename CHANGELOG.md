@@ -24,6 +24,7 @@ Versioning: [Semantic Versioning](https://semver.org/)
 ### Changed
 - FastAPI `version` reads `APP_VERSION` (set at image build time; `dev` locally)
 - SCIM sync logs use structured fields instead of empty `{}` placeholders
+- Local dev, CI, and Docker image aligned on **Python 3.14** (`.python-version`, GitHub Actions, `python:3.14-slim-bookworm`)
 
 ---
 

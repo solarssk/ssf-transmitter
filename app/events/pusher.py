@@ -137,7 +137,7 @@ async def push_set(stream: Stream, event: MappedEvent, email: str) -> bool | Non
     return True
 
 
-async def push_verification_set(stream: "Stream", state: str | None = None) -> bool:
+async def push_verification_set(stream: Stream, state: str | None = None) -> bool:
     """Push a verification SET to the stream's endpoint.
 
     ``state`` is forwarded to the receiver when provided (receiver-initiated
