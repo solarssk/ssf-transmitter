@@ -11,7 +11,7 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ---
 
-## [0.5.7] — 2026-06-12
+## [0.5.7] — 2026-06-12 — SCIM hardening, RISC fixes & discovery
 
 ### Fixed
 - **RISC lifecycle SET payloads** — `account-purged`, `account-disabled`, and `account-enabled` no longer inject a `subject` object into the per-event `events` body; user identity stays in the top-level `sub_id` claim per SSF 1.0 §5.1 (strict receivers such as Apple reject schema-invalid RISC bodies)
