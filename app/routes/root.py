@@ -48,6 +48,11 @@ def is_unmatched_route(exc: StarletteHTTPException) -> bool:
     return exc.status_code == 404 and exc.detail == "Not Found"
 
 
+def exception_headers(exc: StarletteHTTPException) -> dict[str, str] | None:
+    """Return response headers from the raised HTTPException, if any."""
+    return exc.headers
+
+
 def _discovery_html() -> str:
     version = html.escape(app_version())
     discovery = html.escape(DISCOVERY_PATH)
@@ -97,9 +102,14 @@ def register_exception_handlers(app) -> None:
 
     @app.exception_handler(StarletteHTTPException)
     async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+        headers = exception_headers(exc)
         if is_unmatched_route(exc):
             path = request.url.path
             if wants_html(request):
-                return HTMLResponse(_not_found_html(path), status_code=404)
-            return JSONResponse(not_found_payload(path), status_code=404)
-        return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
+                return HTMLResponse(_not_found_html(path), status_code=404, headers=headers)
+            return JSONResponse(not_found_payload(path), status_code=404, headers=headers)
+        return JSONResponse(
+            {"detail": exc.detail},
+            status_code=exc.status_code,
+            headers=headers,
+        )
