@@ -27,14 +27,6 @@ def _event_timestamp() -> int:
     return int(time.time())
 
 
-def _email_subject_payload(email: str | None) -> dict[str, Any]:
-    """Build an event-level SSF subject payload when the webhook identifies a user."""
-    normalized = (email or "").strip()
-    if not normalized:
-        return {}
-    return {"subject": {"format": "email", "email": normalized}}
-
-
 def map_authentik_event(payload: dict[str, Any]) -> list[MappedEvent]:
     body = payload.get("body") or payload
     action = body.get("action")
@@ -56,14 +48,15 @@ def map_authentik_event(payload: dict[str, Any]) -> list[MappedEvent]:
             txn=txn,
         )]
     if action == "authentik.core.user.delete":
-        subject_payload = _email_subject_payload(email)
-        if not subject_payload:
+        if not email:
             logger.warning(
                 "Skipping Authentik user.delete mapping to account-purged — "
-                "webhook did not include a resolvable user email subject"
+                "webhook did not include a resolvable user email for sub_id"
             )
             return []
-        return [MappedEvent(uri=ACCOUNT_PURGED, payload=subject_payload, txn=txn)]
+        # RISC account lifecycle events carry no event-level subject — SSF §5.1
+        # identifies the user via the top-level sub_id claim in sign_set().
+        return [MappedEvent(uri=ACCOUNT_PURGED, payload={}, txn=txn)]
     if action != "authentik.core.user.write":
         logger.warning("Unmapped Authentik event action=%s", action)
         return []
@@ -85,9 +78,9 @@ def map_authentik_event(payload: dict[str, Any]) -> list[MappedEvent]:
 
     if "is_active" in changed_fields:
         if context.get("is_active") is False:
-            events.append(MappedEvent(uri=ACCOUNT_DISABLED, payload=_email_subject_payload(email), txn=txn))
+            events.append(MappedEvent(uri=ACCOUNT_DISABLED, payload={}, txn=txn))
         elif context.get("is_active") is True:
-            events.append(MappedEvent(uri=ACCOUNT_ENABLED, payload=_email_subject_payload(email), txn=txn))
+            events.append(MappedEvent(uri=ACCOUNT_ENABLED, payload={}, txn=txn))
 
     if not events:
         logger.warning("Authentik user.write event did not map to SSF event changed_fields=%s", changed_fields)

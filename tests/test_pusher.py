@@ -234,7 +234,7 @@ async def test_push_set_allows_all_when_events_requested_empty(monkeypatch, stre
     assert delivered is True
 
 @pytest.mark.anyio
-async def test_push_set_passes_account_event_subject_payload_to_signer(monkeypatch, stream):
+async def test_push_set_passes_empty_risc_event_payload_to_signer(monkeypatch, stream):
     captured = {}
 
     def _capture_sign_set(*args, **kwargs):
@@ -243,7 +243,7 @@ async def test_push_set_passes_account_event_subject_payload_to_signer(monkeypat
 
     event = MappedEvent(
         uri="https://schemas.openid.net/secevent/risc/event-type/account-purged",
-        payload={"subject": {"format": "email", "email": "deleted@example.com"}},
+        payload={},
     )
     FakeAsyncClient.requests = []
     FakeAsyncClient.status_code = 202
@@ -253,7 +253,8 @@ async def test_push_set_passes_account_event_subject_payload_to_signer(monkeypat
     delivered = await pusher.push_set(stream, event, "deleted@example.com")
 
     assert delivered is True
-    assert captured["event_payload"] == {"subject": {"format": "email", "email": "deleted@example.com"}}
+    assert captured["event_payload"] == {}
+    assert captured["email"] == "deleted@example.com"
 
 
 @pytest.mark.anyio
