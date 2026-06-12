@@ -16,6 +16,7 @@ router = APIRouter()
 
 
 def app_version() -> str:
+    """Return the application version from APP_VERSION (``dev`` when unset)."""
     return os.getenv("APP_VERSION", "dev")
 
 
@@ -28,6 +29,7 @@ def wants_html(request: Request) -> bool:
 
 
 def discovery_payload() -> dict[str, str]:
+    """Build the JSON body for GET /."""
     return {
         "service": SERVICE_NAME,
         "version": app_version(),
@@ -36,6 +38,7 @@ def discovery_payload() -> dict[str, str]:
 
 
 def not_found_payload(path: str) -> dict[str, str]:
+    """Build the JSON body for unmatched-route 404 responses."""
     return {
         "error": "not_found",
         "path": path,
@@ -54,6 +57,7 @@ def exception_headers(exc: StarletteHTTPException) -> dict[str, str] | None:
 
 
 def _discovery_html() -> str:
+    """Render the HTML discovery page for GET /."""
     version = html.escape(app_version())
     discovery = html.escape(DISCOVERY_PATH)
     return f"""<!DOCTYPE html>
@@ -72,6 +76,7 @@ def _discovery_html() -> str:
 
 
 def _not_found_html(path: str) -> str:
+    """Render the HTML page for unmatched-route 404 responses."""
     safe_path = html.escape(path)
     discovery = html.escape(DISCOVERY_PATH)
     return f"""<!DOCTYPE html>
@@ -102,6 +107,7 @@ def register_exception_handlers(app) -> None:
 
     @app.exception_handler(StarletteHTTPException)
     async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+        """Map HTTP exceptions to JSON or HTML, preserving route-level details."""
         headers = exception_headers(exc)
         if is_unmatched_route(exc):
             path = request.url.path

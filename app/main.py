@@ -1,3 +1,5 @@
+"""FastAPI application entry point and Apple SCIM background sync loop."""
+
 from __future__ import annotations
 
 import asyncio
@@ -47,6 +49,7 @@ async def _apple_scim_sync_loop() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """Run startup preflight, initialize keys/DB, and manage background tasks."""
     run_preflight_checks()  # logs ✅/⚠️/❌ for each check; exits with 0 if any ❌
     ensure_keys()
     await init_db()

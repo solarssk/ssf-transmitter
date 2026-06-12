@@ -1,3 +1,5 @@
+"""Deliver signed SET JWTs to registered SSF receiver endpoints."""
+
 import hashlib
 import logging
 from urllib.parse import urlparse

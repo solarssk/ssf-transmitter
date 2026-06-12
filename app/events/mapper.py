@@ -1,3 +1,5 @@
+"""Map Authentik webhook payloads to SSF/CAEP/RISC Security Event types."""
+
 from __future__ import annotations
 
 import logging
@@ -24,10 +26,12 @@ class MappedEvent:
 
 
 def _event_timestamp() -> int:
+    """Return the current Unix timestamp for CAEP event payloads."""
     return int(time.time())
 
 
 def map_authentik_event(payload: dict[str, Any]) -> list[MappedEvent]:
+    """Translate an Authentik webhook body into zero or more SSF mapped events."""
     body = payload.get("body") or payload
     action = body.get("action")
     context = body.get("context") or {}
@@ -104,6 +108,7 @@ def extract_email(payload: dict[str, Any]) -> str | None:
 
 
 def extract_action(payload: dict[str, Any]) -> str | None:
+    """Return the Authentik action string from a webhook payload."""
     body = payload.get("body") or payload
     return body.get("action")
 

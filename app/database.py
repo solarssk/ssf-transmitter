@@ -1,3 +1,5 @@
+"""SQLite persistence for SSF streams and Apple SCIM OAuth tokens."""
+
 from __future__ import annotations
 
 import json
@@ -18,6 +20,8 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class Stream:
+    """An active or paused SSF push stream stored in SQLite."""
+
     stream_id: str
     aud: str
     endpoint_url: str

@@ -36,6 +36,8 @@ ABM_ACTIVITY_URL = "https://business.apple.com/main/activity"
 
 @dataclass
 class SyncResult:
+    """Counters returned after an Apple SCIM sync run."""
+
     created: int = 0
     updated: int = 0
     unchanged: int = 0

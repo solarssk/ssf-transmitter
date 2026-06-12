@@ -1,3 +1,5 @@
+"""Environment-based application settings and logging configuration."""
+
 from __future__ import annotations
 
 import logging
@@ -14,6 +16,7 @@ class _HealthcheckFilter(logging.Filter):
     """
 
     def filter(self, record: logging.LogRecord) -> bool:
+        """Return False for Docker healthcheck access log lines."""
         msg = record.getMessage()
         return not ("127.0.0.1" in msg and "/jwks.json" in msg)
 
@@ -98,6 +101,8 @@ def _parse_webhook_secret(value: str | None, mode: str) -> str:
 
 @dataclass(frozen=True)
 class Settings:
+    """Application configuration loaded from environment variables."""
+
     ssf_issuer: str
     ssf_base_url: str
     ssf_root_path: str
