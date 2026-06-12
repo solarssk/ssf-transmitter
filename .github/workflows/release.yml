@@ -21,6 +21,7 @@ jobs:
       - name: Resolve release title from CHANGELOG
         id: meta
         run: |
+          # Heading format: ## [X.Y.Z] — YYYY-MM-DD — Short release title
           version="${GITHUB_REF_NAME#v}"
           line="$(grep -m1 "^\## \[${version}\]" CHANGELOG.md || true)"
           subtitle="$(printf '%s\n' "$line" | sed -n 's/^## \[.*\] — [0-9-]* — \(.*\)$/\1/p')"
