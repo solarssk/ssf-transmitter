@@ -117,10 +117,8 @@ async def get_stream_by_id_endpoint(stream_id: str) -> dict[str, Any]:
     return _stream_response(await _get_stream_or_404(stream_id))
 
 
-@router.patch("/streams")
-@limiter.limit("20/minute")
-async def patch_stream_endpoint(request: Request, body: StreamPatchRequest) -> dict[str, Any]:
-    """Update the current SSF stream configuration."""
+async def _patch_stream_body(body: StreamPatchRequest) -> dict[str, Any]:
+    """Apply a validated stream patch body without route-level side effects."""
     # Validate endpoint_url if delivery block is included in the patch
     if body.delivery is not None:
         try:
@@ -156,6 +154,13 @@ async def patch_stream_endpoint(request: Request, body: StreamPatchRequest) -> d
     return _stream_response(stream)
 
 
+@router.patch("/streams")
+@limiter.limit("20/minute")
+async def patch_stream_endpoint(request: Request, body: StreamPatchRequest) -> dict[str, Any]:
+    """Update the current SSF stream configuration."""
+    return await _patch_stream_body(body)
+
+
 @router.patch("/streams/{stream_id}")
 @limiter.limit("20/minute")
 async def patch_stream_by_id_endpoint(
@@ -163,7 +168,7 @@ async def patch_stream_by_id_endpoint(
 ) -> dict[str, Any]:
     """Update a stream by ID."""
     await _get_stream_or_404(stream_id)
-    return await patch_stream_endpoint(request, body)
+    return await _patch_stream_body(body)
 
 
 @router.delete("/streams", status_code=204)

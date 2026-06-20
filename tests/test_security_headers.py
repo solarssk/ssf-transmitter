@@ -67,3 +67,40 @@ def test_rate_limit_response_has_security_headers(client: TestClient):
     assert resp.status_code == 429
     _assert_security_headers(resp)
     assert resp.headers.get("X-Request-ID")
+
+
+@pytest.mark.enable_rate_limit
+def test_patch_stream_by_id_uses_independent_rate_limit(client: TestClient):
+    """PATCH /streams/{id} must not consume or check the non-ID PATCH quota."""
+    from app.rate_limit import limiter
+
+    limiter.reset()
+    create_resp = client.post(
+        "/ssf/streams",
+        json={
+            "aud": "rate-limit-aud",
+            "delivery": {"endpoint_url": "https://receiver.example.test/events"},
+        },
+        headers=MGMT_HEADERS,
+    )
+    assert create_resp.status_code == 201
+    stream_id = create_resp.json()["stream_id"]
+
+    for idx in range(20):
+        resp = client.patch(
+            "/ssf/streams",
+            json={"status": "paused" if idx % 2 else "enabled"},
+            headers=MGMT_HEADERS,
+        )
+        assert resp.status_code == 200
+
+    exhausted = client.patch("/ssf/streams", json={"status": "paused"}, headers=MGMT_HEADERS)
+    assert exhausted.status_code == 429
+
+    by_id_resp = client.patch(
+        f"/ssf/streams/{stream_id}",
+        json={"status": "disabled"},
+        headers=MGMT_HEADERS,
+    )
+    assert by_id_resp.status_code == 200
+    assert by_id_resp.json()["status"] == "disabled"
