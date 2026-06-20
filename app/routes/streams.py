@@ -139,9 +139,9 @@ async def _patch_stream_body(body: StreamPatchRequest) -> dict[str, Any]:
         patch["events_requested"] = body.events_requested
     if body.delivery is not None:
         delivery_patch = {"endpoint_url": body.delivery.endpoint_url}
-        if body.delivery.endpoint_url_token:
+        if body.delivery.endpoint_url_token is not None:
             delivery_patch["endpoint_url_token"] = body.delivery.endpoint_url_token
-        if body.delivery.authorization_header:
+        if body.delivery.authorization_header is not None:
             delivery_patch["authorization_header"] = body.delivery.authorization_header
         patch["delivery"] = delivery_patch
 

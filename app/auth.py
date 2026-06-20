@@ -27,7 +27,9 @@ logger = logging.getLogger(__name__)
 
 _MANAGEMENT_AUTH_FAILURE_LIMIT = 10
 _MANAGEMENT_AUTH_FAILURE_WINDOW_SECONDS = 60.0
-_management_auth_failures: dict[str, deque[float]] = defaultdict(deque)
+_management_auth_failures: dict[str, deque[float]] = defaultdict(
+    lambda: deque(maxlen=_MANAGEMENT_AUTH_FAILURE_LIMIT + 1)
+)
 
 
 def _client_key(request: Request) -> str:

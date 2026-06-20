@@ -150,6 +150,10 @@ def _quarantine_undecryptable_receiver_tokens() -> None:
             )
             con.commit()
     except Exception:
+        logger.exception(
+            "%s Receiver tokens        failed to validate/decrypt stored endpoint tokens during startup",
+            _WARN,
+        )
         return
 
     logger.error(

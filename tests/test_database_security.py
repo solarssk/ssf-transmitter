@@ -127,6 +127,100 @@ def test_patch_preserves_undecryptable_receiver_token_without_replacement(client
     assert row == ("paused", stored)
 
 
+def test_reject_enable_with_undecryptable_token_without_replacement(client: TestClient, monkeypatch):
+    """Paused streams with undecryptable tokens must not be re-enabled without a replacement token."""
+    import dataclasses
+
+    from app.config import settings as real_settings
+
+    _create_stream(client, token="receiver-token-before-rotation")
+
+    monkeypatch.setattr(
+        "app.crypto.settings",
+        dataclasses.replace(
+            real_settings,
+            ssf_token_encryption_key=None,
+            ssf_management_token="different_management_token_min_32_chars_12",
+        ),
+    )
+
+    paused = client.patch("/ssf/streams", json={"status": "paused"}, headers=MGMT_HEADERS)
+    assert paused.status_code == 200
+
+    rejected = client.patch("/ssf/streams", json={"status": "enabled"}, headers=MGMT_HEADERS)
+    assert rejected.status_code == 400
+    assert "cannot be decrypted" in rejected.json()["detail"]
+
+
+def test_enable_with_undecryptable_token_when_replacement_supplied(client: TestClient, monkeypatch):
+    """Supplying a new receiver token allows re-enabling a quarantined stream."""
+    import dataclasses
+    import sqlite3
+    from contextlib import closing
+
+    from app.config import settings as real_settings
+    from app.crypto import decrypt_token
+
+    _create_stream(client, token="receiver-token-before-rotation")
+
+    monkeypatch.setattr(
+        "app.crypto.settings",
+        dataclasses.replace(
+            real_settings,
+            ssf_token_encryption_key=None,
+            ssf_management_token="different_management_token_min_32_chars_12",
+        ),
+    )
+
+    paused = client.patch("/ssf/streams", json={"status": "paused"}, headers=MGMT_HEADERS)
+    assert paused.status_code == 200
+
+    replacement = "replacement-receiver-token"
+    enabled = client.patch(
+        "/ssf/streams",
+        json={
+            "status": "enabled",
+            "delivery": {
+                "endpoint_url": "https://receiver.example.test/events",
+                "endpoint_url_token": replacement,
+            },
+        },
+        headers=MGMT_HEADERS,
+    )
+    assert enabled.status_code == 200
+    assert enabled.json()["status"] == "enabled"
+
+    with closing(sqlite3.connect(real_settings.database_path)) as con:
+        stored = con.execute("SELECT endpoint_token FROM streams LIMIT 1").fetchone()[0]
+    assert decrypt_token(stored) == replacement
+
+
+def test_patch_can_clear_receiver_token_with_empty_string(client: TestClient):
+    """Explicit empty endpoint_url_token clears the stored receiver credential."""
+    import sqlite3
+    from contextlib import closing
+
+    from app.config import settings
+
+    _create_stream(client, token="token-to-clear")
+
+    resp = client.patch(
+        "/ssf/streams",
+        json={
+            "delivery": {
+                "endpoint_url": "https://receiver.example.test/events",
+                "endpoint_url_token": "",
+            },
+        },
+        headers=MGMT_HEADERS,
+    )
+    assert resp.status_code == 200
+
+    with closing(sqlite3.connect(settings.database_path)) as con:
+        stored = con.execute("SELECT endpoint_token FROM streams LIMIT 1").fetchone()[0]
+    assert stored == ""
+
+
 def test_legacy_plaintext_token_decrypt_fallback():
     """Pre-upgrade plaintext tokens are returned as-is when Fernet decrypt fails."""
     from app.crypto import decrypt_token
