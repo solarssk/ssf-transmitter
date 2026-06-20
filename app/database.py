@@ -14,6 +14,7 @@ from typing import Any
 import aiosqlite
 
 from app.config import settings
+from app.crypto import decrypt_token, encrypt_token
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +38,7 @@ def _row_to_stream(row: aiosqlite.Row) -> Stream:
         stream_id=row["stream_id"],
         aud=row["aud"],
         endpoint_url=row["endpoint_url"],
-        endpoint_token=row["endpoint_token"],
+        endpoint_token=decrypt_token(row["endpoint_token"]),
         events_requested=json.loads(row["events_requested"]),
         status=row["status"],
         created_at=row["created_at"],
@@ -47,18 +48,17 @@ def _row_to_stream(row: aiosqlite.Row) -> Stream:
 async def init_db() -> None:
     """Create all database tables if they do not already exist.
 
-    Security note: receiver tokens (bearer tokens for push endpoints) are stored
-    in plaintext inside this SQLite database.  Protect the /app/data volume:
-    restrict container host-path mounts to root-only, use encrypted storage at
-    the volume level if your threat model requires it, and never expose the data
-    directory via network shares.
+    Security note: receiver tokens are encrypted at rest (Fernet) in SQLite.
+    Protect the /app/data volume: restrict container host-path mounts to
+    root-only, use encrypted storage at the volume level if your threat model
+    requires it, and never expose the data directory via network shares.
     """
     db_path = Path(settings.database_path)
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    logger.warning(
-        "Receiver tokens are stored in plaintext in SQLite at %s — "
-        "ensure the %s volume is protected (host path restricted to root, "
-        "encrypted volume if required by your threat model).",
+    logger.info(
+        "Receiver endpoint tokens are encrypted at rest in SQLite at %s — "
+        "protect the %s volume (host path restricted to root, encrypted volume "
+        "if required by your threat model).",
         settings.database_path,
         str(db_path.parent),
     )
@@ -162,7 +162,7 @@ async def create_stream(payload: dict[str, Any]) -> Stream:
                 stream.stream_id,
                 stream.aud,
                 stream.endpoint_url,
-                stream.endpoint_token,
+                encrypt_token(stream.endpoint_token),
                 json.dumps(stream.events_requested),
                 stream.status,
                 stream.created_at,
@@ -218,7 +218,7 @@ async def update_stream(payload: dict[str, Any]) -> Stream | None:
             SET aud = ?, endpoint_url = ?, endpoint_token = ?, events_requested = ?, status = ?
             WHERE stream_id = ?
             """,
-            (aud, endpoint_url, endpoint_token, json.dumps(events_requested), status, stream.stream_id),
+            (aud, endpoint_url, encrypt_token(endpoint_token), json.dumps(events_requested), status, stream.stream_id),
         )
         await db.commit()
 

@@ -104,6 +104,7 @@ In the existing proxy host for your IdP hostname, add:
 
 ```nginx
 location ^~ /shared-signals/ {
+    limit_req zone=ssf_api burst=10 nodelay;
     proxy_pass http://127.0.0.1:62107/;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
@@ -111,6 +112,14 @@ location ^~ /shared-signals/ {
     proxy_set_header X-Forwarded-Proto $scheme;
 }
 ```
+
+Add a rate-limit zone in the main `http` block (outside the server block):
+
+```nginx
+limit_req_zone $binary_remote_addr zone=ssf_api:10m rate=30r/m;
+```
+
+Set `SSF_FORWARDED_ALLOW_IPS` to your proxy subnet (e.g. `172.16.3.0/24` for the bridge above) so Uvicorn trusts `X-Forwarded-For` from NPM only.
 
 If `SSF_HOST_PORT` changes, update the Nginx Proxy Manager port too.
 

@@ -5,19 +5,61 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import uuid
 from contextlib import asynccontextmanager
+from contextvars import ContextVar
 
 from fastapi import FastAPI
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from starlette.responses import Response
 
 import app.config as config
 from app.config import configure_logging, settings
 from app.crypto import ensure_keys
 from app.database import init_db
+from app.rate_limit import limiter
 from app.routes import apple_scim, jwks, root, streams, verification, webhook, wellknown
 from app.startup import run_preflight_checks
 
 configure_logging()
 logger = logging.getLogger(__name__)
+
+request_id_var: ContextVar[str] = ContextVar("request_id", default="-")
+
+
+class RequestIDMiddleware(BaseHTTPMiddleware):
+    """Attach a correlation ID to each request for logging and response headers."""
+
+    async def dispatch(self, request: Request, call_next) -> Response:
+        request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())[:8]
+        token = request_id_var.set(request_id)
+        try:
+            response = await call_next(request)
+        finally:
+            request_id_var.reset(token)
+        response.headers["X-Request-ID"] = request_id
+        return response
+
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Add security-related HTTP response headers to all responses."""
+
+    async def dispatch(self, request: Request, call_next) -> Response:
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        response.headers["Cache-Control"] = "no-store"
+        content_type = response.headers.get("content-type", "")
+        if "text/html" in content_type:
+            response.headers["Content-Security-Policy"] = (
+                "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'"
+            )
+        return response
 
 
 async def _apple_scim_sync_loop() -> None:
@@ -86,6 +128,12 @@ def create_app() -> FastAPI:
         redoc_url=redoc_url,
         openapi_url=openapi_url,
     )
+    application.state.limiter = limiter
+    application.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+    # Starlette middleware is LIFO — register innermost first, outermost last.
+    application.add_middleware(RequestIDMiddleware)
+    application.add_middleware(SlowAPIMiddleware)
+    application.add_middleware(SecurityHeadersMiddleware)
     application.include_router(root.router)
     application.include_router(wellknown.router)
     application.include_router(jwks.router)

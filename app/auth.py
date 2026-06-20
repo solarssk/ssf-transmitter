@@ -6,10 +6,9 @@ require a Bearer token matching SSF_MANAGEMENT_TOKEN.
 Public endpoints that remain unauthenticated:
   - /.well-known/ssf-configuration
   - /jwks.json
-  - GET /apple-scim/status
-  - GET /apple-scim/authorize
-  - GET /apple-scim/callback
-  - POST /webhook/authentik  (protected separately by HMAC)
+  - GET /apple-scim/authorize  (OAuth flow — admin browser)
+  - GET /apple-scim/callback   (OAuth redirect from Apple — CSRF protected via state)
+  - POST /webhook/authentik  (protected separately by bearer/HMAC)
 """
 
 from __future__ import annotations

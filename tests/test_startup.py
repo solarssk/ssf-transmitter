@@ -234,14 +234,28 @@ class TestPreflightSuccess:
 
 
 class TestPreflightDeprecation:
-    def test_allow_unsigned_webhook_legacy_alias_logs_deprecation(self, monkeypatch, caplog):
+    def test_allow_unsigned_webhook_legacy_alias_logs_deprecation(
+        self, monkeypatch, caplog, tmp_path
+    ):
+        keys_dir = tmp_path / "keys"
+        keys_dir.mkdir()
+        db_dir = tmp_path / "db"
+        db_dir.mkdir()
         monkeypatch.setattr(
             "app.startup.settings",
-            _good_settings(ssf_webhook_auth_mode="unsigned", ssf_webhook_token=None, ssf_webhook_secret=""),
+            _good_settings(
+                ssf_webhook_auth_mode="unsigned",
+                ssf_webhook_token=None,
+                ssf_webhook_secret="",
+                keys_dir=str(keys_dir),
+                database_path=str(db_dir / "ssf.db"),
+                ssf_allowed_receiver_hosts=[],
+            ),
         )
         monkeypatch.setenv("SSF_ALLOW_UNSIGNED_WEBHOOK", "true")
 
-        run_preflight_checks()
+        with patch("app.startup.os.access", return_value=True):
+            run_preflight_checks()
 
         assert "SSF_ALLOW_UNSIGNED_WEBHOOK" in caplog.text
         assert "DEPRECATED" in caplog.text

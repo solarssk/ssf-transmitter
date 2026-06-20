@@ -13,6 +13,7 @@ from app.config import settings
 from app.database import list_streams
 from app.events.mapper import extract_action, extract_email, map_authentik_event
 from app.events.pusher import push_set
+from app.rate_limit import limiter
 from app.security.pii import mask_email
 
 logger = logging.getLogger(__name__)
@@ -60,6 +61,7 @@ def _pii_key() -> str:
 
 
 @router.post("/webhook/authentik")
+@limiter.limit("60/minute")
 async def authentik_webhook(request: Request) -> dict:
     """Receive an Authentik webhook event, verify authentication, and push
     matching Security Event Tokens to all enabled SSF streams.

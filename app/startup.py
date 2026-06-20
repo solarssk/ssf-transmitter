@@ -222,6 +222,31 @@ def run_preflight_checks() -> None:
     # Optional features                                                    #
     # ------------------------------------------------------------------ #
 
+    allowed_hosts = settings.ssf_allowed_receiver_hosts
+    if allowed_hosts:
+        logger.info(
+            "%s Receiver allowlist     %d host(s): %s",
+            _OK,
+            len(allowed_hosts),
+            ", ".join(allowed_hosts),
+        )
+    else:
+        logger.warning(
+            "%s Receiver allowlist     SSF_ALLOWED_RECEIVER_HOSTS not set "
+            "— any public host is accepted as receiver endpoint",
+            _WARN,
+        )
+
+    forwarded_ips = os.getenv("SSF_FORWARDED_ALLOW_IPS", "127.0.0.1")
+    if forwarded_ips == "*":
+        logger.warning(
+            "%s SSF_FORWARDED_ALLOW_IPS=* — trusting all X-Forwarded-For headers; "
+            "restrict to your proxy IP/CIDR in production",
+            _WARN,
+        )
+    else:
+        logger.info("%s SSF_FORWARDED_ALLOW_IPS  %s", _OK, forwarded_ips)
+
     if settings.apple_scim_enabled:
         logger.info("%s Apple SCIM             enabled (sync every %ds)",
                     _OK, settings.apple_scim_sync_interval)

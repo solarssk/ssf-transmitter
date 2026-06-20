@@ -83,6 +83,25 @@ def test_status_requires_auth(client: TestClient):
     assert client.get("/ssf/status").status_code == 401
 
 
+def test_apple_scim_status_requires_auth(client: TestClient):
+    """GET /apple-scim/status without token returns 401."""
+    assert client.get("/apple-scim/status").status_code == 401
+
+
+def test_apple_scim_status_with_valid_token(client: TestClient):
+    """GET /apple-scim/status with valid management token passes auth."""
+    resp = client.get("/apple-scim/status", headers=VALID_HEADERS)
+    assert resp.status_code == 200
+    assert resp.json()["enabled"] is False
+
+
+def test_apple_scim_authorize_remains_public(client: TestClient):
+    """GET /apple-scim/authorize is reachable without management token (503 when not configured)."""
+    resp = client.get("/apple-scim/authorize", follow_redirects=False)
+    assert resp.status_code != 401
+    assert resp.status_code != 403
+
+
 # ---------------------------------------------------------------------------
 # Public endpoints remain accessible without auth
 # ---------------------------------------------------------------------------

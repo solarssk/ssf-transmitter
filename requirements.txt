@@ -4,5 +4,6 @@ aiosqlite>=0.22.1,<1.0.0
 PyJWT[crypto]>=2.13.0,<3.0.0
 cryptography>=48.0.1,<49.0.0
 httpx>=0.28.1,<1.0.0
+slowapi>=0.1.9,<1.0.0
 # Optional: enable ANSI-coloured logs with SSF_LOG_COLOR=true
 colorlog>=6.10.1,<7.0.0

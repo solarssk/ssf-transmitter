@@ -76,6 +76,41 @@ def test_status_response_does_not_leak_token(client: TestClient):
     assert token not in json.dumps(resp.json())
 
 
+def test_token_encrypted_at_rest_in_sqlite(client: TestClient):
+    """Receiver token must not appear as plaintext in the SQLite file."""
+    import sqlite3
+    from contextlib import closing
+
+    from app.config import settings
+
+    token = "super-secret-at-rest-token-xyz"
+    _create_stream(client, token=token)
+
+    with closing(sqlite3.connect(settings.database_path)) as con:
+        row = con.execute("SELECT endpoint_token FROM streams LIMIT 1").fetchone()
+    assert row is not None
+    stored = row[0]
+    assert stored != token
+    assert token not in stored
+
+
+def test_legacy_plaintext_token_decrypt_fallback():
+    """Pre-upgrade plaintext tokens are returned as-is when Fernet decrypt fails."""
+    from app.crypto import decrypt_token
+
+    plaintext = "legacy-plaintext-receiver-token"
+    assert decrypt_token(plaintext) == plaintext
+
+
+def test_encrypt_decrypt_roundtrip():
+    from app.crypto import decrypt_token, encrypt_token
+
+    token = "receiver-bearer-token-value"
+    encrypted = encrypt_token(token)
+    assert encrypted != token
+    assert decrypt_token(encrypted) == token
+
+
 # ---------------------------------------------------------------------------
 # Database file permissions
 # ---------------------------------------------------------------------------

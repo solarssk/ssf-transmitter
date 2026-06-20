@@ -134,7 +134,8 @@ def validate_receiver_endpoint_url(url: str, allowed_hosts: list[str] | None = N
             raise
 
     # --- allowlist check (if configured) ---
-    if allowed_hosts and host not in allowed_hosts:
+    host_lower = host.lower()
+    if allowed_hosts and host_lower not in allowed_hosts:
         raise ValueError(
             f"endpoint_url host {host!r} is not in SSF_ALLOWED_RECEIVER_HOSTS allowlist"
         )

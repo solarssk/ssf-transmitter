@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 import jwt
+from cryptography.fernet import Fernet, InvalidToken
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 
@@ -158,3 +159,30 @@ def sign_verification_set(audience: str, stream_id: str, state: str | None = Non
         },
     }
     return jwt.encode(payload, private_pem, algorithm="RS256", headers={"kid": kid, "typ": "secevent+jwt"})
+
+
+def _get_token_encryption_key() -> bytes:
+    """Derive a Fernet key from SSF_TOKEN_ENCRYPTION_KEY or SSF_MANAGEMENT_TOKEN."""
+    raw = settings.ssf_token_encryption_key or settings.ssf_management_token
+    key_bytes = hashlib.sha256(raw.encode("utf-8")).digest()
+    return base64.urlsafe_b64encode(key_bytes)
+
+
+def encrypt_token(plaintext: str) -> str:
+    """Encrypt a receiver endpoint token for storage in SQLite."""
+    if not plaintext:
+        return ""
+    fernet = Fernet(_get_token_encryption_key())
+    return fernet.encrypt(plaintext.encode("utf-8")).decode("utf-8")
+
+
+def decrypt_token(ciphertext: str) -> str:
+    """Decrypt a receiver endpoint token retrieved from SQLite."""
+    if not ciphertext:
+        return ""
+    fernet = Fernet(_get_token_encryption_key())
+    try:
+        return fernet.decrypt(ciphertext.encode("utf-8")).decode("utf-8")
+    except InvalidToken:
+        # Legacy plaintext token from deployments before at-rest encryption.
+        return ciphertext

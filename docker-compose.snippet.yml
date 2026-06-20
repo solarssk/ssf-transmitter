@@ -17,7 +17,7 @@ ssf-transmitter:
     SSF_MANAGEMENT_TOKEN: "${SSF_MANAGEMENT_TOKEN:?SSF management token required}"
     # SSF_WEBHOOK_SECRET: "${SSF_WEBHOOK_SECRET}"  # legacy HMAC mode only
     # SSF_PII_PEPPER: "${SSF_PII_PEPPER}"          # recommended: dedicated secret for log pseudonymisation
-    # SSF_FORWARDED_ALLOW_IPS: "172.16.0.0/12"     # restrict trusted proxy IPs; default: * (Docker network)
+    # SSF_FORWARDED_ALLOW_IPS: "172.16.0.0/12"  # Docker bridge CIDR; default in image: 127.0.0.1
   volumes:
     - ./ssf-keys:/app/keys
     - ./ssf-data:/app/data
