@@ -26,7 +26,18 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git config user.name "github-actions[bot]"
 
+      - name: Check beta branch exists
+        id: beta
+        run: |
+          if git ls-remote --exit-code --heads origin beta >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "Branch beta does not exist; skipping sync."
+          fi
+
       - name: Merge main into beta
+        if: steps.beta.outputs.exists == 'true'
         run: |
           git checkout beta
           git merge origin/main --no-edit -m "chore: sync main into beta after release"
