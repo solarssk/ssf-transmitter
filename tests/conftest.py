@@ -61,3 +61,18 @@ def mock_dns_resolve(monkeypatch, request):
     _public_ip = lambda host: ["93.184.216.34"]  # noqa: E731  # example.com
     monkeypatch.setattr("app.security.url_validation._resolve_host", _public_ip)
     monkeypatch.setattr("app.events.pusher._resolve_host", _public_ip)
+
+
+@pytest.fixture(autouse=True)
+def disable_rate_limits(request, monkeypatch):
+    """Disable slowapi rate limits in tests unless explicitly opted in.
+
+    The shared TestClient IP would exhaust per-minute stream-create limits
+    across the suite. Tests that verify rate limiting use @pytest.mark.enable_rate_limit.
+    """
+    if request.node.get_closest_marker("enable_rate_limit"):
+        return
+
+    from app.rate_limit import limiter
+
+    monkeypatch.setattr(limiter, "enabled", False)

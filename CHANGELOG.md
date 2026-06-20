@@ -9,6 +9,20 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Added
+- **Security hardening** — receiver hostname allowlist (`SSF_ALLOWED_RECEIVER_HOSTS`), in-app rate limiting (slowapi), HTTP security headers, request correlation IDs (`X-Request-ID`), Fernet encryption for receiver tokens at rest, OAuth state TTL for Apple SCIM
+- **`SSF_LOG_LEVEL`** — application now reads the documented env var (with `LOG_LEVEL` fallback)
+- **`SSF_TOKEN_ENCRYPTION_KEY`** — optional dedicated key for encrypting receiver tokens in SQLite
+
+### Changed
+- **`GET /apple-scim/status`** — now requires management Bearer token (OAuth `/authorize` and `/callback` remain public)
+- **`SSF_FORWARDED_ALLOW_IPS`** — Docker image default changed from `*` to `127.0.0.1`; set explicitly when behind a reverse proxy
+- **`SSF_ISSUER` / `SSF_BASE_URL`** — validated as HTTPS URLs at startup
+- **`AUTHENTIK_URL`** — unset value is now `None` instead of empty string
+
+### Security
+- Receiver endpoint tokens encrypted at rest in SQLite (legacy plaintext tokens still readable until next stream update)
+
 ---
 
 ## [0.5.8] — 2026-06-12 — Release title polish
