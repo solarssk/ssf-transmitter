@@ -53,6 +53,19 @@ def _row_to_stream(row: aiosqlite.Row) -> Stream:
     )
 
 
+def _replacement_endpoint_token(payload: dict[str, Any]) -> str | None:
+    """Return a newly supplied endpoint token, or None when the patch preserves it."""
+    delivery = payload.get("delivery") or {}
+    if delivery.get("endpoint_url_token"):
+        return delivery["endpoint_url_token"]
+    if payload.get("endpoint_token"):
+        return payload["endpoint_token"]
+    auth_header = delivery.get("authorization_header", "")
+    if auth_header:
+        return auth_header.removeprefix("Bearer ")
+    return None
+
+
 async def init_db() -> None:
     """Create all database tables if they do not already exist.
 
@@ -199,38 +212,45 @@ async def get_first_stream() -> Stream | None:
 
 async def update_stream(payload: dict[str, Any]) -> Stream | None:
     """Update fields on the existing stream; returns None if no stream exists."""
-    stream = await get_first_stream()
-    if not stream:
-        return None
-
-    delivery = payload.get("delivery") or {}
-    endpoint_url = delivery.get("endpoint_url") or payload.get("endpoint_url") or stream.endpoint_url
-    auth_header = delivery.get("authorization_header", "")
-    endpoint_token = (
-        delivery.get("endpoint_url_token")
-        or payload.get("endpoint_token")
-        or (auth_header.removeprefix("Bearer ") if auth_header else None)
-        or stream.endpoint_token
-    )
-    events_requested = payload.get("events_requested", stream.events_requested)
-    status = payload.get("status", stream.status)
-    aud = payload.get("aud") or stream.aud
-
-    if not isinstance(events_requested, list):
-        raise ValueError("events_requested must be a list when provided")
-
     async with aiosqlite.connect(settings.database_path) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute("SELECT * FROM streams ORDER BY created_at DESC LIMIT 1")
+        row = await cursor.fetchone()
+        if row is None:
+            return None
+
+        stream = _row_to_stream(row)
+        delivery = payload.get("delivery") or {}
+        endpoint_url = delivery.get("endpoint_url") or payload.get("endpoint_url") or stream.endpoint_url
+        endpoint_token = _replacement_endpoint_token(payload)
+        stored_endpoint_token = encrypt_token(endpoint_token) if endpoint_token is not None else row["endpoint_token"]
+        runtime_endpoint_token = endpoint_token if endpoint_token is not None else stream.endpoint_token
+        events_requested = payload.get("events_requested", stream.events_requested)
+        status = payload.get("status", stream.status)
+        aud = payload.get("aud") or stream.aud
+
+        if not isinstance(events_requested, list):
+            raise ValueError("events_requested must be a list when provided")
+
         await db.execute(
             """
             UPDATE streams
             SET aud = ?, endpoint_url = ?, endpoint_token = ?, events_requested = ?, status = ?
             WHERE stream_id = ?
             """,
-            (aud, endpoint_url, encrypt_token(endpoint_token), json.dumps(events_requested), status, stream.stream_id),
+            (aud, endpoint_url, stored_endpoint_token, json.dumps(events_requested), status, stream.stream_id),
         )
         await db.commit()
 
-    updated = Stream(stream.stream_id, aud, endpoint_url, endpoint_token, events_requested, status, stream.created_at)
+    updated = Stream(
+        stream.stream_id,
+        aud,
+        endpoint_url,
+        runtime_endpoint_token,
+        events_requested,
+        status,
+        stream.created_at,
+    )
     logger.info("Updated SSF stream stream_id=%s aud=%s status=%s", updated.stream_id, updated.aud, updated.status)
     return updated
 

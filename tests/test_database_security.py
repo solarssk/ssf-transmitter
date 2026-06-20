@@ -95,6 +95,38 @@ def test_token_encrypted_at_rest_in_sqlite(client: TestClient):
     assert stored.startswith("fernet1:")
 
 
+def test_patch_preserves_undecryptable_receiver_token_without_replacement(client: TestClient, monkeypatch):
+    """Unrelated stream patches must not erase a token encrypted with an old key."""
+    import dataclasses
+    import sqlite3
+    from contextlib import closing
+
+    from app.config import settings as real_settings
+
+    _create_stream(client, token="receiver-token-before-rotation")
+
+    with closing(sqlite3.connect(real_settings.database_path)) as con:
+        row = con.execute("SELECT endpoint_token FROM streams LIMIT 1").fetchone()
+    assert row is not None
+    stored = row[0]
+
+    monkeypatch.setattr(
+        "app.crypto.settings",
+        dataclasses.replace(
+            real_settings,
+            ssf_token_encryption_key=None,
+            ssf_management_token="different_management_token_min_32_chars_12",
+        ),
+    )
+
+    resp = client.patch("/ssf/streams", json={"status": "paused"}, headers=MGMT_HEADERS)
+
+    assert resp.status_code == 200
+    with closing(sqlite3.connect(real_settings.database_path)) as con:
+        row = con.execute("SELECT status, endpoint_token FROM streams LIMIT 1").fetchone()
+    assert row == ("paused", stored)
+
+
 def test_legacy_plaintext_token_decrypt_fallback():
     """Pre-upgrade plaintext tokens are returned as-is when Fernet decrypt fails."""
     from app.crypto import decrypt_token

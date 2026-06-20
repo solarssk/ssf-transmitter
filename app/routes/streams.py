@@ -140,11 +140,12 @@ async def patch_stream_endpoint(request: Request, body: StreamPatchRequest) -> d
     if body.events_requested is not None:
         patch["events_requested"] = body.events_requested
     if body.delivery is not None:
-        patch["delivery"] = {
-            "endpoint_url": body.delivery.endpoint_url,
-            "endpoint_url_token": body.delivery.endpoint_url_token or "",
-            "authorization_header": body.delivery.authorization_header or "",
-        }
+        delivery_patch = {"endpoint_url": body.delivery.endpoint_url}
+        if body.delivery.endpoint_url_token:
+            delivery_patch["endpoint_url_token"] = body.delivery.endpoint_url_token
+        if body.delivery.authorization_header:
+            delivery_patch["authorization_header"] = body.delivery.authorization_header
+        patch["delivery"] = delivery_patch
 
     try:
         stream = await update_stream(patch)
