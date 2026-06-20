@@ -361,7 +361,7 @@ class TestPreflightStoredStreams:
                 ("stream-1",),
             ).fetchone()
 
-        assert row == ("paused", "")
+        assert row == ("paused", stored)
         assert "undecryptable endpoint tokens and were paused" in caplog.text
         assert "preflight OK" in caplog.text
 

@@ -53,6 +53,31 @@ def test_wrong_token_returns_403(client: TestClient):
     assert resp.status_code == 403
 
 
+@pytest.mark.enable_rate_limit
+def test_failed_management_auth_attempts_are_rate_limited(client: TestClient):
+    """Repeated bad management tokens are limited before the stream handler runs."""
+    from app.auth import _management_auth_failures
+    from app.rate_limit import limiter
+
+    limiter.reset()
+    _management_auth_failures.clear()
+
+    for _ in range(10):
+        resp = client.post(
+            "/ssf/streams",
+            json={},
+            headers={"Authorization": "Bearer wrong_token_value_that_is_long_enough_1234"},
+        )
+        assert resp.status_code == 403
+
+    resp = client.post(
+        "/ssf/streams",
+        json={},
+        headers={"Authorization": "Bearer wrong_token_value_that_is_long_enough_1234"},
+    )
+    assert resp.status_code == 429
+
+
 def test_get_streams_requires_auth(client: TestClient):
     """GET /ssf/streams without token returns 401."""
     assert client.get("/ssf/streams").status_code == 401

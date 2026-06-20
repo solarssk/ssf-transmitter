@@ -145,7 +145,7 @@ def _quarantine_undecryptable_receiver_tokens() -> None:
                 return
 
             con.executemany(
-                "UPDATE streams SET status = 'paused', endpoint_token = '' WHERE stream_id = ?",
+                "UPDATE streams SET status = 'paused' WHERE stream_id = ?",
                 [(stream_id,) for stream_id in failures],
             )
             con.commit()

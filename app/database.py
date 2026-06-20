@@ -14,7 +14,7 @@ from typing import Any
 import aiosqlite
 
 from app.config import settings
-from app.crypto import decrypt_token, encrypt_token
+from app.crypto import TokenDecryptionError, decrypt_token, encrypt_token
 
 logger = logging.getLogger(__name__)
 
@@ -34,11 +34,19 @@ class Stream:
 
 def _row_to_stream(row: aiosqlite.Row) -> Stream:
     """Convert a database row to a Stream dataclass."""
+    try:
+        endpoint_token = decrypt_token(row["endpoint_token"])
+    except TokenDecryptionError:
+        logger.warning(
+            "Stream %s has an undecryptable receiver token; returning empty runtime token",
+            row["stream_id"],
+        )
+        endpoint_token = ""
     return Stream(
         stream_id=row["stream_id"],
         aud=row["aud"],
         endpoint_url=row["endpoint_url"],
-        endpoint_token=decrypt_token(row["endpoint_token"]),
+        endpoint_token=endpoint_token,
         events_requested=json.loads(row["events_requested"]),
         status=row["status"],
         created_at=row["created_at"],
