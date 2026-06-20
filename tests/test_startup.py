@@ -293,14 +293,19 @@ class TestPreflightStoredStreams:
         assert "outside SSF_ALLOWED_RECEIVER_HOSTS" in caplog.text
 
     def test_undecryptable_receiver_token_fails_preflight(self, monkeypatch, caplog, tmp_path):
+        import dataclasses
         import sqlite3
         from contextlib import closing
+
+        from app.config import settings as real_settings
+        from app.crypto import encrypt_token
 
         keys_dir = tmp_path / "keys"
         keys_dir.mkdir()
         (keys_dir / "private.pem").touch()
         (keys_dir / "jwks.json").touch()
         db_file = tmp_path / "ssf.db"
+        stored = encrypt_token("receiver-token")
 
         with closing(sqlite3.connect(db_file)) as con:
             con.execute(
@@ -326,7 +331,7 @@ class TestPreflightStoredStreams:
                     "stream-1",
                     "aud",
                     "https://receiver.example.test/events",
-                    "fernet1:gAAAAinvalidciphertextvalue",
+                    stored,
                     "[]",
                     "enabled",
                     1,
@@ -337,6 +342,14 @@ class TestPreflightStoredStreams:
         monkeypatch.setattr(
             "app.startup.settings",
             _good_settings(keys_dir=str(keys_dir), database_path=str(db_file)),
+        )
+        monkeypatch.setattr(
+            "app.crypto.settings",
+            dataclasses.replace(
+                real_settings,
+                ssf_token_encryption_key=None,
+                ssf_management_token="different_management_token_min_32_chars_12",
+            ),
         )
 
         with patch("app.startup.os.access", return_value=True), pytest.raises(SystemExit) as exc_info:

@@ -127,6 +127,7 @@ def test_decrypt_token_raises_when_fernet_blob_decrypted_with_wrong_key(caplog, 
         "app.crypto.settings",
         dataclasses.replace(
             real_settings,
+            ssf_token_encryption_key=None,
             ssf_management_token="different_management_token_min_32_chars_12",
         ),
     )
@@ -178,11 +179,20 @@ def test_fernet_shaped_plaintext_bearer_token_preserved_on_decrypt_failure(monke
         "app.crypto.settings",
         dataclasses.replace(
             real_settings,
+            ssf_token_encryption_key=None,
             ssf_management_token="different_management_token_min_32_chars_12",
         ),
     )
 
     assert decrypt_token(fernet_shaped) == fernet_shaped
+
+
+def test_legacy_plaintext_bearer_with_fernet1_prefix_preserved():
+    """Pre-upgrade plaintext tokens starting with fernet1: must not break delivery."""
+    from app.crypto import decrypt_token
+
+    plaintext = "fernet1:receiver-supplied-bearer-token"
+    assert decrypt_token(plaintext) == plaintext
 
 
 # ---------------------------------------------------------------------------

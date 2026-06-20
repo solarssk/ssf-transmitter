@@ -98,8 +98,7 @@ def test_apple_scim_status_with_valid_token(client: TestClient):
 def test_apple_scim_authorize_remains_public(client: TestClient):
     """GET /apple-scim/authorize is reachable without management token (503 when not configured)."""
     resp = client.get("/apple-scim/authorize", follow_redirects=False)
-    assert resp.status_code != 401
-    assert resp.status_code != 403
+    assert resp.status_code in {307, 503}
 
 
 # ---------------------------------------------------------------------------

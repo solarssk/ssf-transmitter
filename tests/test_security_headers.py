@@ -52,7 +52,7 @@ def test_request_id_honors_incoming_header(client: TestClient):
 
 @pytest.mark.enable_rate_limit
 def test_rate_limit_response_has_security_headers(client: TestClient):
-    """429 responses must include security headers (middleware LIFO order)."""
+    """429 responses must include security headers and a correlation ID."""
     from app.rate_limit import limiter
 
     limiter.reset()
@@ -66,3 +66,4 @@ def test_rate_limit_response_has_security_headers(client: TestClient):
     resp = client.post("/ssf/streams", json=payload, headers=MGMT_HEADERS)
     assert resp.status_code == 429
     _assert_security_headers(resp)
+    assert resp.headers.get("X-Request-ID")

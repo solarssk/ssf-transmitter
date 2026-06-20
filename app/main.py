@@ -55,7 +55,8 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["Cache-Control"] = "no-store"
         content_type = response.headers.get("content-type", "")
-        if "text/html" in content_type:
+        docs_html_paths = {"/docs", "/redoc", "/docs/oauth2-redirect"}
+        if "text/html" in content_type and request.url.path not in docs_html_paths:
             response.headers["Content-Security-Policy"] = (
                 "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'"
             )
@@ -131,8 +132,9 @@ def create_app() -> FastAPI:
     application.state.limiter = limiter
     application.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
     # Starlette middleware is LIFO — register innermost first, outermost last.
-    application.add_middleware(RequestIDMiddleware)
+    # RequestIDMiddleware wraps SlowAPIMiddleware so 429 responses still get X-Request-ID.
     application.add_middleware(SlowAPIMiddleware)
+    application.add_middleware(RequestIDMiddleware)
     application.add_middleware(SecurityHeadersMiddleware)
     application.include_router(root.router)
     application.include_router(wellknown.router)

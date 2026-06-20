@@ -220,7 +220,17 @@ def decrypt_token(ciphertext: str) -> str:
     if not ciphertext:
         return ""
     if ciphertext.startswith(_FERNET_PREFIX):
-        return _decrypt_fernet_blob(ciphertext[len(_FERNET_PREFIX):])
+        blob = ciphertext[len(_FERNET_PREFIX):]
+        try:
+            return _decrypt_fernet_blob(blob)
+        except TokenDecryptionError:
+            if _is_valid_fernet_token_format(blob):
+                raise
+            logger.debug(
+                "decrypt_token: fernet1:-prefixed value failed decrypt; "
+                "using stored value as legacy plaintext bearer token"
+            )
+            return ciphertext
     if _is_valid_fernet_token_format(ciphertext):
         fernet = Fernet(_get_token_encryption_key())
         try:
