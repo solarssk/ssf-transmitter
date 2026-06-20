@@ -22,15 +22,24 @@ logger = logging.getLogger(__name__)
 
 _FERNET_PREFIX = "fernet1:"
 _FERNET_BLOB_PREFIX = "gAAAA"
+_FERNET_VERSION_BYTE = 0x80
+_FERNET_MIN_TOKEN_BYTES = 57  # version + timestamp + IV + min ciphertext + HMAC
 
 
 class TokenDecryptionError(Exception):
     """Raised when a versioned at-rest token cannot be decrypted."""
 
 
-def _looks_like_fernet_ciphertext(value: str) -> bool:
-    """Heuristic for Fernet tokens stored before the ``fernet1:`` version prefix."""
-    return value.startswith(_FERNET_BLOB_PREFIX) and len(value) > 100
+def _is_valid_fernet_token_format(value: str) -> bool:
+    """Return True when *value* matches Fernet wire format (not arbitrary plaintext)."""
+    if not value.startswith(_FERNET_BLOB_PREFIX):
+        return False
+    try:
+        padded = value + "=" * (-len(value) % 4)
+        raw = base64.urlsafe_b64decode(padded)
+    except Exception:
+        return False
+    return len(raw) >= _FERNET_MIN_TOKEN_BYTES and raw[0] == _FERNET_VERSION_BYTE
 
 
 PRIVATE_KEY_PATH = "private.pem"
@@ -212,7 +221,17 @@ def decrypt_token(ciphertext: str) -> str:
         return ""
     if ciphertext.startswith(_FERNET_PREFIX):
         return _decrypt_fernet_blob(ciphertext[len(_FERNET_PREFIX):])
-    if _looks_like_fernet_ciphertext(ciphertext):
-        return _decrypt_fernet_blob(ciphertext)
+    if _is_valid_fernet_token_format(ciphertext):
+        fernet = Fernet(_get_token_encryption_key())
+        try:
+            return fernet.decrypt(ciphertext.encode("utf-8")).decode("utf-8")
+        except InvalidToken:
+            # Unprefixed DB rows may be legacy ciphertext or a receiver bearer token
+            # that happens to be Fernet-shaped. Only ``fernet1:`` rows fail closed.
+            logger.debug(
+                "decrypt_token: unprefixed Fernet-shaped value failed decrypt; "
+                "using stored value as legacy plaintext bearer token"
+            )
+            return ciphertext
     # Legacy plaintext token from deployments before at-rest encryption.
     return ciphertext

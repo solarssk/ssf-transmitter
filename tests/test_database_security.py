@@ -146,6 +146,45 @@ def test_legacy_prefixed_fernet_blob_without_version_prefix_still_decrypts():
     assert decrypt_token(legacy_blob) == token
 
 
+def test_unprefixed_100_char_fernet_ciphertext_still_decrypts():
+    """Short plaintext tokens produce 100-char Fernet blobs that must still decrypt."""
+    from app.crypto import decrypt_token, encrypt_token
+
+    token = "x" * 15
+    legacy_blob = encrypt_token(token).removeprefix("fernet1:")
+    assert len(legacy_blob) == 100
+    assert decrypt_token(legacy_blob) == token
+
+
+def test_legacy_plaintext_matching_gAAAA_heuristic_not_treated_as_fernet():
+    """Long plaintext bearer tokens must not be mistaken for SSF-owned ciphertext."""
+    from app.crypto import decrypt_token
+
+    plaintext = "gAAAA" + ("!" * 100)
+    assert decrypt_token(plaintext) == plaintext
+
+
+def test_fernet_shaped_plaintext_bearer_token_preserved_on_decrypt_failure(monkeypatch):
+    """Receiver bearer tokens that look like Fernet must not break startup or delivery."""
+    import dataclasses
+
+    from app.config import settings as real_settings
+    from app.crypto import decrypt_token, encrypt_token
+
+    token = "receiver-bearer-token-value"
+    fernet_shaped = encrypt_token(token).removeprefix("fernet1:")
+
+    monkeypatch.setattr(
+        "app.crypto.settings",
+        dataclasses.replace(
+            real_settings,
+            ssf_management_token="different_management_token_min_32_chars_12",
+        ),
+    )
+
+    assert decrypt_token(fernet_shaped) == fernet_shaped
+
+
 # ---------------------------------------------------------------------------
 # Database file permissions
 # ---------------------------------------------------------------------------
