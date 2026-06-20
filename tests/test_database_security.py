@@ -111,6 +111,31 @@ def test_encrypt_decrypt_roundtrip():
     assert decrypt_token(encrypted) == token
 
 
+def test_decrypt_token_warns_when_fernet_blob_decrypted_with_wrong_key(caplog, monkeypatch):
+    """Changing encryption key must log a warning instead of silently returning ciphertext."""
+    import dataclasses
+
+    from app.config import settings as real_settings
+    from app.crypto import decrypt_token, encrypt_token
+
+    token = "receiver-bearer-token-value"
+    encrypted = encrypt_token(token)
+
+    monkeypatch.setattr(
+        "app.crypto.settings",
+        dataclasses.replace(
+            real_settings,
+            ssf_management_token="different_management_token_min_32_chars_12",
+        ),
+    )
+
+    with caplog.at_level("WARNING", logger="app.crypto"):
+        result = decrypt_token(encrypted)
+
+    assert result == encrypted
+    assert "SSF_MANAGEMENT_TOKEN or SSF_TOKEN_ENCRYPTION_KEY may have changed" in caplog.text
+
+
 # ---------------------------------------------------------------------------
 # Database file permissions
 # ---------------------------------------------------------------------------

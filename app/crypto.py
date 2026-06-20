@@ -184,5 +184,11 @@ def decrypt_token(ciphertext: str) -> str:
     try:
         return fernet.decrypt(ciphertext.encode("utf-8")).decode("utf-8")
     except InvalidToken:
+        if ciphertext.startswith("gAAAA") and len(ciphertext) > 100:
+            logger.warning(
+                "decrypt_token: InvalidToken on Fernet-like value — "
+                "SSF_MANAGEMENT_TOKEN or SSF_TOKEN_ENCRYPTION_KEY may have changed; "
+                "re-register the stream to re-encrypt the token"
+            )
         # Legacy plaintext token from deployments before at-rest encryption.
         return ciphertext

@@ -156,6 +156,7 @@ async def patch_stream_endpoint(request: Request, body: StreamPatchRequest) -> d
 
 
 @router.patch("/streams/{stream_id}")
+@limiter.limit("20/minute")
 async def patch_stream_by_id_endpoint(
     stream_id: str, request: Request, body: StreamPatchRequest
 ) -> dict[str, Any]:
