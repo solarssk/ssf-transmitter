@@ -32,6 +32,7 @@ def _good_settings(**overrides):
         ssf_webhook_token="x" * 32,
         keys_dir="",  # overridden per-test when filesystem matters
         database_path="",  # overridden per-test when filesystem matters
+        ssf_allowed_receiver_hosts=[],
         apple_scim_enabled=False,
     )
     defaults.update(overrides)
@@ -231,6 +232,118 @@ class TestPreflightSuccess:
             run_preflight_checks()
 
         assert "preflight OK — starting" in caplog.text
+
+
+class TestPreflightStoredStreams:
+    def test_stored_stream_outside_allowlist_fails_preflight(self, monkeypatch, caplog, tmp_path):
+        import sqlite3
+        from contextlib import closing
+
+        keys_dir = tmp_path / "keys"
+        keys_dir.mkdir()
+        (keys_dir / "private.pem").touch()
+        (keys_dir / "jwks.json").touch()
+        db_file = tmp_path / "ssf.db"
+
+        with closing(sqlite3.connect(db_file)) as con:
+            con.execute(
+                """
+                CREATE TABLE streams (
+                  stream_id TEXT PRIMARY KEY,
+                  aud TEXT NOT NULL,
+                  endpoint_url TEXT NOT NULL,
+                  endpoint_token TEXT NOT NULL,
+                  events_requested TEXT NOT NULL,
+                  status TEXT DEFAULT 'enabled',
+                  created_at INTEGER NOT NULL
+                )
+                """
+            )
+            con.execute(
+                """
+                INSERT INTO streams
+                (stream_id, aud, endpoint_url, endpoint_token, events_requested, status, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "stream-1",
+                    "aud",
+                    "https://blocked.example.test/events",
+                    "legacy-plaintext-token",
+                    "[]",
+                    "enabled",
+                    1,
+                ),
+            )
+            con.commit()
+
+        monkeypatch.setattr(
+            "app.startup.settings",
+            _good_settings(
+                keys_dir=str(keys_dir),
+                database_path=str(db_file),
+                ssf_allowed_receiver_hosts=["allowed.example.test"],
+            ),
+        )
+
+        with patch("app.startup.os.access", return_value=True), pytest.raises(SystemExit) as exc_info:
+            run_preflight_checks()
+
+        assert exc_info.value.code == 0
+        assert "outside SSF_ALLOWED_RECEIVER_HOSTS" in caplog.text
+
+    def test_undecryptable_receiver_token_fails_preflight(self, monkeypatch, caplog, tmp_path):
+        import sqlite3
+        from contextlib import closing
+
+        keys_dir = tmp_path / "keys"
+        keys_dir.mkdir()
+        (keys_dir / "private.pem").touch()
+        (keys_dir / "jwks.json").touch()
+        db_file = tmp_path / "ssf.db"
+
+        with closing(sqlite3.connect(db_file)) as con:
+            con.execute(
+                """
+                CREATE TABLE streams (
+                  stream_id TEXT PRIMARY KEY,
+                  aud TEXT NOT NULL,
+                  endpoint_url TEXT NOT NULL,
+                  endpoint_token TEXT NOT NULL,
+                  events_requested TEXT NOT NULL,
+                  status TEXT DEFAULT 'enabled',
+                  created_at INTEGER NOT NULL
+                )
+                """
+            )
+            con.execute(
+                """
+                INSERT INTO streams
+                (stream_id, aud, endpoint_url, endpoint_token, events_requested, status, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "stream-1",
+                    "aud",
+                    "https://receiver.example.test/events",
+                    "fernet1:gAAAAinvalidciphertextvalue",
+                    "[]",
+                    "enabled",
+                    1,
+                ),
+            )
+            con.commit()
+
+        monkeypatch.setattr(
+            "app.startup.settings",
+            _good_settings(keys_dir=str(keys_dir), database_path=str(db_file)),
+        )
+
+        with patch("app.startup.os.access", return_value=True), pytest.raises(SystemExit) as exc_info:
+            run_preflight_checks()
+
+        assert exc_info.value.code == 0
+        assert "undecryptable endpoint tokens" in caplog.text
 
 
 class TestPreflightDeprecation:

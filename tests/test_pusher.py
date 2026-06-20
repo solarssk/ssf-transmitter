@@ -289,3 +289,43 @@ async def test_verification_receiver_error_body_logged_only_when_enabled(monkeyp
 
     assert delivered is False
     assert "receiver detail" in caplog.text
+
+
+@pytest.mark.anyio
+async def test_push_set_blocked_when_host_not_in_allowlist(monkeypatch, stream, event, caplog):
+    FakeAsyncClient.requests = []
+    monkeypatch.setattr(pusher, "sign_set", lambda *a, **kw: "signed.jwt")
+    monkeypatch.setattr(pusher.httpx, "AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr(
+        pusher,
+        "settings",
+        replace(pusher.settings, ssf_allowed_receiver_hosts=["allowed.example.com"]),
+    )
+
+    import logging
+    with caplog.at_level(logging.WARNING, logger="app.events.pusher"):
+        delivered = await pusher.push_set(stream, event, "user@example.com")
+
+    assert delivered is False
+    assert FakeAsyncClient.requests == []
+    assert "SSF_ALLOWED_RECEIVER_HOSTS allowlist" in caplog.text
+
+
+@pytest.mark.anyio
+async def test_push_verification_set_blocked_when_host_not_in_allowlist(monkeypatch, stream, caplog):
+    FakeAsyncClient.requests = []
+    monkeypatch.setattr(pusher, "sign_verification_set", lambda *a, **kw: "signed.jwt")
+    monkeypatch.setattr(pusher.httpx, "AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr(
+        pusher,
+        "settings",
+        replace(pusher.settings, ssf_allowed_receiver_hosts=["allowed.example.com"]),
+    )
+
+    import logging
+    with caplog.at_level(logging.WARNING, logger="app.events.pusher"):
+        delivered = await pusher.push_verification_set(stream)
+
+    assert delivered is False
+    assert FakeAsyncClient.requests == []
+    assert "SSF_ALLOWED_RECEIVER_HOSTS allowlist" in caplog.text

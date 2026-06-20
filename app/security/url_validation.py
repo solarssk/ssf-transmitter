@@ -78,6 +78,17 @@ def _resolve_host(host: str) -> list[str]:
         return []
 
 
+def receiver_host_allowed(url: str, allowed_hosts: list[str]) -> bool:
+    """Return True when *url*'s host is permitted by the configured allowlist.
+
+    An empty *allowed_hosts* list means all hosts are permitted (no allowlist).
+    """
+    if not allowed_hosts:
+        return True
+    host = (urlparse(url).hostname or "").lower()
+    return host in allowed_hosts
+
+
 def validate_receiver_endpoint_url(url: str, allowed_hosts: list[str] | None = None) -> str:
     """Validate that *url* is a safe public HTTPS endpoint.
 
@@ -134,8 +145,7 @@ def validate_receiver_endpoint_url(url: str, allowed_hosts: list[str] | None = N
             raise
 
     # --- allowlist check (if configured) ---
-    host_lower = host.lower()
-    if allowed_hosts and host_lower not in allowed_hosts:
+    if allowed_hosts and not receiver_host_allowed(url, allowed_hosts):
         raise ValueError(
             f"endpoint_url host {host!r} is not in SSF_ALLOWED_RECEIVER_HOSTS allowlist"
         )

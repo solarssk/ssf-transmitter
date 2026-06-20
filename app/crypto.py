@@ -20,6 +20,19 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
+_FERNET_PREFIX = "fernet1:"
+_FERNET_BLOB_PREFIX = "gAAAA"
+
+
+class TokenDecryptionError(Exception):
+    """Raised when a versioned at-rest token cannot be decrypted."""
+
+
+def _looks_like_fernet_ciphertext(value: str) -> bool:
+    """Heuristic for Fernet tokens stored before the ``fernet1:`` version prefix."""
+    return value.startswith(_FERNET_BLOB_PREFIX) and len(value) > 100
+
+
 PRIVATE_KEY_PATH = "private.pem"
 JWKS_PATH = "jwks.json"
 
@@ -173,22 +186,33 @@ def encrypt_token(plaintext: str) -> str:
     if not plaintext:
         return ""
     fernet = Fernet(_get_token_encryption_key())
-    return fernet.encrypt(plaintext.encode("utf-8")).decode("utf-8")
+    encrypted = fernet.encrypt(plaintext.encode("utf-8")).decode("utf-8")
+    return f"{_FERNET_PREFIX}{encrypted}"
+
+
+def _decrypt_fernet_blob(blob: str) -> str:
+    """Decrypt a Fernet ciphertext blob; never fall back to returning the blob."""
+    fernet = Fernet(_get_token_encryption_key())
+    try:
+        return fernet.decrypt(blob.encode("utf-8")).decode("utf-8")
+    except InvalidToken as exc:
+        logger.warning(
+            "decrypt_token: InvalidToken on encrypted receiver token — "
+            "SSF_TOKEN_ENCRYPTION_KEY or SSF_MANAGEMENT_TOKEN may have changed; "
+            "re-register the stream with delivery.endpoint_url_token"
+        )
+        raise TokenDecryptionError(
+            "Receiver endpoint token cannot be decrypted — re-register the stream"
+        ) from exc
 
 
 def decrypt_token(ciphertext: str) -> str:
     """Decrypt a receiver endpoint token retrieved from SQLite."""
     if not ciphertext:
         return ""
-    fernet = Fernet(_get_token_encryption_key())
-    try:
-        return fernet.decrypt(ciphertext.encode("utf-8")).decode("utf-8")
-    except InvalidToken:
-        if ciphertext.startswith("gAAAA") and len(ciphertext) > 100:
-            logger.warning(
-                "decrypt_token: InvalidToken on Fernet-like value — "
-                "SSF_MANAGEMENT_TOKEN or SSF_TOKEN_ENCRYPTION_KEY may have changed; "
-                "re-register the stream to re-encrypt the token"
-            )
-        # Legacy plaintext token from deployments before at-rest encryption.
-        return ciphertext
+    if ciphertext.startswith(_FERNET_PREFIX):
+        return _decrypt_fernet_blob(ciphertext[len(_FERNET_PREFIX):])
+    if _looks_like_fernet_ciphertext(ciphertext):
+        return _decrypt_fernet_blob(ciphertext)
+    # Legacy plaintext token from deployments before at-rest encryption.
+    return ciphertext

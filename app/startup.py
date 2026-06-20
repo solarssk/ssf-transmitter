@@ -16,6 +16,8 @@ from urllib.parse import urlparse
 import httpx
 
 from app.config import settings
+from app.crypto import TokenDecryptionError, decrypt_token
+from app.security.url_validation import receiver_host_allowed
 
 logger = logging.getLogger("app.startup")
 
@@ -83,6 +85,72 @@ def _check_authentik_connectivity() -> None:
         logger.error("%s Authentik API          %s — check AUTHENTIK_TOKEN", _FAIL, r.status_code)
     else:
         logger.warning("%s Authentik API          unexpected status %s", _WARN, r.status_code)
+
+
+def _check_stored_streams_allowlist() -> bool:
+    """Fail preflight when stored streams target hosts outside the allowlist."""
+    allowed_hosts = settings.ssf_allowed_receiver_hosts
+    if not allowed_hosts:
+        return True
+
+    import sqlite3
+    from contextlib import closing
+
+    try:
+        with closing(sqlite3.connect(settings.database_path)) as con:
+            rows = con.execute("SELECT stream_id, endpoint_url FROM streams").fetchall()
+    except Exception:
+        return True
+
+    violations: list[str] = []
+    for stream_id, endpoint_url in rows:
+        if not receiver_host_allowed(endpoint_url, allowed_hosts):
+            host = (urlparse(endpoint_url).hostname or "unknown-host").lower()
+            violations.append(f"{stream_id} -> {host!r}")
+
+    if not violations:
+        return True
+
+    logger.error(
+        "%s Receiver allowlist     %d stored stream(s) outside SSF_ALLOWED_RECEIVER_HOSTS: %s",
+        _FAIL,
+        len(violations),
+        "; ".join(violations),
+    )
+    return False
+
+
+def _check_stored_receiver_tokens() -> bool:
+    """Fail preflight when encrypted receiver tokens cannot be decrypted."""
+    import sqlite3
+    from contextlib import closing
+
+    try:
+        with closing(sqlite3.connect(settings.database_path)) as con:
+            rows = con.execute("SELECT stream_id, endpoint_token FROM streams").fetchall()
+    except Exception:
+        return True
+
+    failures: list[str] = []
+    for stream_id, endpoint_token in rows:
+        if not endpoint_token:
+            continue
+        try:
+            decrypt_token(endpoint_token)
+        except TokenDecryptionError:
+            failures.append(stream_id)
+
+    if not failures:
+        return True
+
+    logger.error(
+        "%s Receiver tokens        %d stream(s) have undecryptable endpoint tokens: %s — "
+        "re-register with delivery.endpoint_url_token",
+        _FAIL,
+        len(failures),
+        ", ".join(failures),
+    )
+    return False
 
 
 def run_preflight_checks() -> None:
@@ -230,12 +298,17 @@ def run_preflight_checks() -> None:
             len(allowed_hosts),
             ", ".join(allowed_hosts),
         )
+        if not _check_stored_streams_allowlist():
+            failed = True
     else:
         logger.warning(
             "%s Receiver allowlist     SSF_ALLOWED_RECEIVER_HOSTS not set "
             "— any public host is accepted as receiver endpoint",
             _WARN,
         )
+
+    if not _check_stored_receiver_tokens():
+        failed = True
 
     forwarded_ips = os.getenv("SSF_FORWARDED_ALLOW_IPS", "127.0.0.1")
     if forwarded_ips == "*":

@@ -92,6 +92,7 @@ def test_token_encrypted_at_rest_in_sqlite(client: TestClient):
     stored = row[0]
     assert stored != token
     assert token not in stored
+    assert stored.startswith("fernet1:")
 
 
 def test_legacy_plaintext_token_decrypt_fallback():
@@ -108,15 +109,16 @@ def test_encrypt_decrypt_roundtrip():
     token = "receiver-bearer-token-value"
     encrypted = encrypt_token(token)
     assert encrypted != token
+    assert encrypted.startswith("fernet1:")
     assert decrypt_token(encrypted) == token
 
 
-def test_decrypt_token_warns_when_fernet_blob_decrypted_with_wrong_key(caplog, monkeypatch):
-    """Changing encryption key must log a warning instead of silently returning ciphertext."""
+def test_decrypt_token_raises_when_fernet_blob_decrypted_with_wrong_key(caplog, monkeypatch):
+    """Changing encryption key must fail decrypt instead of returning ciphertext as bearer token."""
     import dataclasses
 
     from app.config import settings as real_settings
-    from app.crypto import decrypt_token, encrypt_token
+    from app.crypto import TokenDecryptionError, decrypt_token, encrypt_token
 
     token = "receiver-bearer-token-value"
     encrypted = encrypt_token(token)
@@ -129,11 +131,19 @@ def test_decrypt_token_warns_when_fernet_blob_decrypted_with_wrong_key(caplog, m
         ),
     )
 
-    with caplog.at_level("WARNING", logger="app.crypto"):
-        result = decrypt_token(encrypted)
+    with caplog.at_level("WARNING", logger="app.crypto"), pytest.raises(TokenDecryptionError):
+        decrypt_token(encrypted)
 
-    assert result == encrypted
-    assert "SSF_MANAGEMENT_TOKEN or SSF_TOKEN_ENCRYPTION_KEY may have changed" in caplog.text
+    assert "SSF_TOKEN_ENCRYPTION_KEY or SSF_MANAGEMENT_TOKEN may have changed" in caplog.text
+
+
+def test_legacy_prefixed_fernet_blob_without_version_prefix_still_decrypts():
+    """Tokens encrypted before the fernet1: prefix remain readable."""
+    from app.crypto import decrypt_token, encrypt_token
+
+    token = "receiver-bearer-token-value"
+    legacy_blob = encrypt_token(token).removeprefix("fernet1:")
+    assert decrypt_token(legacy_blob) == token
 
 
 # ---------------------------------------------------------------------------

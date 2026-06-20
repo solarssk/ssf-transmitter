@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 import pytest
 
-from app.security.url_validation import validate_receiver_endpoint_url
+from app.security.url_validation import receiver_host_allowed, validate_receiver_endpoint_url
 
 # Public IP to return for safe hosts in mock
 _PUBLIC_IP = "93.184.216.34"  # example.com
@@ -147,6 +147,16 @@ def test_host_in_allowlist_accepted():
             allowed_hosts=["approved.example.com"],
         )
     assert result == "https://approved.example.com/events"
+
+
+def test_receiver_host_allowed_empty_allowlist_permits_any_host():
+    assert receiver_host_allowed("https://anything.example.com/events", []) is True
+
+
+def test_receiver_host_allowed_enforces_exact_host_match():
+    allowed = ["approved.example.com"]
+    assert receiver_host_allowed("https://approved.example.com/events", allowed) is True
+    assert receiver_host_allowed("https://other.example.com/events", allowed) is False
 
 
 # ---------------------------------------------------------------------------
