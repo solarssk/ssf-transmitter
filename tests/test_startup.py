@@ -356,7 +356,10 @@ class TestPreflightStoredStreams:
             run_preflight_checks()
 
         with closing(sqlite3.connect(db_file)) as con:
-            row = con.execute("SELECT status, endpoint_token FROM streams WHERE stream_id = ?", ("stream-1",)).fetchone()
+            row = con.execute(
+                "SELECT status, endpoint_token FROM streams WHERE stream_id = ?",
+                ("stream-1",),
+            ).fetchone()
 
         assert row == ("paused", "")
         assert "undecryptable endpoint tokens and were paused" in caplog.text
