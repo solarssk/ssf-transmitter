@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 _FERNET_PREFIX = "fernet1:"
 _FERNET_BLOB_PREFIX = "gAAAA"
 _FERNET_VERSION_BYTE = 0x80
-_FERNET_MIN_TOKEN_BYTES = 57  # version + timestamp + IV + min ciphertext + HMAC
+_FERNET_MIN_TOKEN_BYTES = 57  # Fernet wire minimum is 73 = 1+8+16+16+32; keep lower bound for heuristic only
 
 
 class TokenDecryptionError(Exception):

@@ -45,9 +45,13 @@ def _record_management_auth_failure(request: Request) -> None:
         return
 
     now = time.monotonic()
-    attempts = _management_auth_failures[_client_key(request)]
+    client_key = _client_key(request)
+    attempts = _management_auth_failures[client_key]
     while attempts and now - attempts[0] >= _MANAGEMENT_AUTH_FAILURE_WINDOW_SECONDS:
         attempts.popleft()
+    if not attempts:
+        _management_auth_failures.pop(client_key, None)
+        attempts = _management_auth_failures[client_key]
     attempts.append(now)
 
     if len(attempts) > _MANAGEMENT_AUTH_FAILURE_LIMIT:

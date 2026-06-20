@@ -156,7 +156,7 @@ def _quarantine_undecryptable_receiver_tokens() -> None:
         )
         return
 
-    logger.error(
+    logger.warning(
         "%s Receiver tokens        %d stream(s) had undecryptable endpoint tokens and were paused: %s — "
         "re-register with delivery.endpoint_url_token to resume delivery",
         _WARN,
