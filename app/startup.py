@@ -120,37 +120,45 @@ def _check_stored_streams_allowlist() -> bool:
     return False
 
 
-def _check_stored_receiver_tokens() -> bool:
-    """Fail preflight when encrypted receiver tokens cannot be decrypted."""
+def _quarantine_undecryptable_receiver_tokens() -> None:
+    """Pause streams whose encrypted receiver tokens cannot be decrypted.
+
+    Startup must remain available so operators can re-register the stream
+    through the management API after rotating the token encryption key.
+    """
     import sqlite3
     from contextlib import closing
 
     try:
         with closing(sqlite3.connect(settings.database_path)) as con:
             rows = con.execute("SELECT stream_id, endpoint_token FROM streams").fetchall()
+            failures: list[str] = []
+            for stream_id, endpoint_token in rows:
+                if not endpoint_token:
+                    continue
+                try:
+                    decrypt_token(endpoint_token)
+                except TokenDecryptionError:
+                    failures.append(stream_id)
+
+            if not failures:
+                return
+
+            con.executemany(
+                "UPDATE streams SET status = 'paused', endpoint_token = '' WHERE stream_id = ?",
+                [(stream_id,) for stream_id in failures],
+            )
+            con.commit()
     except Exception:
-        return True
-
-    failures: list[str] = []
-    for stream_id, endpoint_token in rows:
-        if not endpoint_token:
-            continue
-        try:
-            decrypt_token(endpoint_token)
-        except TokenDecryptionError:
-            failures.append(stream_id)
-
-    if not failures:
-        return True
+        return
 
     logger.error(
-        "%s Receiver tokens        %d stream(s) have undecryptable endpoint tokens: %s — "
-        "re-register with delivery.endpoint_url_token",
-        _FAIL,
+        "%s Receiver tokens        %d stream(s) had undecryptable endpoint tokens and were paused: %s — "
+        "re-register with delivery.endpoint_url_token to resume delivery",
+        _WARN,
         len(failures),
         ", ".join(failures),
     )
-    return False
 
 
 def run_preflight_checks() -> None:
@@ -307,8 +315,7 @@ def run_preflight_checks() -> None:
             _WARN,
         )
 
-    if not _check_stored_receiver_tokens():
-        failed = True
+    _quarantine_undecryptable_receiver_tokens()
 
     forwarded_ips = os.getenv("SSF_FORWARDED_ALLOW_IPS", "127.0.0.1")
     if forwarded_ips == "*":

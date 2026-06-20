@@ -292,7 +292,7 @@ class TestPreflightStoredStreams:
         assert exc_info.value.code == 0
         assert "outside SSF_ALLOWED_RECEIVER_HOSTS" in caplog.text
 
-    def test_undecryptable_receiver_token_fails_preflight(self, monkeypatch, caplog, tmp_path):
+    def test_undecryptable_receiver_token_pauses_stream_and_allows_startup(self, monkeypatch, caplog, tmp_path):
         import dataclasses
         import sqlite3
         from contextlib import closing
@@ -352,11 +352,15 @@ class TestPreflightStoredStreams:
             ),
         )
 
-        with patch("app.startup.os.access", return_value=True), pytest.raises(SystemExit) as exc_info:
+        with patch("app.startup.os.access", return_value=True), caplog.at_level(logging.INFO, logger="app.startup"):
             run_preflight_checks()
 
-        assert exc_info.value.code == 0
-        assert "undecryptable endpoint tokens" in caplog.text
+        with closing(sqlite3.connect(db_file)) as con:
+            row = con.execute("SELECT status, endpoint_token FROM streams WHERE stream_id = ?", ("stream-1",)).fetchone()
+
+        assert row == ("paused", "")
+        assert "undecryptable endpoint tokens and were paused" in caplog.text
+        assert "preflight OK" in caplog.text
 
 
 class TestPreflightDeprecation:
