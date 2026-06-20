@@ -29,7 +29,7 @@ jobs:
       - name: Check beta branch exists
         id: beta
         run: |
-          if git ls-remote --exit-code --heads origin beta >/dev/null 2>&1; then
+          if git ls-remote --exit-code origin refs/heads/beta >/dev/null 2>&1; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
