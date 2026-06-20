@@ -9,6 +9,10 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+---
+
+## [0.5.9] — 2026-06-20 — Security hardening
+
 ### Added
 - **Security hardening** — receiver hostname allowlist (`SSF_ALLOWED_RECEIVER_HOSTS`), in-app rate limiting (slowapi), HTTP security headers, request correlation IDs (`X-Request-ID`), Fernet encryption for receiver tokens at rest, OAuth state TTL for Apple SCIM
 - **`SSF_LOG_LEVEL`** — application now reads the documented env var (with `LOG_LEVEL` fallback)
@@ -19,9 +23,15 @@ Versioning: [Semantic Versioning](https://semver.org/)
 - **`SSF_FORWARDED_ALLOW_IPS`** — Docker image default changed from `*` to `127.0.0.1`; set explicitly when behind a reverse proxy
 - **`SSF_ISSUER` / `SSF_BASE_URL`** — validated as HTTPS URLs at startup
 - **`AUTHENTIK_URL`** — unset value is now `None` instead of empty string
+- **CI security scans** — Trivy runs in table mode without GHAS/SARIF upload; fixed HIGH/CRITICAL container vulnerabilities fail CI while SBOM artifact is retained
 
 ### Security
 - Receiver endpoint tokens encrypted at rest in SQLite (legacy plaintext tokens still readable until next stream update)
+
+### Dependencies
+- `fastapi` `>=0.137.2`, `cryptography` `>=49.0.0`, `slowapi` `>=0.1.9`
+- `pytest` `>=9.1.0`, `ruff` `>=0.15.18` (dev)
+- GitHub Actions `actions/checkout` `7.0.0`
 
 ---
 
