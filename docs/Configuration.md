@@ -6,7 +6,7 @@ All settings are environment variables. Copy [`.env.example`](../.env.example) t
 
 | Variable | Description |
 |---|---|
-| `SSF_ISSUER` | Public issuer URL used in JWT `iss` (must be **HTTPS**). Often the same as `SSF_BASE_URL`. |
+| `SSF_ISSUER` | Public issuer URL used in JWT `iss` (must be **HTTPS**). **Set to the same value as `SSF_BASE_URL`** (the transmitter public URL). Authentik OIDC application URLs (`/application/o/...`) trigger a startup warning. |
 | `SSF_BASE_URL` | Public base URL where this service is reachable (must be **HTTPS**), e.g. `https://idp.example.com/shared-signals` |
 | `SSF_MANAGEMENT_TOKEN` | Bearer token for all `/ssf/*` and protected Apple SCIM admin endpoints (min 32 chars). Generate: `openssl rand -hex 32` |
 | `SSF_WEBHOOK_TOKEN` | Bearer token for Authentik webhook (`SSF_WEBHOOK_AUTH_MODE=bearer`, default). **Do not reuse** `SSF_MANAGEMENT_TOKEN`. |

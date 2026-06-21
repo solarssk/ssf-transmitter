@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/solarssk/ssf-transmitter/actions/workflows/ci.yml/badge.svg)](https://github.com/solarssk/ssf-transmitter/actions/workflows/ci.yml)
 
-Standalone service that sits next to Authentik and forwards user security events (logout, password change, account disable/delete) to receivers implementing the [OpenID Shared Signals Framework](https://openid.net/specs/openid-sharedsignals-framework-1_0.html). One container supports one active SSF stream — registering a new stream replaces the existing one. Multi-stream support (fan-out to multiple receivers) is planned for v1.1. Primary receiver: Apple Business Manager CAEP.
+Standalone service that sits next to Authentik and forwards user security events (logout, password change) to receivers implementing the [OpenID Shared Signals Framework](https://openid.net/specs/openid-sharedsignals-framework-1_0.html). One container supports one active SSF stream — registering a new stream replaces the existing one. Multi-stream support (fan-out to multiple receivers) is planned for v1.1. Primary receiver: Apple Business Manager CAEP.
 
 Events are signed as RS256 JWTs (Security Event Tokens) and pushed over HTTPS. No admin panel — all configuration is environment variables.
 
@@ -13,7 +13,7 @@ Events are signed as RS256 JWTs (Security Event Tokens) and pushed over HTTPS. N
 - SSF discovery and JWKS endpoints
 - Stream management API (create / read / update / delete)
 - Authentik webhook receiver with Bearer or HMAC-SHA256 authentication
-- CAEP/RISC event mapping for logout, password change, account disable/enable, account delete
+- CAEP event mapping for logout and password change
 - RS256-signed SET push delivery with SSRF and DNS rebinding protection
 - Receiver hostname allowlist, in-app rate limiting, HTTP security headers (v0.5.9+)
 - Fernet encryption for receiver tokens at rest (v0.5.9+)

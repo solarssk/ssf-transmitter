@@ -46,7 +46,7 @@ Set `SSF_FORWARDED_ALLOW_IPS` to your **reverse proxy Docker subnet** when using
 ## `stack.env` minimum
 
 ```env
-SSF_ISSUER=https://idp.example.com/application/o/apple-id/
+SSF_ISSUER=https://idp.example.com/shared-signals
 SSF_BASE_URL=https://idp.example.com/shared-signals
 SSF_ROOT_PATH=/shared-signals
 SSF_MANAGEMENT_TOKEN=<openssl rand -hex 32>
@@ -87,7 +87,7 @@ Create a **Generic Webhook** notification transport:
 |---|---|
 | URL | `http://authentik-ssf:8000/webhook/authentik` |
 | Header | `Authorization: Bearer <SSF_WEBHOOK_TOKEN>` |
-| Events | `authentik.core.auth.logout`, `authentik.core.user.write`, `authentik.core.user.delete` |
+| Events | `authentik.core.auth.logout`, `authentik.core.user.write` |
 
 Use the Docker service name (`authentik-ssf`) so traffic stays on the internal network.
 

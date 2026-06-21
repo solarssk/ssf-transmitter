@@ -35,7 +35,7 @@ In Portainer: Registry → `ghcr.io` with the same credentials.
 
 ```env
 # ── Required ──
-SSF_ISSUER=https://idp.example.com/application/o/apple-id/
+SSF_ISSUER=https://idp.example.com/shared-signals
 SSF_BASE_URL=https://idp.example.com/shared-signals
 SSF_ROOT_PATH=/shared-signals
 SSF_MANAGEMENT_TOKEN=<openssl rand -hex 32>
@@ -138,7 +138,7 @@ If `SSF_HOST_PORT` changes, update the Nginx Proxy Manager port too.
 |---|---|
 | URL | `http://authentik-ssf:8000/webhook/authentik` |
 | Header Mapping | `Authorization` → `Bearer <SSF_WEBHOOK_TOKEN>` |
-| Events | `logout`, `user.write`, `user.delete` |
+| Events | `logout`, `user.write` |
 
 **Do not use HMAC** unless you set `SSF_WEBHOOK_AUTH_MODE=hmac` and `SSF_WEBHOOK_SECRET`.
 
