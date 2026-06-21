@@ -92,7 +92,7 @@ Registers an SSF push stream. The receiver calls this to configure where SETs ar
 |---|---|---|
 | `delivery.endpoint_url` | Yes | HTTPS URL where SETs will be pushed |
 | `delivery.endpoint_url_token` | Yes | Bearer token sent in `Authorization` header of each SET push |
-| `aud` | Yes | Audience claim in SET JWTs. Also accepted as `audience`, `receiver`, or `iss` |
+| `aud` | Yes | Audience claim in SET JWTs |
 | `events_requested` | No | List of event URIs the receiver wants. Empty means all supported events |
 | `stream_id` | No | Custom UUID; auto-generated if omitted |
 
@@ -157,6 +157,8 @@ Updates the current stream. Accepts the same fields as POST; omitted fields reta
 
 **Response** `200 OK` — updated stream.
 **Response** `404 Not Found` — no stream configured.
+
+If the current stream is `paused` because its stored receiver token is undecryptable, setting `status: "enabled"` requires a replacement `delivery.endpoint_url_token` in the same PATCH.
 
 ---
 

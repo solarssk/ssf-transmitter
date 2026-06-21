@@ -23,6 +23,8 @@ Configure Authentik Generic Webhook with a Header Mapping:
 - Name: `Authorization`
 - Value: `Bearer <SSF_WEBHOOK_TOKEN>`
 
+Older deployments that still use `X-Authentik-Signature` must keep `SSF_WEBHOOK_AUTH_MODE=hmac` and `SSF_WEBHOOK_SECRET` explicitly set during upgrades.
+
 ## Paths and ports
 
 | Variable | Default | Description |
@@ -68,7 +70,7 @@ Default `127.0.0.1` is correct only when nothing forwards `X-Forwarded-For` from
 |---|---|
 | **New install**, before registering a stream | Optional but recommended — set once and keep |
 | **Existing install** with ABM/stream already working | **Do not add** unless you plan to re-register the stream |
-| Rotating `SSF_MANAGEMENT_TOKEN` | Expect paused streams; re-register with `delivery.endpoint_url_token` |
+| Rotating `SSF_MANAGEMENT_TOKEN` | Expect paused streams; re-register with `delivery.endpoint_url_token` before setting `status: enabled` |
 
 ## Apple SCIM (optional)
 

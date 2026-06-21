@@ -25,11 +25,13 @@ Events are signed as RS256 JWTs (Security Event Tokens) and pushed over HTTPS. N
 ## Quick start
 
 1. Copy [`.env.example`](.env.example) to `stack.env` and set:
-   - `SSF_ISSUER`, `SSF_BASE_URL`
+   - `SSF_ISSUER`, `SSF_BASE_URL` (`SSF_ISSUER` should normally be the same URL as `SSF_BASE_URL`)
    - `SSF_MANAGEMENT_TOKEN`, `SSF_WEBHOOK_TOKEN`
    - `SSF_FORWARDED_ALLOW_IPS` (your reverse proxy subnet if behind NPM/Caddy)
 2. Add the service to Docker Compose — see [docs/Deployment.md](docs/Deployment.md) or [Synology guide](docs/synology-authentik-compose.md)
 3. Register the stream with your receiver using the SSF Config URL below
+
+A **stream** is the receiver configuration stored in SQLite: receiver URL, bearer token, requested events, and current status. If Apple Business Manager is already connected, you already have a stream.
 
 ## Upgrading
 
@@ -37,6 +39,7 @@ Events are signed as RS256 JWTs (Security Event Tokens) and pushed over HTTPS. N
 
 - Bump image to `0.5.9`
 - Set `SSF_FORWARDED_ALLOW_IPS` behind reverse proxy
+- Keep `SSF_WEBHOOK_AUTH_MODE=hmac` explicitly if your Authentik webhook still uses legacy HMAC
 - Do **not** add `SSF_TOKEN_ENCRYPTION_KEY` unless re-registering the stream
 
 ## Public endpoints

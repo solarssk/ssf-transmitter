@@ -91,6 +91,8 @@ Create a **Generic Webhook** notification transport:
 
 Use the Docker service name (`authentik-ssf`) so traffic stays on the internal network.
 
+If you are upgrading an older deployment that still uses `X-Authentik-Signature`, keep `SSF_WEBHOOK_AUTH_MODE=hmac` and `SSF_WEBHOOK_SECRET` in `stack.env` until you intentionally migrate the transport to bearer auth.
+
 ## Register stream with receiver
 
 After the container is healthy, register the SSF stream with your receiver (e.g. Apple Business Manager) using:
@@ -99,6 +101,8 @@ After the container is healthy, register the SSF stream with your receiver (e.g.
 - **Management API:** `POST /ssf/streams` with `Authorization: Bearer <SSF_MANAGEMENT_TOKEN>`
 
 One active stream is supported; creating a new stream replaces the previous one.
+
+A **stream** is the receiver-side registration stored in SQLite: receiver URL, receiver bearer token, requested events, and status (`enabled`, `paused`, `disabled`).
 
 ## Synology step-by-step
 
