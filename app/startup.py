@@ -159,8 +159,6 @@ def quarantine_undecryptable_receiver_tokens() -> None:
                 [(stream_id,) for stream_id in failures],
             )
             con.commit()
-    except sqlite3.OperationalError:
-        return
     except Exception:
         logger.exception(
             "%s Receiver tokens        failed to validate/decrypt stored endpoint tokens during startup",

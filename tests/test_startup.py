@@ -385,6 +385,36 @@ class TestPreflightStoredStreams:
         assert "failed to validate/decrypt stored endpoint tokens" not in caplog.text
         assert not db_file.exists()
 
+    def test_quarantine_logs_operational_error(self, monkeypatch, caplog, tmp_path):
+        import sqlite3
+        from unittest.mock import MagicMock
+
+        from app.startup import quarantine_undecryptable_receiver_tokens
+
+        keys_dir = tmp_path / "keys"
+        keys_dir.mkdir()
+        db_file = tmp_path / "ssf.db"
+        db_file.touch()
+        monkeypatch.setattr(
+            "app.startup.settings",
+            _good_settings(keys_dir=str(keys_dir), database_path=str(db_file)),
+        )
+
+        connection = MagicMock()
+        connection.__enter__.return_value = connection
+        connection.__exit__.return_value = False
+        connection.execute.side_effect = sqlite3.OperationalError("database is locked")
+
+        def _connect(*_args, **_kwargs):
+            return connection
+
+        monkeypatch.setattr("sqlite3.connect", _connect)
+
+        with caplog.at_level(logging.WARNING, logger="app.startup"):
+            quarantine_undecryptable_receiver_tokens()
+
+        assert "failed to validate/decrypt stored endpoint tokens" in caplog.text
+
 
 class TestPreflightDeprecation:
     def test_allow_unsigned_webhook_legacy_alias_logs_deprecation(

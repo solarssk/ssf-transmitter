@@ -169,6 +169,20 @@ def test_reject_enable_with_undecryptable_token_without_replacement(client: Test
                 "authorization_header": "",
             },
         },
+        {
+            "status": "enabled",
+            "delivery": {
+                "endpoint_url": "https://receiver.example.test/events",
+                "endpoint_url_token": "   ",
+            },
+        },
+        {
+            "status": "enabled",
+            "delivery": {
+                "endpoint_url": "https://receiver.example.test/events",
+                "authorization_header": "Bearer    ",
+            },
+        },
     ],
 )
 def test_reject_enable_with_undecryptable_token_and_empty_replacement(
