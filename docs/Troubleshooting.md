@@ -7,8 +7,10 @@
 Preflight failed on a **critical** check (`❌`). Read logs:
 
 ```bash
-docker logs authentik-ssf
+docker compose logs ssf-transmitter --tail 100
 ```
+
+(Compose service name is `ssf-transmitter`; container name is `authentik-ssf` — either works with `docker logs authentik-ssf`.)
 
 Common causes:
 

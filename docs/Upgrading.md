@@ -14,8 +14,23 @@ Release notes: [v0.5.9](https://github.com/solarssk/ssf-transmitter/releases/tag
 | Apple SCIM | `GET /apple-scim/status` requires management Bearer token |
 | Startup | HTTPS required for `SSF_ISSUER` / `SSF_BASE_URL`; undecryptable receiver tokens pause streams |
 | Logging | Prefer `SSF_LOG_LEVEL` over `LOG_LEVEL` |
+| Webhook auth | Default is `bearer`; legacy HMAC installs must keep `SSF_WEBHOOK_AUTH_MODE=hmac` (see below) |
 
-### Upgrade checklist (existing ABM / stream)
+### Webhook auth: bearer vs HMAC
+
+`SSF_WEBHOOK_AUTH_MODE` defaults to **`bearer`** in application code. New installs should use bearer with Authentik Header Mapping (`Authorization: Bearer <SSF_WEBHOOK_TOKEN>`).
+
+If your deployment still uses **HMAC** (`X-Authentik-Signature` + `SSF_WEBHOOK_SECRET`), you must **explicitly** set in `stack.env`:
+
+```env
+SSF_WEBHOOK_AUTH_MODE=hmac
+SSF_WEBHOOK_SECRET=<your existing secret>
+```
+
+Without this, an upgrade can silently switch to bearer mode and Authentik webhooks will return **401** until you migrate the transport to bearer or restore `hmac` in env.
+
+To migrate to bearer: set `SSF_WEBHOOK_AUTH_MODE=bearer`, add `SSF_WEBHOOK_TOKEN`, and update the Authentik Generic Webhook Header Mapping. See [Deployment.md](Deployment.md#authentik-webhook).
+
 
 Use this when you **already have a working stream** and Apple Business Manager is connected.
 
@@ -36,6 +51,7 @@ Use this when you **already have a working stream** and Apple Business Manager i
    ```bash
    docker compose pull ssf-transmitter
    docker compose up -d ssf-transmitter
+   docker compose logs ssf-transmitter --tail 50
    ```
 7. **Verify** startup logs show `preflight OK`.
 8. **Check stream status:**
@@ -81,7 +97,7 @@ You cannot re-enable a paused stream with an undecryptable token without supplyi
 ```bash
 docker compose pull ssf-transmitter
 docker compose up -d ssf-transmitter
-docker logs authentik-ssf --tail 50
+docker compose logs ssf-transmitter --tail 50
 ```
 
 Pin to a version tag (`0.5.9`) in production; use `:latest` only if you accept automatic updates on redeploy.
