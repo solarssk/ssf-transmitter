@@ -122,9 +122,15 @@ location ^~ /shared-signals/ {
 }
 ```
 
+Add a rate-limit zone in the main `http` block (outside the server block):
+
 ```nginx
 limit_req_zone $binary_remote_addr zone=ssf_api:10m rate=30r/m;
 ```
+
+Set `SSF_FORWARDED_ALLOW_IPS` to your proxy subnet (e.g. `172.16.3.0/24` for the bridge above) so Uvicorn trusts `X-Forwarded-For` from NPM only.
+
+If `SSF_HOST_PORT` changes, update the Nginx Proxy Manager port too.
 
 ## Authentik webhook
 

@@ -43,14 +43,35 @@ APPLE_AUTH_URL = settings.apple_scim_authorize_url
 
 router = APIRouter(prefix="/apple-scim", tags=["Apple SCIM"])
 
-# In-memory store for pending OAuth state values.  Single-use: consumed on
-# callback validation.  A container restart clears them, which is acceptable
-# since the admin simply re-visits /authorize.
-_pending_states: set[str] = set()
+_STATE_TTL_SECONDS = 600  # OAuth state valid for 10 minutes
+_pending_states: dict[str, float] = {}  # state -> monotonic timestamp created
 
 # Holds references to fire-and-forget background tasks so they are not
 # garbage-collected before they finish.
 _background_tasks: set[asyncio.Task[None]] = set()
+
+
+def _cleanup_expired_states() -> None:
+    """Remove OAuth states older than _STATE_TTL_SECONDS."""
+    now = time.monotonic()
+    expired = [s for s, ts in _pending_states.items() if now - ts > _STATE_TTL_SECONDS]
+    for state in expired:
+        del _pending_states[state]
+
+
+def _add_state(state: str) -> None:
+    """Register a new OAuth state with its creation timestamp."""
+    _cleanup_expired_states()
+    _pending_states[state] = time.monotonic()
+
+
+def _consume_state(state: str) -> bool:
+    """Validate and remove a state. Returns True if valid, False if invalid/expired."""
+    _cleanup_expired_states()
+    if state not in _pending_states:
+        return False
+    del _pending_states[state]
+    return True
 
 
 def _require_scim_configured() -> None:
@@ -77,7 +98,7 @@ async def authorize() -> RedirectResponse:
     """
     _require_scim_configured()
     state = secrets.token_urlsafe(32)
-    _pending_states.add(state)
+    _add_state(state)
     callback_url = settings.public_url("/apple-scim/callback")
     params = {
         "client_id": settings.apple_scim_client_id,
@@ -113,10 +134,9 @@ async def callback(
         raise HTTPException(status_code=400, detail="Missing 'code' parameter in callback")
 
     # CSRF check — state must match one we issued and be consumed immediately
-    if not state or state not in _pending_states:
+    if not state or not _consume_state(state):
         logger.warning("Apple SCIM: invalid or missing OAuth state — possible CSRF attempt")
         raise HTTPException(status_code=400, detail="Invalid or expired OAuth state parameter")
-    _pending_states.discard(state)
 
     callback_url = settings.public_url("/apple-scim/callback")
     try:
@@ -192,7 +212,11 @@ async def callback(
     }
 
 
-@router.get("/status", summary="Show SCIM sync connection status")
+@router.get(
+    "/status",
+    summary="Show SCIM sync connection status",
+    dependencies=[Depends(require_management_auth)],
+)
 async def status() -> dict:
     """Return the current state of the Apple SCIM connection and token validity."""
     if not settings.apple_scim_enabled:
@@ -220,8 +244,12 @@ async def status() -> dict:
     }
 
 
-@router.post("/sync", summary="Trigger an immediate user sync to Apple Business Manager")
-async def sync(_auth: None = Depends(require_management_auth)) -> dict:
+@router.post(
+    "/sync",
+    summary="Trigger an immediate user sync to Apple Business Manager",
+    dependencies=[Depends(require_management_auth)],
+)
+async def sync() -> dict:
     """Fetch users from Authentik and push them to Apple Business Manager via SCIM.
 
     This runs automatically every APPLE_SCIM_SYNC_INTERVAL seconds (default 1h).

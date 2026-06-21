@@ -12,12 +12,35 @@ from pathlib import Path
 from typing import Any
 
 import jwt
+from cryptography.fernet import Fernet, InvalidToken
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 
 from app.config import settings
 
 logger = logging.getLogger(__name__)
+
+_FERNET_PREFIX = "fernet1:"
+_FERNET_BLOB_PREFIX = "gAAAA"
+_FERNET_VERSION_BYTE = 0x80
+_FERNET_MIN_TOKEN_BYTES = 57  # Fernet wire minimum is 73 = 1+8+16+16+32; keep lower bound for heuristic only
+
+
+class TokenDecryptionError(Exception):
+    """Raised when a versioned at-rest token cannot be decrypted."""
+
+
+def _is_valid_fernet_token_format(value: str) -> bool:
+    """Return True when *value* matches Fernet wire format (not arbitrary plaintext)."""
+    if not value.startswith(_FERNET_BLOB_PREFIX):
+        return False
+    try:
+        padded = value + "=" * (-len(value) % 4)
+        raw = base64.urlsafe_b64decode(padded)
+    except Exception:
+        return False
+    return len(raw) >= _FERNET_MIN_TOKEN_BYTES and raw[0] == _FERNET_VERSION_BYTE
+
 
 PRIVATE_KEY_PATH = "private.pem"
 JWKS_PATH = "jwks.json"
@@ -158,3 +181,67 @@ def sign_verification_set(audience: str, stream_id: str, state: str | None = Non
         },
     }
     return jwt.encode(payload, private_pem, algorithm="RS256", headers={"kid": kid, "typ": "secevent+jwt"})
+
+
+def _get_token_encryption_key() -> bytes:
+    """Derive a Fernet key from SSF_TOKEN_ENCRYPTION_KEY or SSF_MANAGEMENT_TOKEN."""
+    raw = settings.ssf_token_encryption_key or settings.ssf_management_token
+    key_bytes = hashlib.sha256(raw.encode("utf-8")).digest()
+    return base64.urlsafe_b64encode(key_bytes)
+
+
+def encrypt_token(plaintext: str) -> str:
+    """Encrypt a receiver endpoint token for storage in SQLite."""
+    if not plaintext:
+        return ""
+    fernet = Fernet(_get_token_encryption_key())
+    encrypted = fernet.encrypt(plaintext.encode("utf-8")).decode("utf-8")
+    return f"{_FERNET_PREFIX}{encrypted}"
+
+
+def _decrypt_fernet_blob(blob: str) -> str:
+    """Decrypt a Fernet ciphertext blob; never fall back to returning the blob."""
+    fernet = Fernet(_get_token_encryption_key())
+    try:
+        return fernet.decrypt(blob.encode("utf-8")).decode("utf-8")
+    except InvalidToken as exc:
+        logger.warning(
+            "decrypt_token: InvalidToken on encrypted receiver token — "
+            "SSF_TOKEN_ENCRYPTION_KEY or SSF_MANAGEMENT_TOKEN may have changed; "
+            "re-register the stream with delivery.endpoint_url_token"
+        )
+        raise TokenDecryptionError(
+            "Receiver endpoint token cannot be decrypted — re-register the stream"
+        ) from exc
+
+
+def decrypt_token(ciphertext: str) -> str:
+    """Decrypt a receiver endpoint token retrieved from SQLite."""
+    if not ciphertext:
+        return ""
+    if ciphertext.startswith(_FERNET_PREFIX):
+        blob = ciphertext[len(_FERNET_PREFIX):]
+        try:
+            return _decrypt_fernet_blob(blob)
+        except TokenDecryptionError:
+            if _is_valid_fernet_token_format(blob):
+                raise
+            logger.debug(
+                "decrypt_token: fernet1:-prefixed value failed decrypt; "
+                "using stored value as legacy plaintext bearer token"
+            )
+            return ciphertext
+    if _is_valid_fernet_token_format(ciphertext):
+        fernet = Fernet(_get_token_encryption_key())
+        try:
+            return fernet.decrypt(ciphertext.encode("utf-8")).decode("utf-8")
+        except InvalidToken:
+            # Unprefixed DB rows may be legacy ciphertext or a receiver bearer token
+            # that happens to be Fernet-shaped. Only ``fernet1:`` rows fail closed.
+            logger.debug(
+                "decrypt_token: unprefixed Fernet-shaped value failed decrypt; "
+                "using stored value as legacy plaintext bearer token"
+            )
+            return ciphertext
+    # Legacy plaintext token from deployments before at-rest encryption.
+    return ciphertext

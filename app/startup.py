@@ -16,6 +16,8 @@ from urllib.parse import urlparse
 import httpx
 
 from app.config import settings
+from app.crypto import TokenDecryptionError, decrypt_token
+from app.security.url_validation import receiver_host_allowed
 
 logger = logging.getLogger("app.startup")
 
@@ -83,6 +85,84 @@ def _check_authentik_connectivity() -> None:
         logger.error("%s Authentik API          %s — check AUTHENTIK_TOKEN", _FAIL, r.status_code)
     else:
         logger.warning("%s Authentik API          unexpected status %s", _WARN, r.status_code)
+
+
+def _check_stored_streams_allowlist() -> bool:
+    """Fail preflight when stored streams target hosts outside the allowlist."""
+    allowed_hosts = settings.ssf_allowed_receiver_hosts
+    if not allowed_hosts:
+        return True
+
+    import sqlite3
+    from contextlib import closing
+
+    try:
+        with closing(sqlite3.connect(settings.database_path)) as con:
+            rows = con.execute("SELECT stream_id, endpoint_url FROM streams").fetchall()
+    except Exception:
+        return True
+
+    violations: list[str] = []
+    for stream_id, endpoint_url in rows:
+        if not receiver_host_allowed(endpoint_url, allowed_hosts):
+            host = (urlparse(endpoint_url).hostname or "unknown-host").lower()
+            violations.append(f"{stream_id} -> {host!r}")
+
+    if not violations:
+        return True
+
+    logger.error(
+        "%s Receiver allowlist     %d stored stream(s) outside SSF_ALLOWED_RECEIVER_HOSTS: %s",
+        _FAIL,
+        len(violations),
+        "; ".join(violations),
+    )
+    return False
+
+
+def _quarantine_undecryptable_receiver_tokens() -> None:
+    """Pause streams whose encrypted receiver tokens cannot be decrypted.
+
+    Startup must remain available so operators can re-register the stream
+    through the management API after rotating the token encryption key.
+    """
+    import sqlite3
+    from contextlib import closing
+
+    try:
+        with closing(sqlite3.connect(settings.database_path)) as con:
+            rows = con.execute("SELECT stream_id, endpoint_token FROM streams").fetchall()
+            failures: list[str] = []
+            for stream_id, endpoint_token in rows:
+                if not endpoint_token:
+                    continue
+                try:
+                    decrypt_token(endpoint_token)
+                except TokenDecryptionError:
+                    failures.append(stream_id)
+
+            if not failures:
+                return
+
+            con.executemany(
+                "UPDATE streams SET status = 'paused' WHERE stream_id = ?",
+                [(stream_id,) for stream_id in failures],
+            )
+            con.commit()
+    except Exception:
+        logger.exception(
+            "%s Receiver tokens        failed to validate/decrypt stored endpoint tokens during startup",
+            _WARN,
+        )
+        return
+
+    logger.warning(
+        "%s Receiver tokens        %d stream(s) had undecryptable endpoint tokens and were paused: %s — "
+        "re-register with delivery.endpoint_url_token to resume delivery",
+        _WARN,
+        len(failures),
+        ", ".join(failures),
+    )
 
 
 def run_preflight_checks() -> None:
@@ -221,6 +301,35 @@ def run_preflight_checks() -> None:
     # ------------------------------------------------------------------ #
     # Optional features                                                    #
     # ------------------------------------------------------------------ #
+
+    allowed_hosts = settings.ssf_allowed_receiver_hosts
+    if allowed_hosts:
+        logger.info(
+            "%s Receiver allowlist     %d host(s): %s",
+            _OK,
+            len(allowed_hosts),
+            ", ".join(allowed_hosts),
+        )
+        if not _check_stored_streams_allowlist():
+            failed = True
+    else:
+        logger.warning(
+            "%s Receiver allowlist     SSF_ALLOWED_RECEIVER_HOSTS not set "
+            "— any public host is accepted as receiver endpoint",
+            _WARN,
+        )
+
+    _quarantine_undecryptable_receiver_tokens()
+
+    forwarded_ips = os.getenv("SSF_FORWARDED_ALLOW_IPS", "127.0.0.1")
+    if forwarded_ips == "*":
+        logger.warning(
+            "%s SSF_FORWARDED_ALLOW_IPS=* — trusting all X-Forwarded-For headers; "
+            "restrict to your proxy IP/CIDR in production",
+            _WARN,
+        )
+    else:
+        logger.info("%s SSF_FORWARDED_ALLOW_IPS  %s", _OK, forwarded_ips)
 
     if settings.apple_scim_enabled:
         logger.info("%s Apple SCIM             enabled (sync every %ds)",

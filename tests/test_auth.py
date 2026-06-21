@@ -53,6 +53,31 @@ def test_wrong_token_returns_403(client: TestClient):
     assert resp.status_code == 403
 
 
+@pytest.mark.enable_rate_limit
+def test_failed_management_auth_attempts_are_rate_limited(client: TestClient):
+    """Repeated bad management tokens are limited before the stream handler runs."""
+    from app.auth import _management_auth_failures
+    from app.rate_limit import limiter
+
+    limiter.reset()
+    _management_auth_failures.clear()
+
+    for _ in range(10):
+        resp = client.post(
+            "/ssf/streams",
+            json={},
+            headers={"Authorization": "Bearer wrong_token_value_that_is_long_enough_1234"},
+        )
+        assert resp.status_code == 403
+
+    resp = client.post(
+        "/ssf/streams",
+        json={},
+        headers={"Authorization": "Bearer wrong_token_value_that_is_long_enough_1234"},
+    )
+    assert resp.status_code == 429
+
+
 def test_get_streams_requires_auth(client: TestClient):
     """GET /ssf/streams without token returns 401."""
     assert client.get("/ssf/streams").status_code == 401
@@ -81,6 +106,24 @@ def test_subjects_remove_requires_auth(client: TestClient):
 def test_status_requires_auth(client: TestClient):
     """GET /ssf/status without token returns 401."""
     assert client.get("/ssf/status").status_code == 401
+
+
+def test_apple_scim_status_requires_auth(client: TestClient):
+    """GET /apple-scim/status without token returns 401."""
+    assert client.get("/apple-scim/status").status_code == 401
+
+
+def test_apple_scim_status_with_valid_token(client: TestClient):
+    """GET /apple-scim/status with valid management token passes auth."""
+    resp = client.get("/apple-scim/status", headers=VALID_HEADERS)
+    assert resp.status_code == 200
+    assert resp.json()["enabled"] is False
+
+
+def test_apple_scim_authorize_remains_public(client: TestClient):
+    """GET /apple-scim/authorize is reachable without management token (503 when not configured)."""
+    resp = client.get("/apple-scim/authorize", follow_redirects=False)
+    assert resp.status_code in {307, 503}
 
 
 # ---------------------------------------------------------------------------

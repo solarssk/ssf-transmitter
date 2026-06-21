@@ -11,7 +11,7 @@ from app.config import settings
 from app.crypto import sign_set, sign_verification_set
 from app.database import Stream
 from app.events.mapper import MappedEvent
-from app.security.url_validation import _is_blocked_ip, _resolve_host
+from app.security.url_validation import _is_blocked_ip, _resolve_host, receiver_host_allowed
 
 logger = logging.getLogger(__name__)
 
@@ -23,12 +23,23 @@ def _safe_host(url: str) -> str:
 
 
 def _revalidate_endpoint(url: str) -> bool:
-    """Re-resolve endpoint hostname and verify it still points to a public IP.
+    """Re-resolve endpoint hostname and verify it is still safe to push to.
 
     Guards against DNS rebinding: a hostname may resolve to a public IP at
     stream creation time and later rebind to a private/metadata address.
-    Returns False (and logs a warning) if any resolved IP is blocked.
+    Also enforces ``SSF_ALLOWED_RECEIVER_HOSTS`` when configured so pre-existing
+    streams cannot bypass a tightened allowlist on outbound delivery.
+    Returns False (and logs a warning) if the host is blocked.
     """
+    allowed_hosts = settings.ssf_allowed_receiver_hosts
+    if allowed_hosts and not receiver_host_allowed(url, allowed_hosts):
+        host = urlparse(url).hostname or ""
+        logger.warning(
+            "Blocked outbound push: endpoint_url host %r is not in SSF_ALLOWED_RECEIVER_HOSTS allowlist",
+            host,
+        )
+        return False
+
     host = urlparse(url).hostname or ""
     ips = _resolve_host(host)
     if not ips:

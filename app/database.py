@@ -14,6 +14,7 @@ from typing import Any
 import aiosqlite
 
 from app.config import settings
+from app.crypto import TokenDecryptionError, decrypt_token, encrypt_token
 
 logger = logging.getLogger(__name__)
 
@@ -33,32 +34,59 @@ class Stream:
 
 def _row_to_stream(row: aiosqlite.Row) -> Stream:
     """Convert a database row to a Stream dataclass."""
+    try:
+        endpoint_token = decrypt_token(row["endpoint_token"])
+    except TokenDecryptionError:
+        logger.warning(
+            "Stream %s has an undecryptable receiver token; returning empty runtime token",
+            row["stream_id"],
+        )
+        endpoint_token = ""
     return Stream(
         stream_id=row["stream_id"],
         aud=row["aud"],
         endpoint_url=row["endpoint_url"],
-        endpoint_token=row["endpoint_token"],
+        endpoint_token=endpoint_token,
         events_requested=json.loads(row["events_requested"]),
         status=row["status"],
         created_at=row["created_at"],
     )
 
 
+def _replacement_endpoint_token(payload: dict[str, Any]) -> str | None:
+    """Return a newly supplied endpoint token, or None when the patch preserves it."""
+    delivery = payload.get("delivery") or {}
+    if "endpoint_url_token" in delivery:
+        return delivery["endpoint_url_token"]
+    if "endpoint_token" in payload:
+        return payload["endpoint_token"]
+    if "authorization_header" in delivery:
+        auth_header = delivery["authorization_header"]
+        if auth_header:
+            return auth_header.removeprefix("Bearer ")
+        return ""
+    return None
+
+
+def _stored_token_is_undecryptable(stored_token: str, runtime_token: str) -> bool:
+    """Return True when SQLite holds ciphertext but runtime delivery token is unavailable."""
+    return bool(stored_token) and not runtime_token
+
+
 async def init_db() -> None:
     """Create all database tables if they do not already exist.
 
-    Security note: receiver tokens (bearer tokens for push endpoints) are stored
-    in plaintext inside this SQLite database.  Protect the /app/data volume:
-    restrict container host-path mounts to root-only, use encrypted storage at
-    the volume level if your threat model requires it, and never expose the data
-    directory via network shares.
+    Security note: receiver tokens are encrypted at rest (Fernet) in SQLite.
+    Protect the /app/data volume: restrict container host-path mounts to
+    root-only, use encrypted storage at the volume level if your threat model
+    requires it, and never expose the data directory via network shares.
     """
     db_path = Path(settings.database_path)
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    logger.warning(
-        "Receiver tokens are stored in plaintext in SQLite at %s — "
-        "ensure the %s volume is protected (host path restricted to root, "
-        "encrypted volume if required by your threat model).",
+    logger.info(
+        "Receiver endpoint tokens are encrypted at rest in SQLite at %s — "
+        "protect the %s volume (host path restricted to root, encrypted volume "
+        "if required by your threat model).",
         settings.database_path,
         str(db_path.parent),
     )
@@ -162,7 +190,7 @@ async def create_stream(payload: dict[str, Any]) -> Stream:
                 stream.stream_id,
                 stream.aud,
                 stream.endpoint_url,
-                stream.endpoint_token,
+                encrypt_token(stream.endpoint_token),
                 json.dumps(stream.events_requested),
                 stream.status,
                 stream.created_at,
@@ -191,38 +219,54 @@ async def get_first_stream() -> Stream | None:
 
 async def update_stream(payload: dict[str, Any]) -> Stream | None:
     """Update fields on the existing stream; returns None if no stream exists."""
-    stream = await get_first_stream()
-    if not stream:
-        return None
-
-    delivery = payload.get("delivery") or {}
-    endpoint_url = delivery.get("endpoint_url") or payload.get("endpoint_url") or stream.endpoint_url
-    auth_header = delivery.get("authorization_header", "")
-    endpoint_token = (
-        delivery.get("endpoint_url_token")
-        or payload.get("endpoint_token")
-        or (auth_header.removeprefix("Bearer ") if auth_header else None)
-        or stream.endpoint_token
-    )
-    events_requested = payload.get("events_requested", stream.events_requested)
-    status = payload.get("status", stream.status)
-    aud = payload.get("aud") or stream.aud
-
-    if not isinstance(events_requested, list):
-        raise ValueError("events_requested must be a list when provided")
-
     async with aiosqlite.connect(settings.database_path) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute("SELECT * FROM streams ORDER BY created_at DESC LIMIT 1")
+        row = await cursor.fetchone()
+        if row is None:
+            return None
+
+        stream = _row_to_stream(row)
+        delivery = payload.get("delivery") or {}
+        endpoint_url = delivery.get("endpoint_url") or payload.get("endpoint_url") or stream.endpoint_url
+        endpoint_token = _replacement_endpoint_token(payload)
+        stored_endpoint_token = encrypt_token(endpoint_token) if endpoint_token is not None else row["endpoint_token"]
+        runtime_endpoint_token = endpoint_token if endpoint_token is not None else stream.endpoint_token
+        events_requested = payload.get("events_requested", stream.events_requested)
+        status = payload.get("status", stream.status)
+        aud = payload.get("aud") or stream.aud
+
+        if not isinstance(events_requested, list):
+            raise ValueError("events_requested must be a list when provided")
+
+        if (
+            status == "enabled"
+            and _stored_token_is_undecryptable(row["endpoint_token"], stream.endpoint_token)
+            and endpoint_token is None
+        ):
+            raise ValueError(
+                "Receiver endpoint token cannot be decrypted — supply delivery.endpoint_url_token before enabling"
+            )
+
         await db.execute(
             """
             UPDATE streams
             SET aud = ?, endpoint_url = ?, endpoint_token = ?, events_requested = ?, status = ?
             WHERE stream_id = ?
             """,
-            (aud, endpoint_url, endpoint_token, json.dumps(events_requested), status, stream.stream_id),
+            (aud, endpoint_url, stored_endpoint_token, json.dumps(events_requested), status, stream.stream_id),
         )
         await db.commit()
 
-    updated = Stream(stream.stream_id, aud, endpoint_url, endpoint_token, events_requested, status, stream.created_at)
+    updated = Stream(
+        stream.stream_id,
+        aud,
+        endpoint_url,
+        runtime_endpoint_token,
+        events_requested,
+        status,
+        stream.created_at,
+    )
     logger.info("Updated SSF stream stream_id=%s aud=%s status=%s", updated.stream_id, updated.aud, updated.status)
     return updated
 

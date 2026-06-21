@@ -32,6 +32,7 @@ def _good_settings(**overrides):
         ssf_webhook_token="x" * 32,
         keys_dir="",  # overridden per-test when filesystem matters
         database_path="",  # overridden per-test when filesystem matters
+        ssf_allowed_receiver_hosts=[],
         apple_scim_enabled=False,
     )
     defaults.update(overrides)
@@ -233,15 +234,161 @@ class TestPreflightSuccess:
         assert "preflight OK — starting" in caplog.text
 
 
-class TestPreflightDeprecation:
-    def test_allow_unsigned_webhook_legacy_alias_logs_deprecation(self, monkeypatch, caplog):
+class TestPreflightStoredStreams:
+    def test_stored_stream_outside_allowlist_fails_preflight(self, monkeypatch, caplog, tmp_path):
+        import sqlite3
+        from contextlib import closing
+
+        keys_dir = tmp_path / "keys"
+        keys_dir.mkdir()
+        (keys_dir / "private.pem").touch()
+        (keys_dir / "jwks.json").touch()
+        db_file = tmp_path / "ssf.db"
+
+        with closing(sqlite3.connect(db_file)) as con:
+            con.execute(
+                """
+                CREATE TABLE streams (
+                  stream_id TEXT PRIMARY KEY,
+                  aud TEXT NOT NULL,
+                  endpoint_url TEXT NOT NULL,
+                  endpoint_token TEXT NOT NULL,
+                  events_requested TEXT NOT NULL,
+                  status TEXT DEFAULT 'enabled',
+                  created_at INTEGER NOT NULL
+                )
+                """
+            )
+            con.execute(
+                """
+                INSERT INTO streams
+                (stream_id, aud, endpoint_url, endpoint_token, events_requested, status, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "stream-1",
+                    "aud",
+                    "https://blocked.example.test/events",
+                    "legacy-plaintext-token",
+                    "[]",
+                    "enabled",
+                    1,
+                ),
+            )
+            con.commit()
+
         monkeypatch.setattr(
             "app.startup.settings",
-            _good_settings(ssf_webhook_auth_mode="unsigned", ssf_webhook_token=None, ssf_webhook_secret=""),
+            _good_settings(
+                keys_dir=str(keys_dir),
+                database_path=str(db_file),
+                ssf_allowed_receiver_hosts=["allowed.example.test"],
+            ),
+        )
+
+        with patch("app.startup.os.access", return_value=True), pytest.raises(SystemExit) as exc_info:
+            run_preflight_checks()
+
+        assert exc_info.value.code == 0
+        assert "outside SSF_ALLOWED_RECEIVER_HOSTS" in caplog.text
+
+    def test_undecryptable_receiver_token_pauses_stream_and_allows_startup(self, monkeypatch, caplog, tmp_path):
+        import dataclasses
+        import sqlite3
+        from contextlib import closing
+
+        from app.config import settings as real_settings
+        from app.crypto import encrypt_token
+
+        keys_dir = tmp_path / "keys"
+        keys_dir.mkdir()
+        (keys_dir / "private.pem").touch()
+        (keys_dir / "jwks.json").touch()
+        db_file = tmp_path / "ssf.db"
+        stored = encrypt_token("receiver-token")
+
+        with closing(sqlite3.connect(db_file)) as con:
+            con.execute(
+                """
+                CREATE TABLE streams (
+                  stream_id TEXT PRIMARY KEY,
+                  aud TEXT NOT NULL,
+                  endpoint_url TEXT NOT NULL,
+                  endpoint_token TEXT NOT NULL,
+                  events_requested TEXT NOT NULL,
+                  status TEXT DEFAULT 'enabled',
+                  created_at INTEGER NOT NULL
+                )
+                """
+            )
+            con.execute(
+                """
+                INSERT INTO streams
+                (stream_id, aud, endpoint_url, endpoint_token, events_requested, status, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "stream-1",
+                    "aud",
+                    "https://receiver.example.test/events",
+                    stored,
+                    "[]",
+                    "enabled",
+                    1,
+                ),
+            )
+            con.commit()
+
+        monkeypatch.setattr(
+            "app.startup.settings",
+            _good_settings(keys_dir=str(keys_dir), database_path=str(db_file)),
+        )
+        monkeypatch.setattr(
+            "app.crypto.settings",
+            dataclasses.replace(
+                real_settings,
+                ssf_token_encryption_key=None,
+                ssf_management_token="different_management_token_min_32_chars_12",
+            ),
+        )
+
+        with patch("app.startup.os.access", return_value=True), caplog.at_level(logging.INFO, logger="app.startup"):
+            run_preflight_checks()
+
+        with closing(sqlite3.connect(db_file)) as con:
+            row = con.execute(
+                "SELECT status, endpoint_token FROM streams WHERE stream_id = ?",
+                ("stream-1",),
+            ).fetchone()
+
+        assert row == ("paused", stored)
+        assert "undecryptable endpoint tokens and were paused" in caplog.text
+        assert "preflight OK" in caplog.text
+
+
+class TestPreflightDeprecation:
+    def test_allow_unsigned_webhook_legacy_alias_logs_deprecation(
+        self, monkeypatch, caplog, tmp_path
+    ):
+        keys_dir = tmp_path / "keys"
+        keys_dir.mkdir()
+        db_dir = tmp_path / "db"
+        db_dir.mkdir()
+        monkeypatch.setattr(
+            "app.startup.settings",
+            _good_settings(
+                ssf_webhook_auth_mode="unsigned",
+                ssf_webhook_token=None,
+                ssf_webhook_secret="",
+                keys_dir=str(keys_dir),
+                database_path=str(db_dir / "ssf.db"),
+                ssf_allowed_receiver_hosts=[],
+            ),
         )
         monkeypatch.setenv("SSF_ALLOW_UNSIGNED_WEBHOOK", "true")
 
-        run_preflight_checks()
+        with patch("app.startup.os.access", return_value=True):
+            run_preflight_checks()
 
         assert "SSF_ALLOW_UNSIGNED_WEBHOOK" in caplog.text
         assert "DEPRECATED" in caplog.text
