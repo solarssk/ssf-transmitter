@@ -23,7 +23,7 @@ from app.crypto import ensure_keys
 from app.database import init_db
 from app.rate_limit import limiter
 from app.routes import apple_scim, jwks, root, streams, verification, webhook, wellknown
-from app.startup import run_preflight_checks
+from app.startup import quarantine_undecryptable_receiver_tokens, run_preflight_checks
 
 configure_logging()
 logger = logging.getLogger(__name__)
@@ -96,6 +96,7 @@ async def lifespan(app: FastAPI):
     run_preflight_checks()  # logs ✅/⚠️/❌ for each check; exits with 0 if any ❌
     ensure_keys()
     await init_db()
+    quarantine_undecryptable_receiver_tokens()
 
     apple_scim_task: asyncio.Task | None = None
     if settings.apple_scim_enabled:

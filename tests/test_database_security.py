@@ -152,6 +152,52 @@ def test_reject_enable_with_undecryptable_token_without_replacement(client: Test
     assert "cannot be decrypted" in rejected.json()["detail"]
 
 
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {
+            "status": "enabled",
+            "delivery": {
+                "endpoint_url": "https://receiver.example.test/events",
+                "endpoint_url_token": "",
+            },
+        },
+        {
+            "status": "enabled",
+            "delivery": {
+                "endpoint_url": "https://receiver.example.test/events",
+                "authorization_header": "",
+            },
+        },
+    ],
+)
+def test_reject_enable_with_undecryptable_token_and_empty_replacement(
+    client: TestClient, monkeypatch, payload: dict
+):
+    """Empty replacement tokens must not bypass the undecryptable enable guard."""
+    import dataclasses
+
+    from app.config import settings as real_settings
+
+    _create_stream(client, token="receiver-token-before-rotation")
+
+    monkeypatch.setattr(
+        "app.crypto.settings",
+        dataclasses.replace(
+            real_settings,
+            ssf_token_encryption_key=None,
+            ssf_management_token="different_management_token_min_32_chars_12",
+        ),
+    )
+
+    paused = client.patch("/ssf/streams", json={"status": "paused"}, headers=MGMT_HEADERS)
+    assert paused.status_code == 200
+
+    rejected = client.patch("/ssf/streams", json=payload, headers=MGMT_HEADERS)
+    assert rejected.status_code == 400
+    assert "cannot be decrypted" in rejected.json()["detail"]
+
+
 def test_enable_with_undecryptable_token_when_replacement_supplied(client: TestClient, monkeypatch):
     """Supplying a new receiver token allows re-enabling a quarantined stream."""
     import dataclasses

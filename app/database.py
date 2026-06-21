@@ -242,7 +242,7 @@ async def update_stream(payload: dict[str, Any]) -> Stream | None:
         if (
             status == "enabled"
             and _stored_token_is_undecryptable(row["endpoint_token"], stream.endpoint_token)
-            and endpoint_token is None
+            and (endpoint_token is None or endpoint_token == "")
         ):
             raise ValueError(
                 "Receiver endpoint token cannot be decrypted — supply delivery.endpoint_url_token before enabling"
