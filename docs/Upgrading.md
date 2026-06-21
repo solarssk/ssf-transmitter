@@ -1,8 +1,8 @@
 # Upgrading
 
-## v0.5.9 — Security hardening (from 0.5.8 or earlier)
+## v0.5.10 — Stream recovery hardening (from 0.5.8 or earlier)
 
-Release notes: [v0.5.9](https://github.com/solarssk/ssf-transmitter/releases/tag/v0.5.9)
+Release notes: [v0.5.10](https://github.com/solarssk/ssf-transmitter/releases/tag/v0.5.10)
 
 ### What changed for operators
 
@@ -39,7 +39,7 @@ Use this when you **already have a working stream** and Apple Business Manager i
    - `/app/data` (SQLite — stream + SCIM tokens)
 2. **Update image tag:**
    ```yaml
-   image: ghcr.io/solarssk/ssf-transmitter:0.5.9
+   image: ghcr.io/solarssk/ssf-transmitter:0.5.10
    ```
 3. **Set proxy trust** (if behind NPM/Caddy/Traefik):
    ```env
@@ -75,7 +75,7 @@ undecryptable endpoint tokens and were paused
 
 **Fix:** Re-register the stream via management API with a new `delivery.endpoint_url_token` from your receiver, then set `status: enabled`.
 
-You cannot re-enable a paused stream with an undecryptable token without supplying a replacement token (by design since v0.5.9).
+You cannot re-enable a paused stream with an undecryptable token without supplying a replacement token (by design since v0.5.9, still enforced in v0.5.10).
 
 Minimal recovery PATCH (include the current `delivery.endpoint_url`; the PATCH schema still requires it):
 
@@ -112,11 +112,11 @@ docker compose up -d ssf-transmitter
 docker compose logs ssf-transmitter --tail 50
 ```
 
-Pin to a version tag (`0.5.9`) in production; use `:latest` only if you accept automatic updates on redeploy.
+Pin to a version tag (`0.5.10`) in production; use `:latest` only if you accept automatic updates on redeploy.
 
 ## Rolling back
 
 1. Stop container.
 2. Restore `/app/keys` and `/app/data` from backup if needed.
 3. Deploy previous image tag (e.g. `0.5.8`).
-4. If you upgraded DB format or encryption on 0.5.9, test rollback in a lab first.
+4. If you upgraded DB format or encryption on 0.5.9+ installs, test rollback in a lab first.

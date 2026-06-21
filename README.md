@@ -35,7 +35,7 @@ A **stream** is the receiver configuration stored in SQLite: receiver URL, beare
 
 ## Upgrading
 
-**Already running with Apple Business Manager?** See [docs/Upgrading.md](docs/Upgrading.md#v059--security-hardening-from-058-or-earlier):
+**Already running with Apple Business Manager?** See [docs/Upgrading.md](docs/Upgrading.md#v0510--stream-recovery-hardening-from-058-or-earlier):
 
 - Bump image to `0.5.10`
 - Set `SSF_FORWARDED_ALLOW_IPS` behind reverse proxy
