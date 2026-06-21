@@ -68,6 +68,11 @@ def _replacement_endpoint_token(payload: dict[str, Any]) -> str | None:
     return None
 
 
+def _receiver_replacement_is_missing(token: str | None) -> bool:
+    """Return True when a patch does not supply a usable replacement receiver token."""
+    return token is None or not str(token).strip()
+
+
 def _stored_token_is_undecryptable(stored_token: str, runtime_token: str) -> bool:
     """Return True when SQLite holds ciphertext but runtime delivery token is unavailable."""
     return bool(stored_token) and not runtime_token
@@ -242,7 +247,7 @@ async def update_stream(payload: dict[str, Any]) -> Stream | None:
         if (
             status == "enabled"
             and _stored_token_is_undecryptable(row["endpoint_token"], stream.endpoint_token)
-            and endpoint_token is None
+            and _receiver_replacement_is_missing(endpoint_token)
         ):
             raise ValueError(
                 "Receiver endpoint token cannot be decrypted — supply delivery.endpoint_url_token before enabling"

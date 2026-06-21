@@ -120,17 +120,27 @@ def _check_stored_streams_allowlist() -> bool:
     return False
 
 
-def _quarantine_undecryptable_receiver_tokens() -> None:
+def quarantine_undecryptable_receiver_tokens() -> None:
     """Pause streams whose encrypted receiver tokens cannot be decrypted.
 
-    Startup must remain available so operators can re-register the stream
-    through the management API after rotating the token encryption key.
+    Call after ``init_db()`` so the ``streams`` table exists. Startup must
+    remain available so operators can re-register the stream through the
+    management API after rotating the token encryption key.
     """
     import sqlite3
     from contextlib import closing
 
+    db_path = Path(settings.database_path)
+    if not db_path.exists():
+        return
+
     try:
         with closing(sqlite3.connect(settings.database_path)) as con:
+            if con.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='streams'"
+            ).fetchone() is None:
+                return
+
             rows = con.execute("SELECT stream_id, endpoint_token FROM streams").fetchall()
             failures: list[str] = []
             for stream_id, endpoint_token in rows:
@@ -318,8 +328,6 @@ def run_preflight_checks() -> None:
             "— any public host is accepted as receiver endpoint",
             _WARN,
         )
-
-    _quarantine_undecryptable_receiver_tokens()
 
     forwarded_ips = os.getenv("SSF_FORWARDED_ALLOW_IPS", "127.0.0.1")
     if forwarded_ips == "*":
