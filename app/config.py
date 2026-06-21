@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from urllib.parse import urlparse
 
 
@@ -107,6 +107,24 @@ def _parse_webhook_token(value: str | None, mode: str) -> str | None:
     return value
 
 
+def _parse_allowed_receiver_hosts(value: str | None) -> list[str]:
+    """Parse SSF_ALLOWED_RECEIVER_HOSTS — comma-separated hostname allowlist."""
+    if not value:
+        return []
+    return [h.strip().lower() for h in value.split(",") if h.strip()]
+
+
+def _parse_log_level(value: str | None) -> str:
+    """Validate log level value."""
+    level = (value or "INFO").upper()
+    valid = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+    if level not in valid:
+        raise ValueError(
+            f"SSF_LOG_LEVEL must be one of {', '.join(sorted(valid))}, got {level!r}"
+        )
+    return level
+
+
 def _parse_webhook_secret(value: str | None, mode: str) -> str:
     """Validate SSF_WEBHOOK_SECRET — required when mode is 'hmac'."""
     if mode == "hmac" and not value:
@@ -164,6 +182,10 @@ class Settings:
     ssf_log_receiver_error_body: bool = False
     # Expose Swagger UI (/docs), ReDoc (/redoc), and /openapi.json. Default false.
     ssf_enable_openapi: bool = False
+    # Optional receiver hostname allowlist for SSRF defence-in-depth.
+    ssf_allowed_receiver_hosts: list[str] = field(default_factory=list)
+    # Optional dedicated key for encrypting receiver tokens at rest; None = derive from management token.
+    ssf_token_encryption_key: str | None = None
 
     @property
     def allow_unsigned_webhook(self) -> bool:
@@ -194,14 +216,22 @@ class Settings:
         if missing:
             raise RuntimeError(f"Missing required environment variables: {', '.join(missing)}")
 
+        for var_name, var_value in required.items():
+            try:
+                _parse_https_url(var_value, var_name)
+            except ValueError as exc:
+                raise RuntimeError(str(exc)) from exc
+
         allow_unsigned = os.getenv("SSF_ALLOW_UNSIGNED_WEBHOOK", "false").lower() == "true"
         auth_mode = _parse_webhook_auth_mode(os.getenv("SSF_WEBHOOK_AUTH_MODE"), allow_unsigned)
         webhook_token = _parse_webhook_token(os.getenv("SSF_WEBHOOK_TOKEN"), auth_mode)
         webhook_secret = _parse_webhook_secret(os.getenv("SSF_WEBHOOK_SECRET"), auth_mode)
 
         return cls(
-            ssf_issuer=required["SSF_ISSUER"],
-            ssf_base_url=_strip_trailing_slash(required["SSF_BASE_URL"]),
+            ssf_issuer=_parse_https_url(required["SSF_ISSUER"], "SSF_ISSUER"),
+            ssf_base_url=_strip_trailing_slash(
+                _parse_https_url(required["SSF_BASE_URL"], "SSF_BASE_URL")
+            ),
             ssf_root_path=os.getenv("SSF_ROOT_PATH", ""),
             ssf_container_port=int(os.getenv("SSF_CONTAINER_PORT", "8000")),
             ssf_management_token=_parse_management_token(os.getenv("SSF_MANAGEMENT_TOKEN")),
@@ -210,12 +240,18 @@ class Settings:
             ssf_webhook_secret=webhook_secret,
             log_pii=os.getenv("SSF_LOG_PII", "false").lower() == "true",
             pii_pepper=os.getenv("SSF_PII_PEPPER", ""),
-            log_level=os.getenv("LOG_LEVEL", "INFO").upper(),
+            log_level=_parse_log_level(
+                os.getenv("SSF_LOG_LEVEL", os.getenv("LOG_LEVEL", "INFO"))
+            ),
             database_path=os.getenv("SSF_DATABASE_PATH", "/app/data/ssf.db"),
             keys_dir=os.getenv("SSF_KEYS_DIR", "/app/keys"),
             apple_scim_client_id=os.getenv("APPLE_SCIM_CLIENT_ID") or None,
             apple_scim_client_secret=os.getenv("APPLE_SCIM_CLIENT_SECRET") or None,
-            authentik_url=_strip_trailing_slash(os.getenv("AUTHENTIK_URL", "")),
+            authentik_url=(
+                _strip_trailing_slash(os.getenv("AUTHENTIK_URL"))
+                if os.getenv("AUTHENTIK_URL")
+                else None
+            ),
             authentik_token=os.getenv("AUTHENTIK_TOKEN") or None,
             apple_scim_group_id=os.getenv("APPLE_SCIM_GROUP_ID") or None,
             apple_scim_sync_interval=_parse_sync_interval(os.getenv("APPLE_SCIM_SYNC_INTERVAL", "3600")),
@@ -237,6 +273,10 @@ class Settings:
             ssf_log_color=os.getenv("SSF_LOG_COLOR", "false").lower() == "true",
             ssf_log_receiver_error_body=os.getenv("SSF_LOG_RECEIVER_ERROR_BODY", "false").lower() == "true",
             ssf_enable_openapi=os.getenv("SSF_ENABLE_OPENAPI", "false").lower() == "true",
+            ssf_allowed_receiver_hosts=_parse_allowed_receiver_hosts(
+                os.getenv("SSF_ALLOWED_RECEIVER_HOSTS")
+            ),
+            ssf_token_encryption_key=os.getenv("SSF_TOKEN_ENCRYPTION_KEY") or None,
         )
 
     def public_url(self, path: str) -> str:
@@ -261,6 +301,8 @@ class Settings:
             "apple_scim_update_mode": self.apple_scim_update_mode,
             "apple_scim_log_error_body": self.apple_scim_log_error_body,
             "ssf_enable_openapi": self.ssf_enable_openapi,
+            "ssf_allowed_receiver_hosts_count": len(self.ssf_allowed_receiver_hosts),
+            "token_encryption_key_dedicated": bool(self.ssf_token_encryption_key),
         }
 
 

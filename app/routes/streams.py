@@ -3,13 +3,14 @@
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
 from app.auth import require_management_auth
 from app.config import settings
 from app.database import create_stream, delete_stream, delete_stream_by_id, get_first_stream, update_stream
 from app.events.pusher import push_verification_set
 from app.models import SUPPORTED_EVENT_URIS, StreamCreateRequest, StreamPatchRequest
+from app.rate_limit import limiter
 from app.security.url_validation import validate_receiver_endpoint_url
 
 _EVENTS_SUPPORTED = sorted(SUPPORTED_EVENT_URIS)
@@ -53,35 +54,39 @@ async def _get_stream_or_404(stream_id: str | None = None):
 
 
 @router.post("/streams", status_code=201)
-async def create_stream_endpoint(request: StreamCreateRequest) -> dict[str, Any]:
+@limiter.limit("10/minute")
+async def create_stream_endpoint(request: Request, body: StreamCreateRequest) -> dict[str, Any]:
     """Create a new SSF stream and confirm delivery by pushing a verification SET."""
-    endpoint_url = request.delivery.endpoint_url
+    endpoint_url = body.delivery.endpoint_url
     logger.info(
         "Stream create request aud=%s events_requested=%s",
-        request.aud,
-        request.events_requested,
+        body.aud,
+        body.events_requested,
     )
     try:
-        validate_receiver_endpoint_url(endpoint_url)
+        validate_receiver_endpoint_url(
+            endpoint_url,
+            allowed_hosts=settings.ssf_allowed_receiver_hosts or None,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=f"Invalid endpoint_url: {exc}") from exc
 
     # Build a normalised dict for the database layer
     payload: dict[str, Any] = {
-        "aud": request.aud,
+        "aud": body.aud,
         "delivery": {
             "endpoint_url": endpoint_url,
-            "endpoint_url_token": request.delivery.endpoint_url_token or "",
-            "authorization_header": request.delivery.authorization_header or "",
+            "endpoint_url_token": body.delivery.endpoint_url_token or "",
+            "authorization_header": body.delivery.authorization_header or "",
         },
-        "events_requested": request.events_requested,
-        "status": request.status.value,
+        "events_requested": body.events_requested,
+        "status": body.status.value,
     }
 
     try:
         stream = await create_stream(payload)
     except ValueError as exc:
-        logger.warning("Stream create rejected reason=%s aud=%s", exc, request.aud)
+        logger.warning("Stream create rejected reason=%s aud=%s", exc, body.aud)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     pushed = await push_verification_set(stream)
@@ -112,30 +117,33 @@ async def get_stream_by_id_endpoint(stream_id: str) -> dict[str, Any]:
     return _stream_response(await _get_stream_or_404(stream_id))
 
 
-@router.patch("/streams")
-async def patch_stream_endpoint(request: StreamPatchRequest) -> dict[str, Any]:
-    """Update the current SSF stream configuration."""
+async def _patch_stream_body(body: StreamPatchRequest) -> dict[str, Any]:
+    """Apply a validated stream patch body without route-level side effects."""
     # Validate endpoint_url if delivery block is included in the patch
-    if request.delivery is not None:
+    if body.delivery is not None:
         try:
-            validate_receiver_endpoint_url(request.delivery.endpoint_url)
+            validate_receiver_endpoint_url(
+                body.delivery.endpoint_url,
+                allowed_hosts=settings.ssf_allowed_receiver_hosts or None,
+            )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=f"Invalid endpoint_url: {exc}") from exc
 
     # Build a sparse dict — only include fields that were explicitly set
     patch: dict[str, Any] = {}
-    if request.aud is not None:
-        patch["aud"] = request.aud
-    if request.status is not None:
-        patch["status"] = request.status.value
-    if request.events_requested is not None:
-        patch["events_requested"] = request.events_requested
-    if request.delivery is not None:
-        patch["delivery"] = {
-            "endpoint_url": request.delivery.endpoint_url,
-            "endpoint_url_token": request.delivery.endpoint_url_token or "",
-            "authorization_header": request.delivery.authorization_header or "",
-        }
+    if body.aud is not None:
+        patch["aud"] = body.aud
+    if body.status is not None:
+        patch["status"] = body.status.value
+    if body.events_requested is not None:
+        patch["events_requested"] = body.events_requested
+    if body.delivery is not None:
+        delivery_patch = {"endpoint_url": body.delivery.endpoint_url}
+        if body.delivery.endpoint_url_token is not None:
+            delivery_patch["endpoint_url_token"] = body.delivery.endpoint_url_token
+        if body.delivery.authorization_header is not None:
+            delivery_patch["authorization_header"] = body.delivery.authorization_header
+        patch["delivery"] = delivery_patch
 
     try:
         stream = await update_stream(patch)
@@ -146,11 +154,21 @@ async def patch_stream_endpoint(request: StreamPatchRequest) -> dict[str, Any]:
     return _stream_response(stream)
 
 
+@router.patch("/streams")
+@limiter.limit("20/minute")
+async def patch_stream_endpoint(request: Request, body: StreamPatchRequest) -> dict[str, Any]:
+    """Update the current SSF stream configuration."""
+    return await _patch_stream_body(body)
+
+
 @router.patch("/streams/{stream_id}")
-async def patch_stream_by_id_endpoint(stream_id: str, request: StreamPatchRequest) -> dict[str, Any]:
+@limiter.limit("20/minute")
+async def patch_stream_by_id_endpoint(
+    stream_id: str, request: Request, body: StreamPatchRequest
+) -> dict[str, Any]:
     """Update a stream by ID."""
     await _get_stream_or_404(stream_id)
-    return await patch_stream_endpoint(request)
+    return await _patch_stream_body(body)
 
 
 @router.delete("/streams", status_code=204)

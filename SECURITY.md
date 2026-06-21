@@ -29,6 +29,7 @@ This document covers the threat model, trust boundaries, and security properties
 - `POST /ssf/streams/subjects:remove`
 - `GET /ssf/status`
 - `POST /ssf/verification`
+- `GET /apple-scim/status` (if Apple SCIM is enabled)
 - `POST /apple-scim/sync` (if Apple SCIM is enabled)
 
 ### Public endpoints (no authentication required)
@@ -36,9 +37,8 @@ This document covers the threat model, trust boundaries, and security properties
 - `GET /` — minimal service discovery (service name, version, link to SSF well-known)
 - `GET /.well-known/ssf-configuration`
 - `GET /jwks.json`
-- `GET /apple-scim/status` (Apple SCIM OAuth status, no sensitive data)
-- `GET /apple-scim/authorize` (initiates OAuth flow)
-- `GET /apple-scim/callback` (OAuth callback)
+- `GET /apple-scim/authorize` (initiates OAuth flow — admin browser)
+- `GET /apple-scim/callback` (OAuth redirect from Apple; CSRF-protected via `state` parameter)
 
 ### OpenAPI / Swagger (disabled by default)
 
@@ -61,7 +61,7 @@ This document covers the threat model, trust boundaries, and security properties
 |---|---|---|
 | RSA 4096-bit private key | `/app/keys/private.pem` | File permissions 0600; volume must be root-owned |
 | Receiver endpoint URL | SQLite (`/app/data/ssf.db`) | Not secret; validated against SSRF blocklist |
-| Receiver bearer token | SQLite (`/app/data/ssf.db`) | **Stored in plaintext** — protect the data volume |
+| Receiver bearer token | SQLite (`/app/data/ssf.db`) | Encrypted at rest (Fernet); key from `SSF_TOKEN_ENCRYPTION_KEY` or derived from `SSF_MANAGEMENT_TOKEN` |
 | Management token | Environment variable only | Never written to disk or logged |
 | Webhook bearer token (`SSF_WEBHOOK_TOKEN`) | Environment variable only | Never written to disk or logged |
 | Webhook HMAC secret (`SSF_WEBHOOK_SECRET`) | Environment variable only | Never written to disk or logged (legacy mode only) |
@@ -112,6 +112,7 @@ This document covers the threat model, trust boundaries, and security properties
 - Tokens are never logged.
 - SQLite file is created with `chmod 0600`.
 - The container runs as a non-root user (`appuser`, UID 10001).
+- Streams with undecryptable stored receiver tokens are quarantined to `paused` at startup and cannot be re-enabled without a replacement `delivery.endpoint_url_token`.
 - **Operator responsibility:** mount `/app/data` to a root-owned host path; use encrypted storage if your threat model requires it.
 
 ### JWT signing key compromise
@@ -141,10 +142,12 @@ To run this service securely in production:
 1. **TLS:** Place behind nginx or Caddy with a valid certificate. Never expose the service directly on port 8000.
 2. **Network isolation:** The webhook endpoint (`/webhook/authentik`) should be reachable only from the Authentik container. Use Docker networks or nginx `allow`/`deny` rules.
 3. **Strong secrets:** Generate `SSF_MANAGEMENT_TOKEN` and `SSF_WEBHOOK_TOKEN` (bearer mode) or `SSF_WEBHOOK_SECRET` (hmac mode) with at least 32 random characters (`openssl rand -hex 24`). Do not reuse the same value for both tokens — they protect different trust boundaries.
+   Existing HMAC deployments must keep `SSF_WEBHOOK_AUTH_MODE=hmac` explicitly set during upgrades until the Authentik transport is migrated to bearer auth.
 4. **Volume permissions:** Mount `/app/keys` and `/app/data` to host paths owned by root (mode 700). Do not share these volumes with other containers.
 5. **Log pipeline:** Logs go to stdout/stderr only. Route them to a private log aggregator; do not ship logs to untrusted third parties (they may contain pseudonymous user identifiers).
-6. **Rate limiting:** Use nginx `limit_req` or Caddy `rate_limit` in front of the service. SSF Transmitter does not implement rate limiting internally.
-7. **Reverse proxy trust:** `SSF_FORWARDED_ALLOW_IPS` defaults to `*`. For hardened deployments, restrict it to your reverse proxy's Docker network subnet (e.g. `172.18.0.0/16` for a typical Nginx Proxy Manager bridge network).
+6. **Rate limiting:** The application enforces in-app limits via slowapi (default 200/min per IP; webhook 60/min; stream create 10/min). Also configure nginx `limit_req` or Caddy `rate_limit` in front of the service as a second line of defence.
+7. **Reverse proxy trust:** `SSF_FORWARDED_ALLOW_IPS` defaults to `127.0.0.1` in the container image. Set it to your reverse proxy's Docker network subnet (e.g. `172.18.0.0/16` for a typical Nginx Proxy Manager bridge network) so client IP logging and rate limits are accurate.
+8. **Signing key at rest:** The RS256 private key is stored unencrypted PEM with `0600` permissions on a dedicated volume. Protect `/app/keys` the same way as `/app/data`; optional passphrase encryption is not used because the passphrase would live in the same environment as the key material.
 
 ---
 

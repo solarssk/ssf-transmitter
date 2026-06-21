@@ -11,6 +11,46 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ---
 
+## [0.5.10] — 2026-06-21 — Stream recovery hardening
+
+### Fixed
+- **Stream enable guard** — `PATCH /ssf/streams` now rejects re-enabling a stream with an undecryptable stored receiver token when the replacement `delivery.endpoint_url_token` is empty or whitespace-only
+- **Startup quarantine timing** — undecryptable receiver-token quarantine now runs after `init_db()`, avoiding noisy first-boot startup errors before the `streams` table exists
+- **Startup quarantine error handling** — unexpected SQLite failures during receiver-token quarantine are now logged explicitly instead of being silently swallowed
+
+### Added
+- **Operator documentation source-of-truth** — added in-repo `docs/` pages for deployment, configuration, upgrading, troubleshooting, key management, event mapping, security notes, Apple SCIM sync, and API usage
+
+### Changed
+- **Upgrade and recovery docs** — clarified legacy HMAC webhook upgrades, `SSF_ISSUER` guidance, stream terminology, and the exact recovery PATCH required for `paused` streams with undecryptable receiver tokens
+- **Wiki alignment** — GitHub Wiki content updated to mirror the repository `docs/` set
+
+---
+
+## [0.5.9] — 2026-06-20 — Security hardening
+
+### Added
+- **Security hardening** — receiver hostname allowlist (`SSF_ALLOWED_RECEIVER_HOSTS`), in-app rate limiting (slowapi), HTTP security headers, request correlation IDs (`X-Request-ID`), Fernet encryption for receiver tokens at rest, OAuth state TTL for Apple SCIM
+- **`SSF_LOG_LEVEL`** — application now reads the documented env var (with `LOG_LEVEL` fallback)
+- **`SSF_TOKEN_ENCRYPTION_KEY`** — optional dedicated key for encrypting receiver tokens in SQLite
+
+### Changed
+- **`GET /apple-scim/status`** — now requires management Bearer token (OAuth `/authorize` and `/callback` remain public)
+- **`SSF_FORWARDED_ALLOW_IPS`** — Docker image default changed from `*` to `127.0.0.1`; set explicitly when behind a reverse proxy
+- **`SSF_ISSUER` / `SSF_BASE_URL`** — validated as HTTPS URLs at startup
+- **`AUTHENTIK_URL`** — unset value is now `None` instead of empty string
+- **CI security scans** — Trivy runs in table mode without GHAS/SARIF upload; fixed HIGH/CRITICAL container vulnerabilities fail CI while SBOM artifact is retained
+
+### Security
+- Receiver endpoint tokens encrypted at rest in SQLite (legacy plaintext tokens still readable until next stream update)
+
+### Dependencies
+- `fastapi` `>=0.137.2`, `cryptography` `>=49.0.0`, `slowapi` `>=0.1.9`
+- `pytest` `>=9.1.0`, `ruff` `>=0.15.18` (dev)
+- GitHub Actions `actions/checkout` `7.0.0`
+
+---
+
 ## [0.5.8] — 2026-06-12 — Release title polish
 
 ### Added

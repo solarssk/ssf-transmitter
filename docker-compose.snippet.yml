@@ -11,13 +11,13 @@ ssf-transmitter:
     SSF_BASE_URL: "${SSF_BASE_URL:?SSF base URL required}"
     SSF_ROOT_PATH: "${SSF_ROOT_PATH:-/shared-signals}"
     SSF_CONTAINER_PORT: "${SSF_CONTAINER_PORT:-8000}"
-    LOG_LEVEL: "${SSF_LOG_LEVEL:-INFO}"
-    SSF_WEBHOOK_AUTH_MODE: "${SSF_WEBHOOK_AUTH_MODE:-bearer}"
+    SSF_LOG_LEVEL: "${SSF_LOG_LEVEL:-INFO}"
+    SSF_WEBHOOK_AUTH_MODE: "${SSF_WEBHOOK_AUTH_MODE:-bearer}"  # legacy HMAC: set to hmac + SSF_WEBHOOK_SECRET
     SSF_WEBHOOK_TOKEN: "${SSF_WEBHOOK_TOKEN:?SSF webhook token required}"
     SSF_MANAGEMENT_TOKEN: "${SSF_MANAGEMENT_TOKEN:?SSF management token required}"
+    SSF_FORWARDED_ALLOW_IPS: "${SSF_FORWARDED_ALLOW_IPS:-127.0.0.1}"
     # SSF_WEBHOOK_SECRET: "${SSF_WEBHOOK_SECRET}"  # legacy HMAC mode only
     # SSF_PII_PEPPER: "${SSF_PII_PEPPER}"          # recommended: dedicated secret for log pseudonymisation
-    # SSF_FORWARDED_ALLOW_IPS: "172.16.0.0/12"     # restrict trusted proxy IPs; default: * (Docker network)
   volumes:
     - ./ssf-keys:/app/keys
     - ./ssf-data:/app/data

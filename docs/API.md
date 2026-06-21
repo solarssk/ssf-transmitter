@@ -20,12 +20,12 @@ Returns HTML when `Accept` includes `text/html` (and not JSON-only); otherwise J
 ```json
 {
   "service": "SSF Transmitter",
-  "version": "0.5.7",
+  "version": "0.5.10",
   "discovery": "/.well-known/ssf-configuration"
 }
 ```
 
-`version` comes from the `APP_VERSION` environment variable (`dev` when unset).
+`version` comes from the `APP_VERSION` environment variable (`dev` when unset; set at Docker image build time).
 
 ---
 
@@ -92,7 +92,7 @@ Registers an SSF push stream. The receiver calls this to configure where SETs ar
 |---|---|---|
 | `delivery.endpoint_url` | Yes | HTTPS URL where SETs will be pushed |
 | `delivery.endpoint_url_token` | Yes | Bearer token sent in `Authorization` header of each SET push |
-| `aud` | Yes | Audience claim in SET JWTs. Also accepted as `audience`, `receiver`, or `iss` |
+| `aud` | Yes | Audience claim in SET JWTs |
 | `events_requested` | No | List of event URIs the receiver wants. Empty means all supported events |
 | `stream_id` | No | Custom UUID; auto-generated if omitted |
 
@@ -122,9 +122,7 @@ Registers an SSF push stream. The receiver calls this to configure where SETs ar
   "events_supported": [
     "https://schemas.openid.net/secevent/caep/event-type/credential-change",
     "https://schemas.openid.net/secevent/caep/event-type/session-revoked",
-    "https://schemas.openid.net/secevent/risc/event-type/account-disabled",
-    "https://schemas.openid.net/secevent/risc/event-type/account-enabled",
-    "https://schemas.openid.net/secevent/risc/event-type/account-purged"
+    "https://schemas.openid.net/secevent/ssf/event-type/verification"
   ],
   "events_requested": [
     "https://schemas.openid.net/secevent/caep/event-type/session-revoked"
@@ -159,6 +157,8 @@ Updates the current stream. Accepts the same fields as POST; omitted fields reta
 
 **Response** `200 OK` — updated stream.
 **Response** `404 Not Found` — no stream configured.
+
+If the current stream is `paused` because its stored receiver token is undecryptable, setting `status: "enabled"` requires a replacement `delivery.endpoint_url_token` in the same PATCH.
 
 ---
 
@@ -258,13 +258,11 @@ Possible `status` values when no SET is delivered:
 
 | Event URI | Triggered by |
 |---|---|
+| `https://schemas.openid.net/secevent/ssf/event-type/verification` | Stream registration (`POST /ssf/streams`) |
 | `https://schemas.openid.net/secevent/caep/event-type/session-revoked` | Authentik logout |
-| `https://schemas.openid.net/secevent/caep/event-type/credential-change` | Password change |
-| `https://schemas.openid.net/secevent/risc/event-type/account-disabled` | User deactivated |
-| `https://schemas.openid.net/secevent/risc/event-type/account-enabled` | User reactivated |
-| `https://schemas.openid.net/secevent/risc/event-type/account-purged` | User deleted |
+| `https://schemas.openid.net/secevent/caep/event-type/credential-change` | Password change (`user.write` with `password` in `changed_fields`) |
 
-Legacy `caep/event-type/account-*` URIs are accepted in `events_requested` and canonicalized to `risc/event-type/` automatically.
+RISC lifecycle events (`account-disabled`, `account-enabled`, `account-purged`) are **not** supported in v0.5.10 — see [Event-Mapping.md](Event-Mapping.md).
 
 ---
 
@@ -281,7 +279,7 @@ Each pushed SET is an RS256 JWT with `typ: secevent+jwt`. Relevant claims:
 
 **CAEP** events (`session-revoked`, `credential-change`) use an empty `{}` event body.
 
-**RISC** lifecycle events (`account-disabled`, `account-enabled`, `account-purged`) also use an empty `{}` event body. The subject is **not** duplicated inside `events` — only the top-level `sub_id` identifies the user. Verification SETs use `sub_id` with `format: opaque` (stream UUID) instead.
+Verification SETs use `sub_id` with `format: opaque` (stream UUID) instead.
 
 ---
 
