@@ -2,17 +2,21 @@
 
 [![CI](https://github.com/solarssk/ssf-transmitter/actions/workflows/ci.yml/badge.svg)](https://github.com/solarssk/ssf-transmitter/actions/workflows/ci.yml)
 
-Standalone service that sits next to Authentik and forwards user security events (logout, password change, account disable/delete) to receivers implementing the [OpenID Shared Signals Framework](https://openid.net/specs/openid-sharedsignals-framework-1_0.html). One container supports one active SSF stream — registering a new stream replaces the existing one. Multi-stream support (fan-out to multiple receivers) is planned for v1.1. Primary receiver: Apple Business Manager CAEP.
+Standalone service that sits next to Authentik and forwards user security events (logout, password change) to receivers implementing the [OpenID Shared Signals Framework](https://openid.net/specs/openid-sharedsignals-framework-1_0.html). One container supports one active SSF stream — registering a new stream replaces the existing one. Multi-stream support (fan-out to multiple receivers) is planned for v1.1. Primary receiver: Apple Business Manager CAEP.
 
 Events are signed as RS256 JWTs (Security Event Tokens) and pushed over HTTPS. No admin panel — all configuration is environment variables.
+
+**Current release:** [v0.5.9 — Security hardening](https://github.com/solarssk/ssf-transmitter/releases/tag/v0.5.9)
 
 ## Features
 
 - SSF discovery and JWKS endpoints
 - Stream management API (create / read / update / delete)
 - Authentik webhook receiver with Bearer or HMAC-SHA256 authentication
-- CAEP/RISC event mapping for logout, password change, account disable/enable, account delete
+- CAEP event mapping for logout and password change
 - RS256-signed SET push delivery with SSRF and DNS rebinding protection
+- Receiver hostname allowlist, in-app rate limiting, HTTP security headers (v0.5.9+)
+- Fernet encryption for receiver tokens at rest (v0.5.9+)
 - PII masking in logs by default
 - Apple Business Manager SCIM user sync (optional)
 - Startup preflight checks with ✅/⚠️/❌ output per item
@@ -20,10 +24,20 @@ Events are signed as RS256 JWTs (Security Event Tokens) and pushed over HTTPS. N
 
 ## Quick start
 
-1. Copy `.env.example` to `stack.env` and fill in the four required variables:
-   `SSF_ISSUER`, `SSF_BASE_URL`, `SSF_MANAGEMENT_TOKEN`, `SSF_WEBHOOK_TOKEN`
-2. Add the service to your Docker Compose file — see [Deployment](../../wiki/Deployment) for the full block including Nginx Proxy Manager and Authentik webhook setup
+1. Copy [`.env.example`](.env.example) to `stack.env` and set:
+   - `SSF_ISSUER`, `SSF_BASE_URL`
+   - `SSF_MANAGEMENT_TOKEN`, `SSF_WEBHOOK_TOKEN`
+   - `SSF_FORWARDED_ALLOW_IPS` (your reverse proxy subnet if behind NPM/Caddy)
+2. Add the service to Docker Compose — see [docs/Deployment.md](docs/Deployment.md) or [Synology guide](docs/synology-authentik-compose.md)
 3. Register the stream with your receiver using the SSF Config URL below
+
+## Upgrading
+
+**Already running with Apple Business Manager?** See [docs/Upgrading.md](docs/Upgrading.md#v059--security-hardening-from-058-or-earlier):
+
+- Bump image to `0.5.9`
+- Set `SSF_FORWARDED_ALLOW_IPS` behind reverse proxy
+- Do **not** add `SSF_TOKEN_ENCRYPTION_KEY` unless re-registering the stream
 
 ## Public endpoints
 
@@ -43,27 +57,25 @@ Replace `idp.example.com` with your IdP hostname and `/shared-signals` with your
 
 | Topic | Location |
 |---|---|
-| Deployment (Synology, Nginx, Authentik) | [Wiki: Deployment](../../wiki/Deployment) |
-| All environment variables | [Wiki: Configuration](../../wiki/Configuration) |
-| Authentik → SSF event mapping | [Wiki: Event Mapping](../../wiki/Event-Mapping) |
-| Key generation, backup, rotation | [Wiki: Key Management](../../wiki/Key-Management) |
-| Apple SCIM directory sync | [Wiki: Apple SCIM Sync](../../wiki/Apple-SCIM-Sync) |
-| Production security checklist | [Wiki: Security Notes](../../wiki/Security-Notes) |
-| Common errors and fixes | [Wiki: Troubleshooting](../../wiki/Troubleshooting) |
-| Full API reference | [docs/API.md](docs/API.md) |
+| **Documentation index** | [docs/README.md](docs/README.md) |
+| Deployment | [docs/Deployment.md](docs/Deployment.md) |
+| Synology + Authentik | [docs/synology-authentik-compose.md](docs/synology-authentik-compose.md) |
+| Environment variables | [docs/Configuration.md](docs/Configuration.md) |
+| Upgrading (v0.5.9) | [docs/Upgrading.md](docs/Upgrading.md) |
+| Event mapping | [docs/Event-Mapping.md](docs/Event-Mapping.md) |
+| Keys and rotation | [docs/Key-Management.md](docs/Key-Management.md) |
+| Apple SCIM sync | [docs/Apple-SCIM-Sync.md](docs/Apple-SCIM-Sync.md) |
+| Security checklist | [docs/Security-Notes.md](docs/Security-Notes.md) |
+| Troubleshooting | [docs/Troubleshooting.md](docs/Troubleshooting.md) |
+| API reference | [docs/API.md](docs/API.md) |
 | Threat model | [SECURITY.md](SECURITY.md) |
 | Changelog | [CHANGELOG.md](CHANGELOG.md) |
 
+Wiki pages mirror `docs/` — sync from the repo when updating [GitHub Wiki](https://github.com/solarssk/ssf-transmitter/wiki).
 
 ## Apple SCIM group filtering
 
-Set `APPLE_SCIM_GROUP_ID` to an Authentik group UUID to sync only members of a dedicated Apple group, for example **Apple Accounts**:
-
-```env
-APPLE_SCIM_GROUP_ID=978bff1a-5f55-4068-808c-45e09bb196d4
-```
-
-Leaving `APPLE_SCIM_GROUP_ID` empty preserves the legacy behavior: all active internal Authentik users are considered for Apple SCIM sync. In production, use a dedicated group and exclude local backup, break-glass/admin, technical/service, and Authentik-only accounts.
+Set `APPLE_SCIM_GROUP_ID` to an Authentik group UUID to sync only members of a dedicated Apple group. See [docs/Apple-SCIM-Sync.md](docs/Apple-SCIM-Sync.md).
 
 ## Development
 
@@ -76,4 +88,4 @@ ruff check .
 pytest
 ```
 
-GitHub Actions runs linting, tests, dependency checks, and a Docker image build on **every push and pull request** — no manual test run is required before merge; forked copies get the same workflow when Actions are enabled.
+GitHub Actions runs linting, tests, dependency checks, and a Docker image build on every push and pull request.

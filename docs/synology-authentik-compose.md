@@ -1,70 +1,78 @@
 # Synology Authentik Compose Integration
 
-This service can be added to an existing Authentik stack as a fourth service next to PostgreSQL, `server`, and `worker`.
+This service runs as a fourth container next to PostgreSQL, Authentik `server`, and `worker`.
 
-Keep deployment-specific hostnames and secrets in `stack.env`. Do not commit that file.
+Keep hostnames and secrets in `stack.env`. **Never commit** `stack.env` or paste secrets into compose YAML.
 
-## Filesystem Layout
+**Current release:** `ghcr.io/solarssk/ssf-transmitter:0.5.9`
 
-Recommended layout on Synology:
+See also: [Deployment.md](Deployment.md), [Upgrading.md](Upgrading.md), [Configuration.md](Configuration.md).
+
+## Filesystem layout
 
 ```text
 /volume2/docker/authentik/
 ├── compose.yml
 ├── stack.env
-├── ssf-transmitter/
-├── ssf-data/
-└── ssf-keys/
+├── ssf-keys/          # RS256 signing key (persist)
+├── ssf-data/          # SQLite (persist)
+└── ssf-transmitter/   # optional: clone for local builds
 ```
 
-If you want Portainer/Synology to build locally, clone this repository into:
+Recommended: pull the prebuilt GHCR image — no local build required.
 
-```text
-/volume2/docker/authentik/ssf-transmitter
-```
-
-The recommended setup is to avoid local builds and pull the prebuilt GHCR image instead.
-
-## Private GHCR Access
-
-Because the repository is private, the container package is private too unless you explicitly change its visibility.
-Configure Portainer with GitHub Container Registry credentials:
-
-- Registry URL: `ghcr.io`
-- Username: your GitHub username
-- Password/token: a GitHub personal access token with `read:packages`
-
-Alternatively, log in once on the Synology host:
+## Private GHCR access
 
 ```bash
 docker login ghcr.io
+# Username: GitHub username
+# Password: PAT with read:packages
 ```
 
-Use your GitHub username and a personal access token with `read:packages`.
+In Portainer: Registry → `ghcr.io` with the same credentials.
 
 ## `stack.env`
 
-Add these variables to the same `stack.env` used by Authentik:
-
 ```env
-SSF_ISSUER=https://idp.example.com/application/o/apple-id/
+# ── Required ──
+SSF_ISSUER=https://idp.example.com/shared-signals
 SSF_BASE_URL=https://idp.example.com/shared-signals
 SSF_ROOT_PATH=/shared-signals
+SSF_MANAGEMENT_TOKEN=<openssl rand -hex 32>
+SSF_WEBHOOK_AUTH_MODE=bearer
+SSF_WEBHOOK_TOKEN=<openssl rand -hex 32>
+
+# ── Recommended ──
+SSF_LOG_LEVEL=INFO
 SSF_HOST_PORT=62107
 SSF_CONTAINER_PORT=8000
-SSF_LOG_LEVEL=INFO
-SSF_WEBHOOK_SECRET=change_me_to_random_string_min_32_chars
+SSF_FORWARDED_ALLOW_IPS=172.16.3.0/24
+
+# ── Optional: Apple SCIM (see Apple-SCIM-Sync.md) ──
+# APPLE_SCIM_CLIENT_ID=SCIM.xxx
+# APPLE_SCIM_CLIENT_SECRET=
+# AUTHENTIK_URL=https://idp.example.com
+# AUTHENTIK_TOKEN=
+# APPLE_SCIM_GROUP_ID=
+# APPLE_SCIM_ALERT_WEBHOOK_URL=
+
+# ── Optional: security hardening ──
+# SSF_PII_PEPPER=
+# SSF_ALLOWED_RECEIVER_HOSTS=receiver.example.com
+# Do NOT set SSF_TOKEN_ENCRYPTION_KEY on existing installs with a working stream
 ```
 
-Replace `idp.example.com` with your IdP hostname only in your private deployment environment.
+Replace `idp.example.com` with your hostname.
 
-## Service Block
+### `SSF_FORWARDED_ALLOW_IPS`
 
-Add this service under `services:` in your Authentik compose file:
+Match your Docker bridge subnet. Example below uses `172.16.3.0/24`. If NPM uses a different network, adjust accordingly.
+
+## Service block
 
 ```yaml
   ssf-transmitter:
-    image: ghcr.io/solarssk/ssf-transmitter:latest
+    image: ghcr.io/solarssk/ssf-transmitter:0.5.9
     container_name: authentik-ssf
     restart: unless-stopped
     networks:
@@ -78,15 +86,18 @@ Add this service under `services:` in your Authentik compose file:
       SSF_BASE_URL: "${SSF_BASE_URL:?SSF base URL required}"
       SSF_ROOT_PATH: "${SSF_ROOT_PATH:-/shared-signals}"
       SSF_CONTAINER_PORT: "${SSF_CONTAINER_PORT:-8000}"
-      LOG_LEVEL: "${SSF_LOG_LEVEL:-INFO}"
-      SSF_WEBHOOK_SECRET: "${SSF_WEBHOOK_SECRET:?SSF webhook secret required}"
+      SSF_LOG_LEVEL: "${SSF_LOG_LEVEL:-INFO}"
+      SSF_WEBHOOK_AUTH_MODE: "${SSF_WEBHOOK_AUTH_MODE:-bearer}"
+      SSF_WEBHOOK_TOKEN: "${SSF_WEBHOOK_TOKEN:?SSF webhook token required}"
+      SSF_MANAGEMENT_TOKEN: "${SSF_MANAGEMENT_TOKEN:?SSF management token required}"
+      SSF_FORWARDED_ALLOW_IPS: "${SSF_FORWARDED_ALLOW_IPS:-127.0.0.1}"
       TZ: Europe/Warsaw
     volumes:
       - /volume2/docker/authentik/ssf-keys:/app/keys
       - /volume2/docker/authentik/ssf-data:/app/data
 ```
 
-The existing network block can stay as-is:
+Network (unchanged if already present):
 
 ```yaml
 networks:
@@ -99,8 +110,6 @@ networks:
 ```
 
 ## Nginx Proxy Manager
-
-In the existing proxy host for your IdP hostname, add:
 
 ```nginx
 location ^~ /shared-signals/ {
@@ -123,47 +132,41 @@ Set `SSF_FORWARDED_ALLOW_IPS` to your proxy subnet (e.g. `172.16.3.0/24` for the
 
 If `SSF_HOST_PORT` changes, update the Nginx Proxy Manager port too.
 
-## Authentik Webhook
+## Authentik webhook
 
-Create a Generic Webhook notification transport in Authentik:
+| Field | Value |
+|---|---|
+| URL | `http://authentik-ssf:8000/webhook/authentik` |
+| Header Mapping | `Authorization` → `Bearer <SSF_WEBHOOK_TOKEN>` |
+| Events | `logout`, `user.write` |
 
-- URL: `http://authentik-ssf:8000/webhook/authentik`
-- HMAC secret: value of `SSF_WEBHOOK_SECRET`
-- Events: `authentik.core.auth.logout`, `authentik.core.user.write`, `authentik.core.user.delete`
+**Do not use HMAC** unless you set `SSF_WEBHOOK_AUTH_MODE=hmac` and `SSF_WEBHOOK_SECRET`.
 
-If `SSF_CONTAINER_PORT` changes, update the webhook URL port.
+## Public URLs for ABM
 
-## Public Receiver Configuration
+| Purpose | URL |
+|---|---|
+| SSF Config | `https://idp.example.com/shared-signals/.well-known/ssf-configuration` |
+| OpenID Config | `https://idp.example.com/application/o/apple-id/.well-known/openid-configuration` |
 
-Use these URLs with the SSF receiver:
+## Upgrading from 0.5.8
 
-- SSF Config URL: `https://idp.example.com/shared-signals/.well-known/ssf-configuration`
-- OpenID Config URL: `https://idp.example.com/application/o/apple-id/.well-known/openid-configuration`
+If you already have ABM connected:
 
-Replace `idp.example.com` in the receiver UI with your real IdP hostname.
+1. Backup `ssf-keys/` and `ssf-data/`.
+2. Change image to `0.5.9`.
+3. Add `SSF_FORWARDED_ALLOW_IPS` (proxy subnet).
+4. **Do not** add `SSF_TOKEN_ENCRYPTION_KEY`.
+5. Redeploy and check `/ssf/status` is `enabled`.
 
-## Image Updates
+Full guide: [Upgrading.md](Upgrading.md).
 
-Every push to `main` builds and publishes:
+## Image updates
 
-- `ghcr.io/solarssk/ssf-transmitter:latest`
-- `ghcr.io/solarssk/ssf-transmitter:sha-<short_sha>`
+Pin `0.5.9` in production. `:latest` updates on every `main` push when you pull and redeploy.
 
-In Portainer, redeploy the stack and enable image pulling when you want to update to the newest `latest` image.
-
+Stable release tags (`v0.5.9`) update the `latest` Docker tag; pre-release tags do not.
 
 ## Apple SCIM group filtering
 
-Apple SCIM sync is optional. When the Apple SCIM and Authentik API variables are configured, the transmitter can limit provisioning to a dedicated Authentik group by setting `APPLE_SCIM_GROUP_ID` to that group's UUID:
-
-```env
-APPLE_SCIM_GROUP_ID=978bff1a-5f55-4068-808c-45e09bb196d4
-```
-
-Recommended setup:
-
-1. Create a dedicated Authentik group such as **Apple Accounts**.
-2. Add only users that should have Apple Managed Accounts.
-3. Exclude local backup accounts, break-glass/admin accounts, technical accounts, service accounts, and Authentik-only accounts.
-
-If `APPLE_SCIM_GROUP_ID` is left empty, the transmitter preserves the legacy behavior and considers all active internal Authentik users for Apple SCIM sync. Use group filtering in production to avoid accidentally provisioning or validating accounts that should never be sent to Apple.
+See [Apple-SCIM-Sync.md](Apple-SCIM-Sync.md).
