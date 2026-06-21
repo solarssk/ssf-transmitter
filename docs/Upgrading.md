@@ -77,12 +77,13 @@ undecryptable endpoint tokens and were paused
 
 You cannot re-enable a paused stream with an undecryptable token without supplying a replacement token (by design since v0.5.9).
 
-Minimal recovery PATCH:
+Minimal recovery PATCH (include the current `delivery.endpoint_url`; the PATCH schema still requires it):
 
 ```json
 {
   "status": "enabled",
   "delivery": {
+    "endpoint_url": "https://receiver.example.com/sets",
     "endpoint_url_token": "<new receiver token>"
   }
 }

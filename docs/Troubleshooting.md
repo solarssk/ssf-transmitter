@@ -35,6 +35,7 @@ You rotated `SSF_MANAGEMENT_TOKEN` or added `SSF_TOKEN_ENCRYPTION_KEY` after the
 {
   "status": "enabled",
   "delivery": {
+    "endpoint_url": "https://receiver.example.com/sets",
     "endpoint_url_token": "<new receiver token>"
   }
 }
