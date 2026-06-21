@@ -20,12 +20,12 @@ Returns HTML when `Accept` includes `text/html` (and not JSON-only); otherwise J
 ```json
 {
   "service": "SSF Transmitter",
-  "version": "0.5.7",
+  "version": "0.5.9",
   "discovery": "/.well-known/ssf-configuration"
 }
 ```
 
-`version` comes from the `APP_VERSION` environment variable (`dev` when unset).
+`version` comes from the `APP_VERSION` environment variable (`dev` when unset; set at Docker image build time).
 
 ---
 
