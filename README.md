@@ -6,7 +6,7 @@ Standalone service that sits next to Authentik and forwards user security events
 
 Events are signed as RS256 JWTs (Security Event Tokens) and pushed over HTTPS. No admin panel — all configuration is environment variables.
 
-**Current release:** [v0.5.9 — Security hardening](https://github.com/solarssk/ssf-transmitter/releases/tag/v0.5.9)
+**Current release:** [v0.5.10 — Stream recovery hardening](https://github.com/solarssk/ssf-transmitter/releases/tag/v0.5.10)
 
 ## Features
 
@@ -37,7 +37,7 @@ A **stream** is the receiver configuration stored in SQLite: receiver URL, beare
 
 **Already running with Apple Business Manager?** See [docs/Upgrading.md](docs/Upgrading.md#v059--security-hardening-from-058-or-earlier):
 
-- Bump image to `0.5.9`
+- Bump image to `0.5.10`
 - Set `SSF_FORWARDED_ALLOW_IPS` behind reverse proxy
 - Keep `SSF_WEBHOOK_AUTH_MODE=hmac` explicitly if your Authentik webhook still uses legacy HMAC
 - Do **not** add `SSF_TOKEN_ENCRYPTION_KEY` unless re-registering the stream
@@ -64,7 +64,7 @@ Replace `idp.example.com` with your IdP hostname and `/shared-signals` with your
 | Deployment | [docs/Deployment.md](docs/Deployment.md) |
 | Synology + Authentik | [docs/synology-authentik-compose.md](docs/synology-authentik-compose.md) |
 | Environment variables | [docs/Configuration.md](docs/Configuration.md) |
-| Upgrading (v0.5.9) | [docs/Upgrading.md](docs/Upgrading.md) |
+| Upgrading (v0.5.9+) | [docs/Upgrading.md](docs/Upgrading.md) |
 | Event mapping | [docs/Event-Mapping.md](docs/Event-Mapping.md) |
 | Keys and rotation | [docs/Key-Management.md](docs/Key-Management.md) |
 | Apple SCIM sync | [docs/Apple-SCIM-Sync.md](docs/Apple-SCIM-Sync.md) |

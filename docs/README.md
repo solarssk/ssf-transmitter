@@ -7,7 +7,7 @@ These files are the **source of truth** for operator documentation. Copy or sync
 | Deployment (Docker, NPM, Authentik) | [Deployment.md](Deployment.md) |
 | Synology + Authentik compose (step-by-step) | [synology-authentik-compose.md](synology-authentik-compose.md) |
 | All environment variables | [Configuration.md](Configuration.md) |
-| Upgrading (especially v0.5.9) | [Upgrading.md](Upgrading.md) |
+| Upgrading (especially v0.5.9+) | [Upgrading.md](Upgrading.md) |
 | Authentik → SSF event mapping | [Event-Mapping.md](Event-Mapping.md) |
 | Keys, tokens, rotation | [Key-Management.md](Key-Management.md) |
 | Apple SCIM directory sync | [Apple-SCIM-Sync.md](Apple-SCIM-Sync.md) |
@@ -17,4 +17,4 @@ These files are the **source of truth** for operator documentation. Copy or sync
 | Threat model | [../SECURITY.md](../SECURITY.md) |
 | Changelog | [../CHANGELOG.md](../CHANGELOG.md) |
 
-**Current stable release:** `v0.5.9` — [Security hardening](https://github.com/solarssk/ssf-transmitter/releases/tag/v0.5.9)
+**Current stable release:** `v0.5.10` — [Stream recovery hardening](https://github.com/solarssk/ssf-transmitter/releases/tag/v0.5.10)

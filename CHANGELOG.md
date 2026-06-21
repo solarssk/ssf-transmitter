@@ -11,6 +11,22 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ---
 
+## [0.5.10] — 2026-06-21 — Stream recovery hardening
+
+### Fixed
+- **Stream enable guard** — `PATCH /ssf/streams` now rejects re-enabling a stream with an undecryptable stored receiver token when the replacement `delivery.endpoint_url_token` is empty or whitespace-only
+- **Startup quarantine timing** — undecryptable receiver-token quarantine now runs after `init_db()`, avoiding noisy first-boot startup errors before the `streams` table exists
+- **Startup quarantine error handling** — unexpected SQLite failures during receiver-token quarantine are now logged explicitly instead of being silently swallowed
+
+### Added
+- **Operator documentation source-of-truth** — added in-repo `docs/` pages for deployment, configuration, upgrading, troubleshooting, key management, event mapping, security notes, Apple SCIM sync, and API usage
+
+### Changed
+- **Upgrade and recovery docs** — clarified legacy HMAC webhook upgrades, `SSF_ISSUER` guidance, stream terminology, and the exact recovery PATCH required for `paused` streams with undecryptable receiver tokens
+- **Wiki alignment** — GitHub Wiki content updated to mirror the repository `docs/` set
+
+---
+
 ## [0.5.9] — 2026-06-20 — Security hardening
 
 ### Added

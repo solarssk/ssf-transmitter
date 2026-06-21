@@ -20,7 +20,7 @@ Returns HTML when `Accept` includes `text/html` (and not JSON-only); otherwise J
 ```json
 {
   "service": "SSF Transmitter",
-  "version": "0.5.9",
+  "version": "0.5.10",
   "discovery": "/.well-known/ssf-configuration"
 }
 ```
@@ -262,7 +262,7 @@ Possible `status` values when no SET is delivered:
 | `https://schemas.openid.net/secevent/caep/event-type/session-revoked` | Authentik logout |
 | `https://schemas.openid.net/secevent/caep/event-type/credential-change` | Password change (`user.write` with `password` in `changed_fields`) |
 
-RISC lifecycle events (`account-disabled`, `account-enabled`, `account-purged`) are **not** supported in v0.5.9 — see [Event-Mapping.md](Event-Mapping.md).
+RISC lifecycle events (`account-disabled`, `account-enabled`, `account-purged`) are **not** supported in v0.5.10 — see [Event-Mapping.md](Event-Mapping.md).
 
 ---
 

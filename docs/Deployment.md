@@ -5,7 +5,7 @@ SSF Transmitter runs as a single Docker container next to Authentik. TLS termina
 ## Image
 
 ```text
-ghcr.io/solarssk/ssf-transmitter:0.5.9   # pinned release
+ghcr.io/solarssk/ssf-transmitter:0.5.10   # pinned release
 ghcr.io/solarssk/ssf-transmitter:latest    # tracks main
 ```
 
@@ -17,7 +17,7 @@ See [docker-compose.snippet.yml](../docker-compose.snippet.yml) in the repositor
 
 ```yaml
 ssf-transmitter:
-  image: ghcr.io/solarssk/ssf-transmitter:0.5.9
+  image: ghcr.io/solarssk/ssf-transmitter:0.5.10
   container_name: authentik-ssf
   restart: unless-stopped
   env_file:
@@ -110,4 +110,4 @@ See [synology-authentik-compose.md](synology-authentik-compose.md) for a full Au
 
 ## Upgrading
 
-See [Upgrading.md](Upgrading.md) — especially if you are moving from `0.5.8` to `0.5.9`.
+See [Upgrading.md](Upgrading.md) — especially if you are moving from `0.5.8` to `0.5.9+`.
