@@ -5,7 +5,7 @@ SSF Transmitter runs as a single Docker container next to Authentik. TLS termina
 ## Image
 
 ```text
-ghcr.io/solarssk/ssf-transmitter:0.5.9   # pinned release
+ghcr.io/solarssk/ssf-transmitter:0.5.10   # pinned release
 ghcr.io/solarssk/ssf-transmitter:latest    # tracks main
 ```
 
@@ -17,7 +17,7 @@ See [docker-compose.snippet.yml](../docker-compose.snippet.yml) in the repositor
 
 ```yaml
 ssf-transmitter:
-  image: ghcr.io/solarssk/ssf-transmitter:0.5.9
+  image: ghcr.io/solarssk/ssf-transmitter:0.5.10
   container_name: authentik-ssf
   restart: unless-stopped
   env_file:
@@ -91,6 +91,8 @@ Create a **Generic Webhook** notification transport:
 
 Use the Docker service name (`authentik-ssf`) so traffic stays on the internal network.
 
+If you are upgrading an older deployment that still uses `X-Authentik-Signature`, keep `SSF_WEBHOOK_AUTH_MODE=hmac` and `SSF_WEBHOOK_SECRET` in `stack.env` until you intentionally migrate the transport to bearer auth.
+
 ## Register stream with receiver
 
 After the container is healthy, register the SSF stream with your receiver (e.g. Apple Business Manager) using:
@@ -100,10 +102,12 @@ After the container is healthy, register the SSF stream with your receiver (e.g.
 
 One active stream is supported; creating a new stream replaces the previous one.
 
+A **stream** is the receiver-side registration stored in SQLite: receiver URL, receiver bearer token, requested events, and status (`enabled`, `paused`, `disabled`).
+
 ## Synology step-by-step
 
 See [synology-authentik-compose.md](synology-authentik-compose.md) for a full Authentik stack integration guide.
 
 ## Upgrading
 
-See [Upgrading.md](Upgrading.md) — especially if you are moving from `0.5.8` to `0.5.9`.
+See [Upgrading.md](Upgrading.md) — especially if you are moving from `0.5.8` to `0.5.9+`.

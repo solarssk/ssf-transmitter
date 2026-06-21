@@ -4,7 +4,7 @@ This service runs as a fourth container next to PostgreSQL, Authentik `server`, 
 
 Keep hostnames and secrets in `stack.env`. **Never commit** `stack.env` or paste secrets into compose YAML.
 
-**Current release:** `ghcr.io/solarssk/ssf-transmitter:0.5.9`
+**Current release:** `ghcr.io/solarssk/ssf-transmitter:0.5.10`
 
 See also: [Deployment.md](Deployment.md), [Upgrading.md](Upgrading.md), [Configuration.md](Configuration.md).
 
@@ -72,7 +72,7 @@ Match your Docker bridge subnet. Example below uses `172.16.3.0/24`. If NPM uses
 
 ```yaml
   ssf-transmitter:
-    image: ghcr.io/solarssk/ssf-transmitter:0.5.9
+    image: ghcr.io/solarssk/ssf-transmitter:0.5.10
     container_name: authentik-ssf
     restart: unless-stopped
     networks:
@@ -154,7 +154,7 @@ If `SSF_HOST_PORT` changes, update the Nginx Proxy Manager port too.
 If you already have ABM connected:
 
 1. Backup `ssf-keys/` and `ssf-data/`.
-2. Change image to `0.5.9`.
+2. Change image to `0.5.10`.
 3. Add `SSF_FORWARDED_ALLOW_IPS` (proxy subnet).
 4. **Do not** add `SSF_TOKEN_ENCRYPTION_KEY`.
 5. Redeploy and check `/ssf/status` is `enabled`.
@@ -163,9 +163,9 @@ Full guide: [Upgrading.md](Upgrading.md).
 
 ## Image updates
 
-Pin `0.5.9` in production. `:latest` updates on every `main` push when you pull and redeploy.
+Pin `0.5.10` in production. `:latest` updates on every `main` push when you pull and redeploy.
 
-Stable release tags (`v0.5.9`) update the `latest` Docker tag; pre-release tags do not.
+Stable release tags (`v0.5.10`) update the `latest` Docker tag; pre-release tags do not.
 
 ## Apple SCIM group filtering
 

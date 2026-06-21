@@ -29,7 +29,18 @@ You rotated `SSF_MANAGEMENT_TOKEN` or added `SSF_TOKEN_ENCRYPTION_KEY` after the
 
 1. Get a new receiver token from your SSF receiver (ABM).
 2. `PATCH /ssf/streams` with `delivery.endpoint_url_token` and `status: enabled`.
-3. Or delete and re-create the stream.
+3. Example body:
+
+```json
+{
+  "status": "enabled",
+  "delivery": {
+    "endpoint_url": "https://receiver.example.com/sets",
+    "endpoint_url_token": "<new receiver token>"
+  }
+}
+```
+4. Or delete and re-create the stream.
 
 ## Stream / delivery
 

@@ -52,7 +52,7 @@ Receiver endpoint tokens in SQLite are Fernet-encrypted with prefix `fernet1:`.
 If startup logs show paused streams due to undecryptable tokens:
 
 1. Obtain new receiver token from ABM/receiver.
-2. `PATCH /ssf/streams` with new `delivery.endpoint_url_token` and `status: enabled`.
+2. `PATCH /ssf/streams` with the current `delivery.endpoint_url`, the new `delivery.endpoint_url_token`, and `status: enabled`.
 
 ## `SSF_PII_PEPPER`
 
