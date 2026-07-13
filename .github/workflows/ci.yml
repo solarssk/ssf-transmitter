@@ -35,6 +35,18 @@ jobs:
       - name: Test
         run: pytest
 
+      - name: Upload coverage to Codecov
+        # Fork and Dependabot workflows cannot read repository secrets; tests still run.
+        if: ${{ env.CODECOV_TOKEN != '' }}
+        uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac  # v5
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+        with:
+          token: ${{ env.CODECOV_TOKEN }}
+          files: coverage.xml
+          flags: backend
+          fail_ci_if_error: true
+
       - name: Check for unused/missing dependencies
         run: deptry .
 

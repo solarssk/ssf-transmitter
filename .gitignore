@@ -2,6 +2,8 @@
 .local/
 .pycache/
 .pytest_cache/
+.coverage
+coverage.xml
 .ruff_cache/
 .testdata/
 __pycache__/

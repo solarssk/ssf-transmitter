@@ -1,0 +1,21 @@
+# Coverage is measured only for production code (app/), as configured in pyproject.toml.
+# Keep statuses informational until the first published baseline is reviewed; the PR
+# comment still highlights uncovered changed lines for every contributor.
+coverage:
+  status:
+    project:
+      default:
+        informational: true
+    patch:
+      default:
+        informational: true
+
+flags:
+  backend:
+    paths:
+      - app/
+
+comment:
+  behavior: default
+  require_changes: true
+  layout: "reach, diff, flags, files"
