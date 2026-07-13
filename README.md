@@ -1,6 +1,7 @@
 # SSF Transmitter
 
 [![CI](https://github.com/solarssk/ssf-transmitter/actions/workflows/ci.yml/badge.svg)](https://github.com/solarssk/ssf-transmitter/actions/workflows/ci.yml)
+[![Code coverage](https://codecov.io/gh/solarssk/ssf-transmitter/graph/badge.svg)](https://codecov.io/gh/solarssk/ssf-transmitter)
 
 Standalone service that sits next to Authentik and forwards user security events (logout, password change) to receivers implementing the [OpenID Shared Signals Framework](https://openid.net/specs/openid-sharedsignals-framework-1_0.html). One container supports one active SSF stream — registering a new stream replaces the existing one. Multi-stream support (fan-out to multiple receivers) is planned for v1.1. Primary receiver: Apple Business Manager CAEP.
 
@@ -88,7 +89,7 @@ Requires **Python 3.14** (see `.python-version`; matches CI and the Docker image
 python3.14 -m venv .venv && . .venv/bin/activate
 pip install -r requirements-dev.txt
 ruff check .
-pytest
+pytest  # runs the suite and prints branch coverage for app/
 ```
 
-GitHub Actions runs linting, tests, dependency checks, and a Docker image build on every push and pull request.
+GitHub Actions runs linting, tests with branch coverage, dependency checks, and a Docker image build on every push and pull request. Coverage is published to [Codecov](https://codecov.io/gh/solarssk/ssf-transmitter) for review on pull requests.

@@ -3,12 +3,20 @@ requires-python = ">=3.14"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q"
+addopts = "-q --cov=app --cov-report=term-missing --cov-report=xml:coverage.xml"
 pythonpath = ["."]
 markers = [
     "no_dns_mock: skip the autouse mock_dns_resolve fixture (for tests that set up their own mocks)",
     "enable_rate_limit: keep slowapi enabled for rate-limit behaviour tests",
 ]
+
+[tool.coverage.run]
+branch = true
+source = ["app"]
+
+[tool.coverage.report]
+show_missing = true
+skip_empty = true
 
 [tool.deptry]
 # DEP003 (transitive dependency used directly) requires full pyproject.toml
