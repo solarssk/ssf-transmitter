@@ -50,7 +50,8 @@ jobs:
       # step exists to avoid; actions/setup-python's bundled pip already
       # supports --require-hashes (a long-stable flag).
       - name: Install dependencies
-        run: pip install --no-cache-dir --only-binary :all: --require-hashes -r requirements-dev.lock.txt
+        run: |
+          pip install --no-cache-dir --only-binary :all: --require-hashes -r requirements-dev.lock.txt
 
       - name: Lint
         run: ruff check .
