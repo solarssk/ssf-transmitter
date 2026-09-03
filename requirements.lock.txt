@@ -3,15 +3,11 @@
 #
 # Generated from requirements.txt with `uv pip compile --generate-hashes`,
 # merged across linux/amd64 (x86_64-manylinux2014) and linux/arm64
-# (aarch64-manylinux2014) targets for Python 3.14, to match the multi-arch
-# image built in .github/workflows/docker-publish.yml.
+# (aarch64-manylinux2014) targets for Python 3.14, to match the
+# multi-arch image built in .github/workflows/docker-publish.yml.
 #
-# To regenerate after changing requirements.txt:
-#   uv pip compile requirements.txt --generate-hashes \
-#     --python-platform x86_64-manylinux2014 --python-version 3.14 -o /tmp/lock-amd64.txt
-#   uv pip compile requirements.txt --generate-hashes \
-#     --python-platform aarch64-manylinux2014 --python-version 3.14 -o /tmp/lock-arm64.txt
-# then merge the --hash entries per package into this file.
+# DO NOT EDIT BY HAND — regenerate with:
+#   python scripts/lock_requirements.py
 
 aiosqlite==0.22.1 \
     --hash=sha256:043e0bd78d32888c0a9ca90fc788b38796843360c855a7262a532813133a0650 \

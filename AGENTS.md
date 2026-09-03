@@ -142,7 +142,7 @@ Prefer **focused regression tests** over broad mocks. Security fixes should incl
 | Calling `push_verification_set` without mocking in tests | Flaky CI / real network calls |
 | Returning `endpoint_url_token` in stream GET responses | Token leak |
 | Using `logger.error` for quarantine/warning paths | Startup uses ✅/⚠️/❌ semantics; warnings should be `logger.warning` |
-| Bumping `requirements.txt` without regenerating `requirements.lock.txt` | Dockerfile installs from the hash-locked file with `--require-hashes`; a stale lock makes the image build fail with a hash mismatch. Regenerate with the two `uv pip compile --generate-hashes` commands in the lock file's own header comment, then merge the `--hash` entries per package |
+| Bumping `requirements.txt` without regenerating `requirements.lock.txt` | Dockerfile installs from the hash-locked file with `--require-hashes`, not from `requirements.txt` directly. If the previously-locked version still satisfies the new range, the build **succeeds silently on the stale pin** — no error. Regenerate with `python scripts/lock_requirements.py` (CI's "Verify requirements.lock.txt is up to date" step catches drift either way) |
 
 ---
 

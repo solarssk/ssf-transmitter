@@ -53,6 +53,17 @@ jobs:
       - name: Audit dependencies for known vulnerabilities
         run: pip-audit -r requirements.txt -r requirements-dev.txt
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d  # v10.0.1
+
+      # requirements.lock.txt is what the Dockerfile actually installs
+      # (`pip install --require-hashes`); requirements.txt only sets the
+      # ranges dependabot bumps. If they drift, the image build still
+      # succeeds — pinned to stale versions — while this check is the
+      # only thing that would catch it. See AGENTS.md pitfalls table.
+      - name: Verify requirements.lock.txt is up to date
+        run: python scripts/lock_requirements.py --check
+
       - name: Build Docker image
         run: docker build -t ssf-transmitter:ci .
 
