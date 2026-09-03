@@ -340,8 +340,8 @@ async def test_push_set_logs_claims_from_inputs_without_decoding_token(monkeypat
     inputs directly means there's nothing to decode, and nothing to silently
     fail decoding either.
     """
-    FakeAsyncClient.requests = []
-    FakeAsyncClient.status_code = 202
+    monkeypatch.setattr(FakeAsyncClient, "requests", [])
+    monkeypatch.setattr(FakeAsyncClient, "status_code", 202)
     monkeypatch.setattr(pusher, "sign_set", lambda *a, **kw: "not a real jwt at all")
     monkeypatch.setattr(pusher.httpx, "AsyncClient", FakeAsyncClient)
 

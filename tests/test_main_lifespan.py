@@ -24,7 +24,7 @@ def _stub_startup(monkeypatch):
     monkeypatch.setattr(main, "init_db", _noop_init_db)
 
 
-@pytest.fixture()
+@pytest.fixture
 def _apple_scim_enabled(monkeypatch):
     """Enable the Apple SCIM background sync task for a test."""
     monkeypatch.setattr(
