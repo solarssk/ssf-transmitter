@@ -1,19 +1,36 @@
 #!/usr/bin/env python3
-"""Regenerate requirements.lock.txt from requirements.txt.
+"""Regenerate the hash-locked requirements files consumed with `--require-hashes`.
 
-The Dockerfile installs the runtime image's dependencies from
-requirements.lock.txt with `pip install --require-hashes`, so that install
-is verified against exact, pinned artifact hashes instead of the loose
-version ranges in requirements.txt. This script is the single source of
-truth for producing that lock file — resolves requirements.txt with
-`uv pip compile --generate-hashes` for both linux/amd64 and linux/arm64
-(the platforms the image is published for, see
-.github/workflows/docker-publish.yml) and merges the hashes into one
-pip-compatible lock file. Requires the `uv` binary (https://docs.astral.sh/uv/).
+Two locks, for two different fixed-platform environments — the loose
+version ranges in requirements.txt / requirements-dev.txt are what
+Dependabot bumps and what local dev installs from (any developer
+platform), but wherever we know the exact target platform(s) in
+advance, install from a locked, hash-verified file instead:
+
+  requirements.lock.txt      <- requirements.txt
+    Runtime container image, both published platforms (see
+    .github/workflows/docker-publish.yml): linux/amd64 and linux/arm64.
+
+  requirements-dev.lock.txt  <- requirements-dev.txt
+    CI's "Test and lint" job, which only ever runs on ubuntu-latest
+    (linux/amd64) — see .github/workflows/ci.yml.
+
+Each lock is requirements(-dev).txt resolved with
+`uv pip compile --generate-hashes`, one compile per target platform,
+hashes merged into a single pip-compatible file. Requires the `uv`
+binary (https://docs.astral.sh/uv/).
 
 Usage:
-    python scripts/lock_requirements.py            # regenerate requirements.lock.txt in place
-    python scripts/lock_requirements.py --check     # exit 1 if requirements.lock.txt is stale (used in CI)
+    python scripts/lock_requirements.py            # regenerate both lock files in place
+    python scripts/lock_requirements.py --check     # exit 1 if either lock is stale (used in CI)
+
+Plain regeneration always resolves to the newest version each package's
+constraints allow — run it any time you actually want to refresh pins (a
+dependency bump, or picking up a fix for something pip-audit flagged in a
+transitive dependency). `--check` instead preserves existing pins that still
+satisfy their constraints, so it flags real drift (a requirements(-dev).txt
+change not yet reflected in the lock) without also flagging every unrelated
+release published upstream since the lock was last regenerated.
 """
 
 from __future__ import annotations
@@ -23,39 +40,75 @@ import re
 import subprocess
 import sys
 import tempfile
+import textwrap
+from dataclasses import dataclass
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-REQUIREMENTS = ROOT / "requirements.txt"
-LOCK_FILE = ROOT / "requirements.lock.txt"
-
 PYTHON_VERSION = "3.14"
-PLATFORMS = ["x86_64-manylinux2014", "aarch64-manylinux2014"]
 
-HEADER = f"""\
-# Hash-locked requirements for the runtime container image, consumed via
-# `pip install --require-hashes -r requirements.lock.txt` in the Dockerfile.
-#
-# Generated from requirements.txt with `uv pip compile --generate-hashes`,
-# merged across linux/amd64 ({PLATFORMS[0]}) and linux/arm64
-# ({PLATFORMS[1]}) targets for Python {PYTHON_VERSION}, to match the
-# multi-arch image built in .github/workflows/docker-publish.yml.
+HASH_RE = re.compile(r"--hash=(sha256:[0-9a-f]+)")
+
+
+@dataclass(frozen=True)
+class LockTarget:
+    source: str
+    lock: str
+    platforms: tuple[str, ...]
+    consumer: str
+
+
+TARGETS = [
+    LockTarget(
+        source="requirements.txt",
+        lock="requirements.lock.txt",
+        platforms=("x86_64-manylinux2014", "aarch64-manylinux2014"),
+        consumer="the Dockerfile (`pip install --require-hashes -r requirements.lock.txt`), "
+        "matching the linux/amd64 + linux/arm64 image built in .github/workflows/docker-publish.yml",
+    ),
+    LockTarget(
+        source="requirements-dev.txt",
+        lock="requirements-dev.lock.txt",
+        platforms=("x86_64-manylinux2014",),
+        consumer="CI's Test and lint job (`pip install --require-hashes -r requirements-dev.lock.txt`), "
+        "which only ever runs on ubuntu-latest (linux/amd64) — see .github/workflows/ci.yml",
+    ),
+]
+
+
+def header_for(target: LockTarget) -> str:
+    platform_list = " and ".join(target.platforms)
+    merge_note = " Hashes are merged across both platforms." if len(target.platforms) > 1 else ""
+    body = (
+        f"Hash-locked requirements, consumed by {target.consumer}. "
+        f"Generated from {target.source} with `uv pip compile --generate-hashes` "
+        f"for {platform_list} (Python {PYTHON_VERSION}).{merge_note}"
+    )
+    wrapped = textwrap.fill(body, width=76)
+    commented = "\n".join(f"# {line}" for line in wrapped.splitlines())
+    return f"""\
+{commented}
 #
 # DO NOT EDIT BY HAND — regenerate with:
 #   python scripts/lock_requirements.py
 """
 
-HASH_RE = re.compile(r"--hash=(sha256:[0-9a-f]+)")
 
-
-def compile_for_platform(platform: str, out_path: Path) -> None:
+def compile_for_platform(source: Path, platform: str, out_path: Path) -> None:
+    # --only-binary :all: here too, not just in the resulting `pip install`:
+    # without it, resolving a dependency with no matching wheel would make
+    # uv build its sdist (running the package's own build-backend code) just
+    # to compile the lock — on every CI run, via the freshness check, before
+    # the hardened install step ever gets a chance to reject it.
     result = subprocess.run(
         [
             "uv",
             "pip",
             "compile",
-            str(REQUIREMENTS),
+            str(source),
             "--generate-hashes",
+            "--only-binary",
+            ":all:",
             "--python-platform",
             platform,
             "--python-version",
@@ -87,20 +140,42 @@ def parse_hashes_by_package(path: Path) -> dict[str, set[str]]:
     return blocks
 
 
-def build_lock_text() -> str:
+def build_lock_text(target: LockTarget, *, seed_from_existing: bool) -> str:
+    source = ROOT / target.source
+    existing_lock = ROOT / target.lock
+    # Seeding makes `uv pip compile` treat the existing lock as prior state
+    # and keep its pins as long as they still satisfy source's constraints,
+    # only re-resolving what actually needs to change (confirmed: forcing a
+    # constraint that excludes the pinned version does still update it).
+    #
+    # --check wants that: without a seed, every run re-resolves everything to
+    # whatever is newest on the index *right now*, so a completely unrelated
+    # upstream release (a transitive dependency's patch version, say) would
+    # flip `--check` from "did requirements(-dev).txt change" to "did
+    # anything anywhere in the tree publish since the lock was last
+    # regenerated" and fail on essentially every subsequent CI run.
+    #
+    # Plain regeneration wants the opposite: an already-vulnerable pin that
+    # still satisfies its range (e.g. flagged by the "Audit locked
+    # dependencies" CI step) would never move to the fixed version if this
+    # command kept preserving it — there'd be no supported way to refresh a
+    # pin short of deleting the lock file first. So only --check seeds.
+    seed = existing_lock.read_text() if seed_from_existing and existing_lock.exists() else None
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
         per_platform: dict[str, dict[str, set[str]]] = {}
-        for platform in PLATFORMS:
+        for platform in target.platforms:
             out = tmp_path / f"{platform}.txt"
-            compile_for_platform(platform, out)
+            if seed is not None:
+                out.write_text(seed)
+            compile_for_platform(source, platform, out)
             per_platform[platform] = parse_hashes_by_package(out)
 
         all_pkgs: set[str] = set()
         for hashes_by_pkg in per_platform.values():
             all_pkgs.update(hashes_by_pkg)
 
-        lines = [HEADER.rstrip("\n"), ""]
+        lines = [header_for(target).rstrip("\n"), ""]
         for pkg in sorted(all_pkgs):
             merged_hashes: set[str] = set()
             for hashes_by_pkg in per_platform.values():
@@ -118,23 +193,33 @@ def main() -> int:
     parser.add_argument(
         "--check",
         action="store_true",
-        help="Exit non-zero if requirements.lock.txt is out of date, without writing anything.",
+        help="Exit non-zero if any lock file is out of date, without writing anything.",
     )
     args = parser.parse_args()
 
-    new_content = build_lock_text()
+    stale: list[str] = []
+    for target in TARGETS:
+        lock_path = ROOT / target.lock
+        new_content = build_lock_text(target, seed_from_existing=args.check)
+
+        if args.check:
+            current = lock_path.read_text() if lock_path.exists() else ""
+            if current != new_content:
+                stale.append(target.lock)
+            continue
+
+        lock_path.write_text(new_content)
+        print(f"Wrote {lock_path}")
 
     if args.check:
-        current = LOCK_FILE.read_text() if LOCK_FILE.exists() else ""
-        if current != new_content:
-            print("requirements.lock.txt is out of date with requirements.txt.", file=sys.stderr)
+        if stale:
+            for name in stale:
+                print(f"{name} is out of date.", file=sys.stderr)
             print("Run: python scripts/lock_requirements.py", file=sys.stderr)
             return 1
-        print("requirements.lock.txt is up to date.")
+        print("All lock files are up to date.")
         return 0
 
-    LOCK_FILE.write_text(new_content)
-    print(f"Wrote {LOCK_FILE}")
     return 0
 
 

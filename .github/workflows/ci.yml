@@ -25,9 +25,33 @@ jobs:
           cache-dependency-path: |
             requirements.txt
             requirements-dev.txt
+            requirements.lock.txt
+            requirements-dev.lock.txt
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d  # v10.0.1
+
+      # requirements.lock.txt / requirements-dev.lock.txt are what the
+      # Dockerfile and this job's own dependency install actually use
+      # (`pip install --require-hashes`); requirements.txt /
+      # requirements-dev.txt only set the ranges dependabot bumps. If they
+      # drift, both installs still succeed — pinned to stale versions —
+      # while this check is the only thing that would catch it. See
+      # AGENTS.md pitfalls table.
+      - name: Verify lock files are up to date
+        run: python scripts/lock_requirements.py --check
+
+      # --only-binary :all: rules out arbitrary setup.py execution;
+      # --require-hashes verifies every downloaded artifact against
+      # requirements-dev.lock.txt (this job always runs on ubuntu-latest,
+      # a fixed platform, so a single-platform lock is enough here). No
+      # separate `pip install --upgrade pip` first — that installs pip
+      # itself without a version/hash pin, which is exactly what this
+      # step exists to avoid; actions/setup-python's bundled pip already
+      # supports --require-hashes (a long-stable flag).
       - name: Install dependencies
-        run: python -m pip install --upgrade pip && pip install -r requirements-dev.txt
+        run: |
+          pip install --no-cache-dir --only-binary :all: --require-hashes -r requirements-dev.lock.txt
 
       - name: Lint
         run: ruff check .
@@ -53,25 +77,14 @@ jobs:
       - name: Audit dependencies for known vulnerabilities
         run: pip-audit -r requirements.txt -r requirements-dev.txt
 
-      # Separate invocation: requirements.lock.txt is hash-pinned, and pip
-      # requires ALL files in one `-r ... -r ...` invocation to be
-      # hash-pinned once any of them are, so it can't be combined with the
-      # loose ranges above. This is what the Dockerfile actually ships —
-      # can diverge from requirements.txt; see the lock-freshness check
-      # below.
+      # Separate invocations: a hash-pinned file can't be combined with
+      # loose ranges in one pip-audit/pip call (pip requires every file in
+      # one `-r ... -r ...` invocation to be hash-pinned once any of them
+      # are). These are what actually get installed — the Docker image and
+      # this job itself — and can diverge from the ranges above; see the
+      # lock-freshness check further up.
       - name: Audit locked dependencies for known vulnerabilities
-        run: pip-audit -r requirements.lock.txt
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d  # v10.0.1
-
-      # requirements.lock.txt is what the Dockerfile actually installs
-      # (`pip install --require-hashes`); requirements.txt only sets the
-      # ranges dependabot bumps. If they drift, the image build still
-      # succeeds — pinned to stale versions — while this check is the
-      # only thing that would catch it. See AGENTS.md pitfalls table.
-      - name: Verify requirements.lock.txt is up to date
-        run: python scripts/lock_requirements.py --check
+        run: pip-audit -r requirements.lock.txt -r requirements-dev.lock.txt
 
       - name: Build Docker image
         run: docker build -t ssf-transmitter:ci .
