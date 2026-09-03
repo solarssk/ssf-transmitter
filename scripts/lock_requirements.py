@@ -87,6 +87,11 @@ def header_for(target: LockTarget) -> str:
 
 
 def compile_for_platform(source: Path, platform: str, out_path: Path) -> None:
+    # --only-binary :all: here too, not just in the resulting `pip install`:
+    # without it, resolving a dependency with no matching wheel would make
+    # uv build its sdist (running the package's own build-backend code) just
+    # to compile the lock — on every CI run, via the freshness check, before
+    # the hardened install step ever gets a chance to reject it.
     result = subprocess.run(
         [
             "uv",
@@ -94,6 +99,8 @@ def compile_for_platform(source: Path, platform: str, out_path: Path) -> None:
             "compile",
             str(source),
             "--generate-hashes",
+            "--only-binary",
+            ":all:",
             "--python-platform",
             platform,
             "--python-version",
