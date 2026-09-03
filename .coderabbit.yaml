@@ -1,0 +1,7 @@
+# CodeRabbit configuration — https://docs.coderabbit.ai/reference/configuration
+#
+# Automatic review-on-open/push is disabled; CodeRabbit only reviews a PR
+# when explicitly asked for (comment `@coderabbitai review` on the PR).
+reviews:
+  auto_review:
+    enabled: false
