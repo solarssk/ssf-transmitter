@@ -1,0 +1,26 @@
+# Trivy ignore list for the runtime container image.
+#
+# Each entry below is a CVE in a package that `pip` vendors internally
+# (pip/_vendor/, see vendor.txt) for its OWN build-time operation — not a
+# package our application imports or that pip exposes as an installable
+# top-level dependency. Even the latest available pip release vendors these
+# exact vulnerable sub-versions, so bumping pip/setuptools in the Dockerfile
+# cannot change them. The application never imports or shells out to pip at
+# runtime (verified: no `import pip`/`import msgpack`/`import setuptools` and
+# no `pip` subprocess calls anywhere under app/), so these vendored code
+# paths are unreachable in this deployment.
+#
+# Re-evaluate when the base image's bundled pip drops/updates these vendored
+# versions, or when the Dockerfile moves to a multi-stage build that excludes
+# pip from the final image (tracked for the Docker/CI supply-chain hardening
+# pass — see SonarCloud docker:S8541/S8544).
+
+# msgpack 1.1.2 vendored in pip/_vendor — out-of-bounds read on Unpacker
+# reuse after error. Only reachable via pip's own msgpack usage during
+# `pip install`, which never runs in the built image at runtime.
+GHSA-6v7p-g79w-8964
+
+# setuptools 70.3.0 vendored in pip/_vendor — path traversal in the legacy
+# PackageIndex (easy_install-style) remote package fetcher. That code path
+# is pip build tooling, not used by the application.
+CVE-2025-47273
