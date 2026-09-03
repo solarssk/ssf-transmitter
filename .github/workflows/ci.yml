@@ -50,12 +50,17 @@ jobs:
       - name: Check for unused/missing dependencies
         run: deptry .
 
-      # Audits both the version ranges dependabot bumps (requirements.txt)
-      # and the exact pinned versions the Dockerfile actually ships
-      # (requirements.lock.txt) — they can diverge; see the lock-freshness
-      # check below.
       - name: Audit dependencies for known vulnerabilities
-        run: pip-audit -r requirements.txt -r requirements-dev.txt -r requirements.lock.txt
+        run: pip-audit -r requirements.txt -r requirements-dev.txt
+
+      # Separate invocation: requirements.lock.txt is hash-pinned, and pip
+      # requires ALL files in one `-r ... -r ...` invocation to be
+      # hash-pinned once any of them are, so it can't be combined with the
+      # loose ranges above. This is what the Dockerfile actually ships —
+      # can diverge from requirements.txt; see the lock-freshness check
+      # below.
+      - name: Audit locked dependencies for known vulnerabilities
+        run: pip-audit -r requirements.lock.txt
 
       - name: Install uv
         uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d  # v10.0.1
