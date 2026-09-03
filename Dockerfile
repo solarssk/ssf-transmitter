@@ -13,7 +13,15 @@ RUN groupadd --system --gid 10001 appuser && \
     useradd --system --uid 10001 --gid 10001 --no-create-home appuser
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Install deps, then strip pip/setuptools/wheel and ensurepip's bundled pip
+# wheel — none are needed at runtime (the app never imports or shells out
+# to pip), and removing them drops pip's internally vendored copies of
+# msgpack/setuptools (which even the latest pip release ships at versions
+# with known CVEs) from the image entirely, instead of just suppressing
+# the scanner finding.
+RUN pip install --no-cache-dir -r requirements.txt && \
+    pip uninstall --yes --no-input pip setuptools wheel && \
+    rm -rf /usr/local/lib/python3.14/ensurepip
 
 COPY app/ ./app/
 
