@@ -329,3 +329,27 @@ async def test_push_verification_set_blocked_when_host_not_in_allowlist(monkeypa
     assert delivered is False
     assert FakeAsyncClient.requests == []
     assert "SSF_ALLOWED_RECEIVER_HOSTS allowlist" in caplog.text
+
+
+@pytest.mark.anyio
+async def test_push_set_logs_claims_from_inputs_without_decoding_token(monkeypatch, stream, event, caplog):
+    """DEBUG-level claims logging reads the pre-signing inputs, not the signed token.
+
+    Regression test: this used to jwt.decode() the token we had just signed
+    ourselves (verify_signature=False) purely to log it back — logging the
+    inputs directly means there's nothing to decode, and nothing to silently
+    fail decoding either.
+    """
+    FakeAsyncClient.requests = []
+    FakeAsyncClient.status_code = 202
+    monkeypatch.setattr(pusher, "sign_set", lambda *a, **kw: "not a real jwt at all")
+    monkeypatch.setattr(pusher.httpx, "AsyncClient", FakeAsyncClient)
+
+    import logging
+    with caplog.at_level(logging.DEBUG, logger="app.events.pusher"):
+        delivered = await pusher.push_set(stream, event, "user@example.com")
+
+    assert delivered is True
+    assert f"event_uri={event.uri}" in caplog.text
+    assert f"aud={stream.aud}" in caplog.text
+    assert "could not be decoded" not in caplog.text

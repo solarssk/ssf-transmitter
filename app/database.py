@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -15,6 +16,7 @@ import aiosqlite
 
 from app.config import settings
 from app.crypto import TokenDecryptionError, decrypt_token, encrypt_token
+from app.security.log_sanitize import sanitize_for_log
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +80,18 @@ def _stored_token_is_undecryptable(stored_token: str, runtime_token: str) -> boo
     return bool(stored_token) and not runtime_token
 
 
+def _create_file_exclusive(path: str, mode: int) -> None:
+    """Create *path* with *mode* if it doesn't exist; raises FileExistsError otherwise.
+
+    O_CREAT | O_WRONLY | O_EXCL is atomic: it either creates the file
+    exclusively with the given mode, or raises FileExistsError if it already
+    exists — eliminating the TOCTOU race that a preceding exists() check
+    would introduce.
+    """
+    fd = os.open(path, os.O_CREAT | os.O_WRONLY | os.O_EXCL, mode)
+    os.close(fd)
+
+
 async def init_db() -> None:
     """Create all database tables if they do not already exist.
 
@@ -96,18 +110,13 @@ async def init_db() -> None:
         str(db_path.parent),
     )
     # Pre-create the DB file with 0600 permissions before SQLite opens it.
-    # O_CREAT | O_WRONLY | O_EXCL is atomic: it either creates the file
-    # exclusively with the given mode, or raises FileExistsError if it
-    # already exists — eliminating the TOCTOU race that a preceding
-    # exists() check would introduce.
     try:
-        fd = os.open(str(db_path), os.O_CREAT | os.O_WRONLY | os.O_EXCL, 0o600)
-        os.close(fd)
+        await asyncio.to_thread(_create_file_exclusive, str(db_path), 0o600)
     except FileExistsError:
         # File already exists (restart) — enforce permissions in case they
         # drifted due to a previous deployment or volume remount.
         try:
-            db_path.chmod(0o600)
+            await asyncio.to_thread(db_path.chmod, 0o600)
         except OSError as exc:
             logger.warning("Could not set 0600 permissions on DB file %s: %s", settings.database_path, exc)
     async with aiosqlite.connect(settings.database_path) as db:
@@ -203,7 +212,12 @@ async def create_stream(payload: dict[str, Any]) -> Stream:
         )
         await db.commit()
 
-    logger.info("Created SSF stream stream_id=%s aud=%s status=%s", stream.stream_id, stream.aud, stream.status)
+    logger.info(
+        "Created SSF stream stream_id=%s aud=%s status=%s",
+        sanitize_for_log(stream.stream_id),
+        sanitize_for_log(stream.aud),
+        stream.status,
+    )
     return stream
 
 
@@ -272,7 +286,12 @@ async def update_stream(payload: dict[str, Any]) -> Stream | None:
         status,
         stream.created_at,
     )
-    logger.info("Updated SSF stream stream_id=%s aud=%s status=%s", updated.stream_id, updated.aud, updated.status)
+    logger.info(
+        "Updated SSF stream stream_id=%s aud=%s status=%s",
+        sanitize_for_log(updated.stream_id),
+        sanitize_for_log(updated.aud),
+        updated.status,
+    )
     return updated
 
 
@@ -291,5 +310,5 @@ async def delete_stream_by_id(stream_id: str) -> bool:
         await db.commit()
         deleted = cursor.rowcount > 0
     if deleted:
-        logger.info("Deleted SSF stream stream_id=%s", stream_id)
+        logger.info("Deleted SSF stream stream_id=%s", sanitize_for_log(stream_id))
     return deleted

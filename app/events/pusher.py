@@ -5,7 +5,6 @@ import logging
 from urllib.parse import urlparse
 
 import httpx
-import jwt
 
 from app.config import settings
 from app.crypto import sign_set, sign_verification_set
@@ -89,13 +88,19 @@ async def push_set(stream: Stream, event: MappedEvent, email: str) -> bool | Non
         logger.exception("Failed to sign SET event_uri=%s aud=%s", event.uri, stream.aud)
         return False
 
+    # Log the claims we just signed *from the inputs*, not by decoding the
+    # token — decoding our own freshly-signed JWT just to read it back adds
+    # nothing (we already have every value), and unconditionally invites the
+    # signature-verification-bypass pattern (python:S5659) even though there
+    # is no untrusted token here to be misled by.
     if logger.isEnabledFor(logging.DEBUG):
-        try:
-            claims = jwt.decode(token, algorithms=["RS256"], options={"verify_signature": False})
-            safe = {k: v for k, v in claims.items() if k not in ("sub_id", "sub")}
-            logger.debug("SET claims event_uri=%s aud=%s payload=%s", event.uri, stream.aud, safe)
-        except Exception:
-            logger.debug("SET claims could not be decoded event_uri=%s", event.uri)
+        logger.debug(
+            "SET claims event_uri=%s aud=%s txn=%s payload=%s",
+            event.uri,
+            stream.aud,
+            event.txn,
+            event.payload,
+        )
 
     headers: dict[str, str] = {
         "Content-Type": "application/secevent+jwt",
