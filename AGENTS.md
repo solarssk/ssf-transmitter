@@ -142,6 +142,7 @@ Prefer **focused regression tests** over broad mocks. Security fixes should incl
 | Calling `push_verification_set` without mocking in tests | Flaky CI / real network calls |
 | Returning `endpoint_url_token` in stream GET responses | Token leak |
 | Using `logger.error` for quarantine/warning paths | Startup uses ✅/⚠️/❌ semantics; warnings should be `logger.warning` |
+| Bumping `requirements.txt` without regenerating `requirements.lock.txt` | Dockerfile installs from the hash-locked file with `--require-hashes`; a stale lock makes the image build fail with a hash mismatch. Regenerate with the two `uv pip compile --generate-hashes` commands in the lock file's own header comment, then merge the `--hash` entries per package |
 
 ---
 
