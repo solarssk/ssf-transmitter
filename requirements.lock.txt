@@ -1,10 +1,9 @@
-# Hash-locked requirements for the runtime container image, consumed via
-# `pip install --require-hashes -r requirements.lock.txt` in the Dockerfile.
-#
-# Generated from requirements.txt with `uv pip compile --generate-hashes`,
-# merged across linux/amd64 (x86_64-manylinux2014) and linux/arm64
-# (aarch64-manylinux2014) targets for Python 3.14, to match the
-# multi-arch image built in .github/workflows/docker-publish.yml.
+# Hash-locked requirements, consumed by the Dockerfile (`pip install
+# --require-hashes -r requirements.lock.txt`), matching the linux/amd64 +
+# linux/arm64 image built in .github/workflows/docker-publish.yml. Generated
+# from requirements.txt with `uv pip compile --generate-hashes` for
+# x86_64-manylinux2014 and aarch64-manylinux2014 (Python 3.14). Hashes are
+# merged across both platforms.
 #
 # DO NOT EDIT BY HAND — regenerate with:
 #   python scripts/lock_requirements.py

@@ -102,6 +102,8 @@ deptry .
 
 Copy [`.env.example`](.env.example) for local env vars. Tests use defaults from `tests/conftest.py` (`.testdata/` for keys + DB).
 
+CI and the Dockerfile install from hash-locked `requirements.lock.txt` / `requirements-dev.lock.txt` instead (fixed target platforms — see `scripts/lock_requirements.py`); local dev stays on the loose ranges above since it isn't tied to one platform.
+
 ---
 
 ## Testing conventions
@@ -142,7 +144,7 @@ Prefer **focused regression tests** over broad mocks. Security fixes should incl
 | Calling `push_verification_set` without mocking in tests | Flaky CI / real network calls |
 | Returning `endpoint_url_token` in stream GET responses | Token leak |
 | Using `logger.error` for quarantine/warning paths | Startup uses ✅/⚠️/❌ semantics; warnings should be `logger.warning` |
-| Bumping `requirements.txt` without regenerating `requirements.lock.txt` | Dockerfile installs from the hash-locked file with `--require-hashes`, not from `requirements.txt` directly. If the previously-locked version still satisfies the new range, the build **succeeds silently on the stale pin** — no error. Regenerate with `python scripts/lock_requirements.py` (CI's "Verify requirements.lock.txt is up to date" step catches drift either way) |
+| Bumping `requirements.txt` or `requirements-dev.txt` without regenerating the matching `.lock.txt` | The Dockerfile and CI's own dependency install both use the hash-locked files (`pip install --require-hashes`), not the loose-range ones directly. If the previously-locked version still satisfies the new range, the install **succeeds silently on the stale pin** — no error. Regenerate both with `python scripts/lock_requirements.py` (CI's "Verify lock files are up to date" step catches drift either way) |
 
 ---
 

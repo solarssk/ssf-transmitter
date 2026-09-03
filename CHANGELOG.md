@@ -11,7 +11,12 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ### Security
 - **Container image supply chain hardening** — `pip`, `setuptools`, and `wheel` are removed from the runtime image after installing dependencies (they are build-time-only and unused at runtime); this also drops pip's internally vendored, unpatchable copies of `msgpack`/`setuptools` that were tripping the CI Trivy scan on every base-image bump
-- **Hash-pinned dependency installs** — the Docker image now installs from `requirements.lock.txt` (`pip install --require-hashes --only-binary :all:`), generated from `requirements.txt` for both `linux/amd64` and `linux/arm64`
+- **Hash-pinned dependency installs** — the Docker image installs from `requirements.lock.txt`, and CI's own "Test and lint" job installs from `requirements-dev.lock.txt` (both `pip install --require-hashes --only-binary :all:`), generated from `requirements.txt` / `requirements-dev.txt` via `scripts/lock_requirements.py`
+
+### Added
+- **CI: multi-platform smoke tests** — `Test and lint` now builds and boots the image for both published platforms (`linux/amd64` natively, `linux/arm64` via QEMU) and polls `GET /jwks.json`, so a broken build or runtime regression fails before merge instead of only in the post-merge publish job
+- **CI: locked-dependency auditing** — `pip-audit` now also runs against `requirements.lock.txt` / `requirements-dev.lock.txt`, auditing the exact pinned versions actually installed, not just the ranges they were resolved from
+- **CI: lock-freshness check** — fails if either `.lock.txt` file is out of sync with its source `requirements*.txt`, since a stale lock installs successfully on outdated pins with no other error
 
 ---
 
