@@ -44,11 +44,13 @@ jobs:
       # --only-binary :all: rules out arbitrary setup.py execution;
       # --require-hashes verifies every downloaded artifact against
       # requirements-dev.lock.txt (this job always runs on ubuntu-latest,
-      # a fixed platform, so a single-platform lock is enough here).
+      # a fixed platform, so a single-platform lock is enough here). No
+      # separate `pip install --upgrade pip` first — that installs pip
+      # itself without a version/hash pin, which is exactly what this
+      # step exists to avoid; actions/setup-python's bundled pip already
+      # supports --require-hashes (a long-stable flag).
       - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install --no-cache-dir --only-binary :all: --require-hashes -r requirements-dev.lock.txt
+        run: pip install --no-cache-dir --only-binary :all: --require-hashes -r requirements-dev.lock.txt
 
       - name: Lint
         run: ruff check .
