@@ -23,6 +23,14 @@ binary (https://docs.astral.sh/uv/).
 Usage:
     python scripts/lock_requirements.py            # regenerate both lock files in place
     python scripts/lock_requirements.py --check     # exit 1 if either lock is stale (used in CI)
+
+Plain regeneration always resolves to the newest version each package's
+constraints allow — run it any time you actually want to refresh pins (a
+dependency bump, or picking up a fix for something pip-audit flagged in a
+transitive dependency). `--check` instead preserves existing pins that still
+satisfy their constraints, so it flags real drift (a requirements(-dev).txt
+change not yet reflected in the lock) without also flagging every unrelated
+release published upstream since the lock was last regenerated.
 """
 
 from __future__ import annotations
@@ -132,20 +140,27 @@ def parse_hashes_by_package(path: Path) -> dict[str, set[str]]:
     return blocks
 
 
-def build_lock_text(target: LockTarget) -> str:
+def build_lock_text(target: LockTarget, *, seed_from_existing: bool) -> str:
     source = ROOT / target.source
     existing_lock = ROOT / target.lock
-    # Seed each platform's compile with the currently committed lock, if any:
-    # `uv pip compile` treats an existing file at -o as prior state and keeps
-    # its pins as long as they still satisfy source's constraints, only
-    # re-resolving what actually needs to change (confirmed: forcing a
+    # Seeding makes `uv pip compile` treat the existing lock as prior state
+    # and keep its pins as long as they still satisfy source's constraints,
+    # only re-resolving what actually needs to change (confirmed: forcing a
     # constraint that excludes the pinned version does still update it).
-    # Without a seed, every run re-resolves everything to whatever is newest
-    # on the index *right now* — so a completely unrelated upstream release
-    # (a transitive dependency's patch version, say) would flip this from
-    # "checking repository drift" to "checking index churn" and fail
-    # `--check` on every subsequent CI run until someone regenerates.
-    seed = existing_lock.read_text() if existing_lock.exists() else None
+    #
+    # --check wants that: without a seed, every run re-resolves everything to
+    # whatever is newest on the index *right now*, so a completely unrelated
+    # upstream release (a transitive dependency's patch version, say) would
+    # flip `--check` from "did requirements(-dev).txt change" to "did
+    # anything anywhere in the tree publish since the lock was last
+    # regenerated" and fail on essentially every subsequent CI run.
+    #
+    # Plain regeneration wants the opposite: an already-vulnerable pin that
+    # still satisfies its range (e.g. flagged by the "Audit locked
+    # dependencies" CI step) would never move to the fixed version if this
+    # command kept preserving it — there'd be no supported way to refresh a
+    # pin short of deleting the lock file first. So only --check seeds.
+    seed = existing_lock.read_text() if seed_from_existing and existing_lock.exists() else None
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
         per_platform: dict[str, dict[str, set[str]]] = {}
@@ -185,7 +200,7 @@ def main() -> int:
     stale: list[str] = []
     for target in TARGETS:
         lock_path = ROOT / target.lock
-        new_content = build_lock_text(target)
+        new_content = build_lock_text(target, seed_from_existing=args.check)
 
         if args.check:
             current = lock_path.read_text() if lock_path.exists() else ""
