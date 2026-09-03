@@ -134,11 +134,25 @@ def parse_hashes_by_package(path: Path) -> dict[str, set[str]]:
 
 def build_lock_text(target: LockTarget) -> str:
     source = ROOT / target.source
+    existing_lock = ROOT / target.lock
+    # Seed each platform's compile with the currently committed lock, if any:
+    # `uv pip compile` treats an existing file at -o as prior state and keeps
+    # its pins as long as they still satisfy source's constraints, only
+    # re-resolving what actually needs to change (confirmed: forcing a
+    # constraint that excludes the pinned version does still update it).
+    # Without a seed, every run re-resolves everything to whatever is newest
+    # on the index *right now* — so a completely unrelated upstream release
+    # (a transitive dependency's patch version, say) would flip this from
+    # "checking repository drift" to "checking index churn" and fail
+    # `--check` on every subsequent CI run until someone regenerates.
+    seed = existing_lock.read_text() if existing_lock.exists() else None
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
         per_platform: dict[str, dict[str, set[str]]] = {}
         for platform in target.platforms:
             out = tmp_path / f"{platform}.txt"
+            if seed is not None:
+                out.write_text(seed)
             compile_for_platform(source, platform, out)
             per_platform[platform] = parse_hashes_by_package(out)
 
