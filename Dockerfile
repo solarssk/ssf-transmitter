@@ -12,8 +12,19 @@ WORKDIR /app
 RUN groupadd --system --gid 10001 appuser && \
     useradd --system --uid 10001 --gid 10001 --no-create-home appuser
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements.txt requirements.lock.txt .
+# Install only pre-built wheels (--only-binary :all:, no setup.py execution)
+# whose hash matches requirements.lock.txt (--require-hashes, tamper-evident
+# supply chain — see requirements.lock.txt's header for how to regenerate
+# it from requirements.txt). Then strip pip/setuptools/wheel and
+# ensurepip's bundled pip wheel — none are needed at runtime (the app
+# never imports or shells out to pip), and removing them drops pip's
+# internally vendored copies of msgpack/setuptools (which even the latest
+# pip release ships at versions with known CVEs) from the image entirely,
+# instead of just suppressing the scanner finding.
+RUN pip install --no-cache-dir --only-binary :all: --require-hashes -r requirements.lock.txt && \
+    pip uninstall --yes --no-input pip setuptools wheel && \
+    rm -rf /usr/local/lib/python3.14/ensurepip
 
 COPY app/ ./app/
 

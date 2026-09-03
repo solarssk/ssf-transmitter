@@ -9,6 +9,10 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Security
+- **Container image supply chain hardening** — `pip`, `setuptools`, and `wheel` are removed from the runtime image after installing dependencies (they are build-time-only and unused at runtime); this also drops pip's internally vendored, unpatchable copies of `msgpack`/`setuptools` that were tripping the CI Trivy scan on every base-image bump
+- **Hash-pinned dependency installs** — the Docker image now installs from `requirements.lock.txt` (`pip install --require-hashes --only-binary :all:`), generated from `requirements.txt` for both `linux/amd64` and `linux/arm64`
+
 ---
 
 ## [0.5.10] — 2026-06-21 — Stream recovery hardening
