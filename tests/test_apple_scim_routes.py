@@ -44,7 +44,7 @@ def _clear_oauth_state():
     scim_routes._pending_states.clear()
 
 
-@pytest.fixture()
+@pytest.fixture
 def client():
     with TestClient(app) as tc:
         yield tc
@@ -184,7 +184,9 @@ def test_callback_400_state_is_single_use(client, monkeypatch):
     """A replayed (already-consumed) state must be rejected the second time."""
     monkeypatch.setattr(scim_routes, "settings", _configured_settings())
     scim_routes._add_state("reused-state")
-    FakeAsyncClient.response = FakeTokenResponse(200, {"access_token": "tok", "expires_in": 3600})
+    monkeypatch.setattr(
+        FakeAsyncClient, "response", FakeTokenResponse(200, {"access_token": "tok", "expires_in": 3600})
+    )
 
     first = client.get("/apple-scim/callback", params={"code": "code-1", "state": "reused-state"})
     second = client.get("/apple-scim/callback", params={"code": "code-2", "state": "reused-state"})
@@ -198,7 +200,7 @@ def test_callback_502_network_error_contacting_apple(client, monkeypatch):
 
     monkeypatch.setattr(scim_routes, "settings", _configured_settings())
     scim_routes._add_state("net-error-state")
-    FakeAsyncClient.raise_error = httpx.ConnectError("connection refused")
+    monkeypatch.setattr(FakeAsyncClient, "raise_error", httpx.ConnectError("connection refused"))
 
     resp = client.get("/apple-scim/callback", params={"code": "some-code", "state": "net-error-state"})
 
@@ -209,7 +211,7 @@ def test_callback_502_apple_rejects_code(client, monkeypatch):
     """Apple's token endpoint returning non-200 (e.g. an expired/invalid code) maps to 502."""
     monkeypatch.setattr(scim_routes, "settings", _configured_settings())
     scim_routes._add_state("bad-code-state")
-    FakeAsyncClient.response = FakeTokenResponse(400, {"error": "invalid_grant"})
+    monkeypatch.setattr(FakeAsyncClient, "response", FakeTokenResponse(400, {"error": "invalid_grant"}))
 
     resp = client.get("/apple-scim/callback", params={"code": "bad-code", "state": "bad-code-state"})
 
@@ -219,7 +221,7 @@ def test_callback_502_apple_rejects_code(client, monkeypatch):
 def test_callback_502_missing_access_token(client, monkeypatch):
     monkeypatch.setattr(scim_routes, "settings", _configured_settings())
     scim_routes._add_state("no-token-state")
-    FakeAsyncClient.response = FakeTokenResponse(200, {"expires_in": 3600})
+    monkeypatch.setattr(FakeAsyncClient, "response", FakeTokenResponse(200, {"expires_in": 3600}))
 
     resp = client.get("/apple-scim/callback", params={"code": "some-code", "state": "no-token-state"})
 
@@ -229,8 +231,10 @@ def test_callback_502_missing_access_token(client, monkeypatch):
 def test_callback_success_saves_tokens_and_returns_status(client, monkeypatch):
     monkeypatch.setattr(scim_routes, "settings", _configured_settings())
     scim_routes._add_state("good-state")
-    FakeAsyncClient.response = FakeTokenResponse(
-        200, {"access_token": "new-access", "refresh_token": "new-refresh", "expires_in": 3600}
+    monkeypatch.setattr(
+        FakeAsyncClient,
+        "response",
+        FakeTokenResponse(200, {"access_token": "new-access", "refresh_token": "new-refresh", "expires_in": 3600}),
     )
 
     resp = client.get("/apple-scim/callback", params={"code": "good-code", "state": "good-state"})
@@ -247,7 +251,9 @@ def test_callback_success_saves_tokens_and_returns_status(client, monkeypatch):
 def test_callback_invalid_expires_in_defaults_to_3600(client, monkeypatch):
     monkeypatch.setattr(scim_routes, "settings", _configured_settings())
     scim_routes._add_state("weird-expiry-state")
-    FakeAsyncClient.response = FakeTokenResponse(200, {"access_token": "tok", "expires_in": "not-a-number"})
+    monkeypatch.setattr(
+        FakeAsyncClient, "response", FakeTokenResponse(200, {"access_token": "tok", "expires_in": "not-a-number"})
+    )
 
     resp = client.get("/apple-scim/callback", params={"code": "some-code", "state": "weird-expiry-state"})
 
@@ -259,7 +265,7 @@ def test_callback_non_positive_expires_in_defaults_to_3600(client, monkeypatch):
     """expires_in that parses fine but is <= 0 is just as invalid as a non-numeric value."""
     monkeypatch.setattr(scim_routes, "settings", _configured_settings())
     scim_routes._add_state("zero-expiry-state")
-    FakeAsyncClient.response = FakeTokenResponse(200, {"access_token": "tok", "expires_in": 0})
+    monkeypatch.setattr(FakeAsyncClient, "response", FakeTokenResponse(200, {"access_token": "tok", "expires_in": 0}))
 
     resp = client.get("/apple-scim/callback", params={"code": "some-code", "state": "zero-expiry-state"})
 
@@ -275,7 +281,9 @@ def test_callback_background_sync_failure_is_logged_not_raised(client, monkeypat
 
     monkeypatch.setattr(scim_routes, "settings", _configured_settings())
     scim_routes._add_state("bg-failure-state")
-    FakeAsyncClient.response = FakeTokenResponse(200, {"access_token": "tok", "expires_in": 3600})
+    monkeypatch.setattr(
+        FakeAsyncClient, "response", FakeTokenResponse(200, {"access_token": "tok", "expires_in": 3600})
+    )
 
     async def _boom():
         raise RuntimeError("Authentik unreachable")
@@ -298,7 +306,9 @@ def test_callback_background_sync_skipped_when_authentik_unavailable(client, mon
 
     monkeypatch.setattr(scim_routes, "settings", _configured_settings())
     scim_routes._add_state("bg-skip-state")
-    FakeAsyncClient.response = FakeTokenResponse(200, {"access_token": "tok", "expires_in": 3600})
+    monkeypatch.setattr(
+        FakeAsyncClient, "response", FakeTokenResponse(200, {"access_token": "tok", "expires_in": 3600})
+    )
 
     sync_called = []
 

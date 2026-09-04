@@ -87,7 +87,7 @@ def _reset_fake_client(monkeypatch):
     monkeypatch.setattr(token_mod.httpx, "AsyncClient", FakeAsyncClient)
 
 
-@pytest.fixture()
+@pytest.fixture
 def db_path(tmp_path):
     path = tmp_path / "scim.db"
     _init_tokens_table(path)
@@ -160,7 +160,9 @@ async def test_get_valid_access_token_returns_cached_when_not_expired(monkeypatc
 async def test_get_valid_access_token_refreshes_when_expired(monkeypatch, db_path):
     monkeypatch.setattr(token_mod, "settings", _settings(db_path))
     await token_mod.save_tokens("expired-token", "refresh-1", -3600)  # already in the past
-    FakeAsyncClient.response = FakeResponse(200, {"access_token": "new-token", "expires_in": 3600})
+    monkeypatch.setattr(
+        FakeAsyncClient, "response", FakeResponse(200, {"access_token": "new-token", "expires_in": 3600})
+    )
 
     result = await token_mod.get_valid_access_token()
 
@@ -191,7 +193,7 @@ async def test_refresh_network_error_returns_none(monkeypatch, db_path):
     import httpx
 
     monkeypatch.setattr(token_mod, "settings", _settings(db_path))
-    FakeAsyncClient.raise_error = httpx.ConnectError("connection refused")
+    monkeypatch.setattr(FakeAsyncClient, "raise_error", httpx.ConnectError("connection refused"))
 
     assert await token_mod._refresh("refresh-1") is None
 
@@ -199,7 +201,7 @@ async def test_refresh_network_error_returns_none(monkeypatch, db_path):
 @pytest.mark.anyio
 async def test_refresh_response_not_json_returns_none(monkeypatch, db_path):
     monkeypatch.setattr(token_mod, "settings", _settings(db_path))
-    FakeAsyncClient.response = RaisingJSONResponse(200)
+    monkeypatch.setattr(FakeAsyncClient, "response", RaisingJSONResponse(200))
 
     assert await token_mod._refresh("refresh-1") is None
 
@@ -207,7 +209,7 @@ async def test_refresh_response_not_json_returns_none(monkeypatch, db_path):
 @pytest.mark.anyio
 async def test_refresh_missing_access_token_returns_none(monkeypatch, db_path):
     monkeypatch.setattr(token_mod, "settings", _settings(db_path))
-    FakeAsyncClient.response = FakeResponse(200, {"expires_in": 3600})
+    monkeypatch.setattr(FakeAsyncClient, "response", FakeResponse(200, {"expires_in": 3600}))
 
     assert await token_mod._refresh("refresh-1") is None
 
@@ -215,7 +217,9 @@ async def test_refresh_missing_access_token_returns_none(monkeypatch, db_path):
 @pytest.mark.anyio
 async def test_refresh_invalid_expires_in_defaults_to_3600(monkeypatch, db_path):
     monkeypatch.setattr(token_mod, "settings", _settings(db_path))
-    FakeAsyncClient.response = FakeResponse(200, {"access_token": "tok", "expires_in": "not-a-number"})
+    monkeypatch.setattr(
+        FakeAsyncClient, "response", FakeResponse(200, {"access_token": "tok", "expires_in": "not-a-number"})
+    )
 
     result = await token_mod._refresh("refresh-1")
 
@@ -229,7 +233,7 @@ async def test_refresh_invalid_expires_in_defaults_to_3600(monkeypatch, db_path)
 async def test_refresh_non_positive_expires_in_defaults_to_3600(monkeypatch, db_path):
     """expires_in that parses fine but is <= 0 is just as invalid as a non-numeric value."""
     monkeypatch.setattr(token_mod, "settings", _settings(db_path))
-    FakeAsyncClient.response = FakeResponse(200, {"access_token": "tok", "expires_in": 0})
+    monkeypatch.setattr(FakeAsyncClient, "response", FakeResponse(200, {"access_token": "tok", "expires_in": 0}))
 
     result = await token_mod._refresh("refresh-1")
 
@@ -242,8 +246,10 @@ async def test_refresh_non_positive_expires_in_defaults_to_3600(monkeypatch, db_
 async def test_refresh_rotates_refresh_token(monkeypatch, db_path):
     monkeypatch.setattr(token_mod, "settings", _settings(db_path))
     await token_mod.save_tokens("old-access", "old-refresh", 3600)
-    FakeAsyncClient.response = FakeResponse(
-        200, {"access_token": "new-access", "refresh_token": "new-refresh", "expires_in": 3600}
+    monkeypatch.setattr(
+        FakeAsyncClient,
+        "response",
+        FakeResponse(200, {"access_token": "new-access", "refresh_token": "new-refresh", "expires_in": 3600}),
     )
 
     await token_mod._refresh("old-refresh")
@@ -261,7 +267,7 @@ async def test_refresh_rotates_refresh_token(monkeypatch, db_path):
 @pytest.mark.parametrize("error_code", ["invalid_client", "invalid_grant", "unauthorized_client"])
 async def test_refresh_client_secret_expiry_errors_send_alert(monkeypatch, db_path, error_code):
     monkeypatch.setattr(token_mod, "settings", _settings(db_path))
-    FakeAsyncClient.response = FakeResponse(400, {"error": error_code})
+    monkeypatch.setattr(FakeAsyncClient, "response", FakeResponse(400, {"error": error_code}))
 
     sent = []
 
@@ -281,7 +287,7 @@ async def test_refresh_client_secret_expiry_errors_send_alert(monkeypatch, db_pa
 @pytest.mark.anyio
 async def test_refresh_unrecognized_error_does_not_send_alert(monkeypatch, db_path):
     monkeypatch.setattr(token_mod, "settings", _settings(db_path))
-    FakeAsyncClient.response = FakeResponse(500, {"error": "server_error"})
+    monkeypatch.setattr(FakeAsyncClient, "response", FakeResponse(500, {"error": "server_error"}))
 
     sent = []
 
@@ -300,7 +306,7 @@ async def test_refresh_unrecognized_error_does_not_send_alert(monkeypatch, db_pa
 async def test_refresh_error_response_not_json_does_not_crash(monkeypatch, db_path):
     """A non-200 response whose body isn't JSON must not raise while checking for error codes."""
     monkeypatch.setattr(token_mod, "settings", _settings(db_path))
-    FakeAsyncClient.response = RaisingJSONResponse(400)
+    monkeypatch.setattr(FakeAsyncClient, "response", RaisingJSONResponse(400))
 
     result = await token_mod._refresh("refresh-1")
 
