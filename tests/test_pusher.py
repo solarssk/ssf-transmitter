@@ -57,8 +57,8 @@ def event():
 
 @pytest.mark.anyio
 async def test_push_set_posts_signed_set_as_plain_secevent_jwt(monkeypatch, stream, event):
-    FakeAsyncClient.requests = []
-    FakeAsyncClient.status_code = 202
+    monkeypatch.setattr(FakeAsyncClient, "requests", [])
+    monkeypatch.setattr(FakeAsyncClient, "status_code", 202)
     monkeypatch.setattr(pusher, "sign_set", lambda *a, **kw: "signed.jwt")
     monkeypatch.setattr(pusher.httpx, "AsyncClient", FakeAsyncClient)
 
@@ -80,8 +80,8 @@ async def test_push_set_posts_signed_set_as_plain_secevent_jwt(monkeypatch, stre
 
 @pytest.mark.anyio
 async def test_push_set_sends_accept_application_json(monkeypatch, stream, event):
-    FakeAsyncClient.requests = []
-    FakeAsyncClient.status_code = 202
+    monkeypatch.setattr(FakeAsyncClient, "requests", [])
+    monkeypatch.setattr(FakeAsyncClient, "status_code", 202)
     monkeypatch.setattr(pusher, "sign_set", lambda *a, **kw: "signed.jwt")
     monkeypatch.setattr(pusher.httpx, "AsyncClient", FakeAsyncClient)
 
@@ -93,8 +93,8 @@ async def test_push_set_sends_accept_application_json(monkeypatch, stream, event
 
 @pytest.mark.anyio
 async def test_push_verification_set_sends_accept_application_json(monkeypatch, stream):
-    FakeAsyncClient.requests = []
-    FakeAsyncClient.status_code = 202
+    monkeypatch.setattr(FakeAsyncClient, "requests", [])
+    monkeypatch.setattr(FakeAsyncClient, "status_code", 202)
     monkeypatch.setattr(pusher, "sign_verification_set", lambda audience, stream_id, **kw: "signed.jwt")
     monkeypatch.setattr(pusher.httpx, "AsyncClient", FakeAsyncClient)
 
@@ -107,9 +107,9 @@ async def test_push_verification_set_sends_accept_application_json(monkeypatch, 
 @pytest.mark.anyio
 async def test_receiver_error_body_not_logged_at_warn(monkeypatch, stream, event, caplog):
     """Raw receiver error body must not appear in WARNING logs."""
-    FakeAsyncClient.requests = []
-    FakeAsyncClient.status_code = 400
-    FakeAsyncClient.response_text = "Invalid security event token — secret diagnostic info"
+    monkeypatch.setattr(FakeAsyncClient, "requests", [])
+    monkeypatch.setattr(FakeAsyncClient, "status_code", 400)
+    monkeypatch.setattr(FakeAsyncClient, "response_text", "Invalid security event token — secret diagnostic info")
     monkeypatch.setattr(pusher, "sign_set", lambda *a, **kw: "signed.jwt")
     monkeypatch.setattr(pusher.httpx, "AsyncClient", FakeAsyncClient)
 
@@ -127,9 +127,9 @@ async def test_receiver_error_body_not_logged_at_warn(monkeypatch, stream, event
 @pytest.mark.anyio
 async def test_receiver_error_body_hash_logged_at_warn(monkeypatch, stream, event, caplog):
     """WARNING log must include a body hash for correlation."""
-    FakeAsyncClient.requests = []
-    FakeAsyncClient.status_code = 400
-    FakeAsyncClient.response_text = "error body"
+    monkeypatch.setattr(FakeAsyncClient, "requests", [])
+    monkeypatch.setattr(FakeAsyncClient, "status_code", 400)
+    monkeypatch.setattr(FakeAsyncClient, "response_text", "error body")
     monkeypatch.setattr(pusher, "sign_set", lambda *a, **kw: "signed.jwt")
     monkeypatch.setattr(pusher.httpx, "AsyncClient", FakeAsyncClient)
 
@@ -144,9 +144,9 @@ async def test_receiver_error_body_hash_logged_at_warn(monkeypatch, stream, even
 @pytest.mark.anyio
 async def test_push_set_reports_receiver_error(monkeypatch, stream, event, caplog):
     """Failed push returns False and logs status code."""
-    FakeAsyncClient.requests = []
-    FakeAsyncClient.status_code = 500
-    FakeAsyncClient.response_text = "Internal Server Error"
+    monkeypatch.setattr(FakeAsyncClient, "requests", [])
+    monkeypatch.setattr(FakeAsyncClient, "status_code", 500)
+    monkeypatch.setattr(FakeAsyncClient, "response_text", "Internal Server Error")
     monkeypatch.setattr(pusher, "sign_set", lambda *a, **kw: "signed.jwt")
     monkeypatch.setattr(pusher.httpx, "AsyncClient", FakeAsyncClient)
 
@@ -158,7 +158,7 @@ async def test_push_set_reports_receiver_error(monkeypatch, stream, event, caplo
 
 @pytest.mark.anyio
 async def test_push_set_skips_disabled_stream(monkeypatch, stream, event):
-    FakeAsyncClient.requests = []
+    monkeypatch.setattr(FakeAsyncClient, "requests", [])
     monkeypatch.setattr(pusher.httpx, "AsyncClient", FakeAsyncClient)
     disabled_stream = Stream(
         stream_id=stream.stream_id,
@@ -179,7 +179,7 @@ async def test_push_set_skips_disabled_stream(monkeypatch, stream, event):
 @pytest.mark.anyio
 async def test_push_set_skips_event_not_in_events_requested(monkeypatch, stream):
     """Events not listed in stream.events_requested return None (skipped), not False (failure)."""
-    FakeAsyncClient.requests = []
+    monkeypatch.setattr(FakeAsyncClient, "requests", [])
     monkeypatch.setattr(pusher.httpx, "AsyncClient", FakeAsyncClient)
     stream_with_filter = Stream(
         stream_id=stream.stream_id,
@@ -210,8 +210,8 @@ async def test_push_set_delivers_event_in_events_requested(monkeypatch, stream):
         status="enabled",
         created_at=stream.created_at,
     )
-    FakeAsyncClient.requests = []
-    FakeAsyncClient.status_code = 202
+    monkeypatch.setattr(FakeAsyncClient, "requests", [])
+    monkeypatch.setattr(FakeAsyncClient, "status_code", 202)
     monkeypatch.setattr(pusher, "sign_set", lambda *a, **kw: "signed.jwt")
     monkeypatch.setattr(pusher.httpx, "AsyncClient", FakeAsyncClient)
     allowed_event = MappedEvent(uri=SESSION_REVOKED, payload={})
@@ -224,8 +224,8 @@ async def test_push_set_delivers_event_in_events_requested(monkeypatch, stream):
 @pytest.mark.anyio
 async def test_push_set_allows_all_when_events_requested_empty(monkeypatch, stream, event):
     """Empty events_requested means no filter — all events are pushed."""
-    FakeAsyncClient.requests = []
-    FakeAsyncClient.status_code = 202
+    monkeypatch.setattr(FakeAsyncClient, "requests", [])
+    monkeypatch.setattr(FakeAsyncClient, "status_code", 202)
     monkeypatch.setattr(pusher, "sign_set", lambda *a, **kw: "signed.jwt")
     monkeypatch.setattr(pusher.httpx, "AsyncClient", FakeAsyncClient)
 
@@ -245,8 +245,8 @@ async def test_push_set_passes_empty_risc_event_payload_to_signer(monkeypatch, s
         uri="https://schemas.openid.net/secevent/ssf/event-type/verification",
         payload={},
     )
-    FakeAsyncClient.requests = []
-    FakeAsyncClient.status_code = 202
+    monkeypatch.setattr(FakeAsyncClient, "requests", [])
+    monkeypatch.setattr(FakeAsyncClient, "status_code", 202)
     monkeypatch.setattr(pusher, "sign_set", _capture_sign_set)
     monkeypatch.setattr(pusher.httpx, "AsyncClient", FakeAsyncClient)
 
@@ -259,9 +259,9 @@ async def test_push_set_passes_empty_risc_event_payload_to_signer(monkeypatch, s
 
 @pytest.mark.anyio
 async def test_receiver_error_body_logged_only_when_enabled(monkeypatch, stream, event, caplog):
-    FakeAsyncClient.requests = []
-    FakeAsyncClient.status_code = 400
-    FakeAsyncClient.response_text = "receiver detail"
+    monkeypatch.setattr(FakeAsyncClient, "requests", [])
+    monkeypatch.setattr(FakeAsyncClient, "status_code", 400)
+    monkeypatch.setattr(FakeAsyncClient, "response_text", "receiver detail")
     monkeypatch.setattr(pusher, "sign_set", lambda *a, **kw: "signed.jwt")
     monkeypatch.setattr(pusher.httpx, "AsyncClient", FakeAsyncClient)
     monkeypatch.setattr(pusher, "settings", replace(pusher.settings, ssf_log_receiver_error_body=True))
@@ -276,9 +276,9 @@ async def test_receiver_error_body_logged_only_when_enabled(monkeypatch, stream,
 
 @pytest.mark.anyio
 async def test_verification_receiver_error_body_logged_only_when_enabled(monkeypatch, stream, caplog):
-    FakeAsyncClient.requests = []
-    FakeAsyncClient.status_code = 400
-    FakeAsyncClient.response_text = "receiver detail"
+    monkeypatch.setattr(FakeAsyncClient, "requests", [])
+    monkeypatch.setattr(FakeAsyncClient, "status_code", 400)
+    monkeypatch.setattr(FakeAsyncClient, "response_text", "receiver detail")
     monkeypatch.setattr(pusher, "sign_verification_set", lambda *a, **kw: "signed.jwt")
     monkeypatch.setattr(pusher.httpx, "AsyncClient", FakeAsyncClient)
     monkeypatch.setattr(pusher, "settings", replace(pusher.settings, ssf_log_receiver_error_body=True))
@@ -293,7 +293,7 @@ async def test_verification_receiver_error_body_logged_only_when_enabled(monkeyp
 
 @pytest.mark.anyio
 async def test_push_set_blocked_when_host_not_in_allowlist(monkeypatch, stream, event, caplog):
-    FakeAsyncClient.requests = []
+    monkeypatch.setattr(FakeAsyncClient, "requests", [])
     monkeypatch.setattr(pusher, "sign_set", lambda *a, **kw: "signed.jwt")
     monkeypatch.setattr(pusher.httpx, "AsyncClient", FakeAsyncClient)
     monkeypatch.setattr(
@@ -313,7 +313,7 @@ async def test_push_set_blocked_when_host_not_in_allowlist(monkeypatch, stream, 
 
 @pytest.mark.anyio
 async def test_push_verification_set_blocked_when_host_not_in_allowlist(monkeypatch, stream, caplog):
-    FakeAsyncClient.requests = []
+    monkeypatch.setattr(FakeAsyncClient, "requests", [])
     monkeypatch.setattr(pusher, "sign_verification_set", lambda *a, **kw: "signed.jwt")
     monkeypatch.setattr(pusher.httpx, "AsyncClient", FakeAsyncClient)
     monkeypatch.setattr(
