@@ -329,3 +329,59 @@ async def test_push_verification_set_blocked_when_host_not_in_allowlist(monkeypa
     assert delivered is False
     assert FakeAsyncClient.requests == []
     assert "SSF_ALLOWED_RECEIVER_HOSTS allowlist" in caplog.text
+
+
+@pytest.mark.anyio
+async def test_push_set_logs_claims_from_inputs_without_decoding_token(monkeypatch, stream, event, caplog):
+    """DEBUG-level claims logging reads the pre-signing inputs, not the signed token.
+
+    Regression test: this used to jwt.decode() the token we had just signed
+    ourselves (verify_signature=False) purely to log it back — logging the
+    inputs directly means there's nothing to decode, and nothing to silently
+    fail decoding either.
+    """
+    monkeypatch.setattr(FakeAsyncClient, "requests", [])
+    monkeypatch.setattr(FakeAsyncClient, "status_code", 202)
+    monkeypatch.setattr(pusher, "sign_set", lambda *a, **kw: "not a real jwt at all")
+    monkeypatch.setattr(pusher.httpx, "AsyncClient", FakeAsyncClient)
+
+    import logging
+    with caplog.at_level(logging.DEBUG, logger="app.events.pusher"):
+        delivered = await pusher.push_set(stream, event, "user@example.com")
+
+    assert delivered is True
+    assert f"event_uri={event.uri}" in caplog.text
+    assert f"aud={stream.aud}" in caplog.text
+    assert "could not be decoded" not in caplog.text
+
+
+@pytest.mark.anyio
+async def test_push_set_sanitizes_control_characters_in_logged_claims(monkeypatch, stream, caplog):
+    """aud and txn can carry attacker-controlled CR/LF; the claims log must not forge lines.
+
+    aud is client-supplied when a stream is created (no format validation);
+    txn can come straight from an Authentik webhook body (see
+    app.events.mapper.extract_source_txn). Regression for a CWE-117 log
+    injection gap introduced when the claims log stopped reading the signed
+    token's dict repr (which happened to escape control characters) and
+    started reading these values directly.
+    """
+    malicious_stream = replace(stream, aud="receiver\r\nFAKE LOG LINE aud")
+    malicious_event = MappedEvent(uri=SESSION_REVOKED, payload={}, txn="txn-1\r\nFAKE LOG LINE txn")
+
+    monkeypatch.setattr(FakeAsyncClient, "requests", [])
+    monkeypatch.setattr(FakeAsyncClient, "status_code", 202)
+    monkeypatch.setattr(pusher, "sign_set", lambda *a, **kw: "signed.jwt")
+    monkeypatch.setattr(pusher.httpx, "AsyncClient", FakeAsyncClient)
+
+    import logging
+    with caplog.at_level(logging.DEBUG, logger="app.events.pusher"):
+        delivered = await pusher.push_set(malicious_stream, malicious_event, "user@example.com")
+
+    assert delivered is True
+    # The raw CR/LF must be gone (no forged line break)...
+    assert "\r\nFAKE" not in caplog.text
+    assert "\n\r\nFAKE" not in caplog.text
+    # ...but the rest of the value still shows up, de-fanged, on the same line.
+    assert "aud=receiverFAKE LOG LINE aud" in caplog.text
+    assert "txn=txn-1FAKE LOG LINE txn" in caplog.text

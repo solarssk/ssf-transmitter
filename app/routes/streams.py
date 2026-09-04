@@ -11,6 +11,7 @@ from app.database import create_stream, delete_stream, delete_stream_by_id, get_
 from app.events.pusher import push_verification_set
 from app.models import SUPPORTED_EVENT_URIS, StreamCreateRequest, StreamPatchRequest
 from app.rate_limit import limiter
+from app.security.log_sanitize import sanitize_for_log
 from app.security.url_validation import validate_receiver_endpoint_url
 
 _EVENTS_SUPPORTED = sorted(SUPPORTED_EVENT_URIS)
@@ -60,7 +61,7 @@ async def create_stream_endpoint(request: Request, body: StreamCreateRequest) ->
     endpoint_url = body.delivery.endpoint_url
     logger.info(
         "Stream create request aud=%s events_requested=%s",
-        body.aud,
+        sanitize_for_log(body.aud),
         body.events_requested,
     )
     try:
@@ -86,7 +87,7 @@ async def create_stream_endpoint(request: Request, body: StreamCreateRequest) ->
     try:
         stream = await create_stream(payload)
     except ValueError as exc:
-        logger.warning("Stream create rejected reason=%s aud=%s", exc, body.aud)
+        logger.warning("Stream create rejected reason=%s aud=%s", exc, sanitize_for_log(body.aud))
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     pushed = await push_verification_set(stream)
@@ -94,7 +95,7 @@ async def create_stream_endpoint(request: Request, body: StreamCreateRequest) ->
         logger.warning(
             "Verification SET delivery failed; rolling back stream_id=%s aud=%s",
             stream.stream_id,
-            stream.aud,
+            sanitize_for_log(stream.aud),
         )
         await delete_stream_by_id(stream.stream_id)
         raise HTTPException(

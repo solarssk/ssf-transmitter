@@ -12,6 +12,12 @@ Versioning: [Semantic Versioning](https://semver.org/)
 ### Security
 - **Container image supply chain hardening** — `pip`, `setuptools`, and `wheel` are removed from the runtime image after installing dependencies (they are build-time-only and unused at runtime); this also drops pip's internally vendored, unpatchable copies of `msgpack`/`setuptools` that were tripping the CI Trivy scan on every base-image bump
 - **Hash-pinned dependency installs** — the Docker image installs from `requirements.lock.txt`, and CI's own "Test and lint" job installs from `requirements-dev.lock.txt` (both `pip install --require-hashes --only-binary :all:`), generated from `requirements.txt` / `requirements-dev.txt` via `scripts/lock_requirements.py`
+- **Log injection (CWE-117)** — attacker-controlled `aud` and `stream_id` values (client-suppliable when creating/updating a stream) and Apple's OAuth `error` query parameter are now sanitized (`app.security.log_sanitize`) before being interpolated into log messages, closing off forged log lines via embedded CR/LF
+- **JWT decoded without signature verification** — `push_set()` no longer decodes the SET it just signed (`verify_signature=False`) purely to log its claims; the DEBUG-level claims log now reads the same values from the pre-signing inputs instead
+
+### Fixed
+- **Blocking file I/O in `init_db()`** — pre-creating the SQLite file with 0600 permissions now runs off the event loop thread (`asyncio.to_thread`)
+- **Apple SCIM background task shutdown** — an unexpected exception from the sync loop is now logged explicitly at shutdown instead of only a clean cancellation being handled
 
 ### Added
 - **CI: multi-platform smoke tests** — `Test and lint` now builds and boots the image for both published platforms (`linux/amd64` natively, `linux/arm64` via QEMU) and polls `GET /jwks.json`, so a broken build or runtime regression fails before merge instead of only in the post-merge publish job

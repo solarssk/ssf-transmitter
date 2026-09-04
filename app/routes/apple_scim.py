@@ -36,6 +36,7 @@ from app.scim.apple import sync_users
 from app.scim.authentik import get_users
 from app.scim.token import APPLE_TOKEN_URL, get_valid_access_token, load_tokens, save_tokens
 from app.security.http_logging import json_key_summary, response_metadata
+from app.security.log_sanitize import sanitize_for_log
 
 logger = logging.getLogger(__name__)
 
@@ -127,7 +128,7 @@ async def callback(
     _require_scim_configured()
 
     if error:
-        logger.error("Apple SCIM: OAuth error from Apple error=%s", error)
+        logger.error("Apple SCIM: OAuth error from Apple error=%s", sanitize_for_log(error))
         raise HTTPException(status_code=400, detail=f"Apple returned an OAuth error: {error}")
 
     if not code:

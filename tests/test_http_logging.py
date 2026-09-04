@@ -26,8 +26,9 @@ class TestResponseMetadata:
         assert response_metadata(resp)["content_type"] == "application/scim+json"
 
     def test_hash_is_deterministic(self):
-        resp = httpx.Response(200, content=b"same body")
-        assert response_metadata(resp)["body_sha256_8"] == response_metadata(resp)["body_sha256_8"]
+        r1 = httpx.Response(200, content=b"same body")
+        r2 = httpx.Response(200, content=b"same body")
+        assert response_metadata(r1)["body_sha256_8"] == response_metadata(r2)["body_sha256_8"]
 
     def test_different_bodies_different_hash(self):
         r1 = httpx.Response(200, content=b"body one")

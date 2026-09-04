@@ -107,10 +107,16 @@ async def lifespan(app: FastAPI):
 
     if apple_scim_task is not None:
         apple_scim_task.cancel()
-        try:
-            await apple_scim_task
-        except asyncio.CancelledError:
+        # gather(..., return_exceptions=True) collects the task's outcome
+        # without re-raising it here — unlike `try: await task / except
+        # CancelledError`, there is no exception left needing a re-raise for
+        # this coroutine's own cancellation semantics, since the exception
+        # belongs to apple_scim_task, not to lifespan().
+        (result,) = await asyncio.gather(apple_scim_task, return_exceptions=True)
+        if isinstance(result, asyncio.CancelledError):
             logger.info("Apple SCIM: sync loop stopped")
+        elif isinstance(result, BaseException):
+            logger.warning("Apple SCIM: sync loop exited with an unexpected error", exc_info=result)
 
 
 def create_app() -> FastAPI:
