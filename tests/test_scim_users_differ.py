@@ -457,3 +457,48 @@ async def test_sync_external_id_only_mode_does_not_loop_on_unfixable_email_diff(
     assert second.updated == 0
     assert second.out_of_scope_diffs == 1
     assert all(method == "GET" for method, _, _ in first_requests + holder["client"].requests)
+
+
+@pytest.mark.anyio
+async def test_handle_409_external_id_only_mode_does_not_loop_on_unfixable_email_diff(monkeypatch):
+    """Same regression as above, but through the 409-recovery path
+    (_handle_409), which has its own copy of the actionable-diffs decision
+    and was not exercised by the sync_users()-level test above.
+    """
+    from app.scim import apple
+
+    scoped_settings = dataclasses.replace(real_settings, apple_scim_update_mode="external_id_only")
+    monkeypatch.setattr(apple, "settings", scoped_settings)
+
+    found = _apple_existing(email="stale@example.com")
+    fake_client = _FakeAppleClient(30.0, apple_users=[found])
+    new_user = _authentik_scim(email="fresh@example.com")
+    result = apple.SyncResult()
+
+    await apple._handle_409(fake_client, {}, new_user, result)
+
+    assert result.unchanged == 1
+    assert result.updated == 0
+    assert result.out_of_scope_diffs == 1
+    assert result.conflicts == 0
+    assert all(method == "GET" for method, _, _ in fake_client.requests)
+
+
+@pytest.mark.anyio
+async def test_handle_409_patches_actionable_diff():
+    """The other side of the same branch: under the default patch_all mode
+    (no narrow update_mode scoping), a real diff found via 409-recovery
+    must still result in a PATCH, not be treated as out-of-scope."""
+    from app.scim import apple
+
+    found = _apple_existing(email="stale@example.com")
+    fake_client = _FakeAppleClient(30.0, apple_users=[found])
+    new_user = _authentik_scim(email="fresh@example.com")
+    result = apple.SyncResult()
+
+    await apple._handle_409(fake_client, {}, new_user, result)
+
+    assert result.updated == 1
+    assert result.unchanged == 0
+    assert result.out_of_scope_diffs == 0
+    assert any(method == "PATCH" for method, _, _ in fake_client.requests)
