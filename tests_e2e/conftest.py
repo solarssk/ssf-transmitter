@@ -42,7 +42,13 @@ WEBHOOK_HEADERS = {"Authorization": f"Bearer {WEBHOOK_TOKEN}"}
 
 @pytest.fixture(scope="session")
 def client():
-    with httpx.Client(base_url=BASE_URL, timeout=10.0) as c:
+    # 30s, not 10s: app/events/pusher.py's own outbound push has a 10s
+    # timeout, and test_create_stream_ssrf_safe_but_unreachable_receiver_returns_502
+    # relies on that server-side timeout actually firing and the route
+    # rolling back and responding with 502 — a client timeout equal to the
+    # server's races it (and generally loses), raising httpx.ReadTimeout in
+    # the test instead of ever seeing the 502. Give real margin beyond it.
+    with httpx.Client(base_url=BASE_URL, timeout=30.0) as c:
         yield c
 
 
