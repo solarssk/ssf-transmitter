@@ -146,6 +146,18 @@ def test_extract_source_txn_returns_none_when_missing():
     assert txn is None
 
 
+def test_extract_source_txn_coerces_non_string_pk_to_string():
+    """Regression test (found by Hypothesis, see test_mapper_hypothesis.py):
+    pk/event_uuid/request_id are attacker-suppliable JSON values, not
+    guaranteed strings — a numeric pk previously propagated as a raw int,
+    violating this function's own `str | None` return type and crashing
+    downstream JWT-claim serialization / log sanitization.
+    """
+    txn = extract_source_txn({"body": {"pk": 12345, "action": "x"}})
+    assert txn == "12345"
+    assert isinstance(txn, str)
+
+
 def test_mapped_event_is_frozen():
     import pytest
 

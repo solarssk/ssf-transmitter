@@ -46,6 +46,12 @@ class SyncResult:
     conflicts: int = 0  # users that exist but have a personal Apple ID conflict
     errors: int = 0
     update_400_invalid_request: int = 0
+    # Users with a real field diff entirely outside the configured
+    # APPLE_SCIM_UPDATE_MODE's scope (e.g. an email mismatch under
+    # external_id_only) — permanently stale under this mode, not just
+    # transiently unsynced. An overlay tag on a subset of `unchanged`
+    # (already counted there), not a separate bucket.
+    out_of_scope_diffs: int = 0
     conflict_usernames: list[str] = field(default_factory=list)
 
 
@@ -212,11 +218,42 @@ def _update_fields_for_mode(mode: str) -> list[str]:
     return ["externalId", "userName", "name", "emails", "active"]
 
 
-def _build_update_request(user: dict, mode: str) -> tuple[str, dict[str, Any], list[str]]:
+# Maps _update_fields_for_mode()'s SCIM field names to _field_diffs()'s
+# (differently-named, and for "name" split-in-two) diff-dict keys.
+_MODE_FIELD_TO_DIFF_KEYS: dict[str, tuple[str, ...]] = {
+    "externalId": ("externalId",),
+    "userName": ("userName",),
+    "name": ("givenName", "familyName"),
+    "emails": ("email",),
+    "active": ("active",),
+}
+
+
+def _actionable_diffs(diffs: dict[str, bool], mode: str) -> dict[str, bool]:
+    """Filter `diffs` to only the fields `_patch_user()` will actually write under `mode`.
+
+    A diff outside a narrow mode's scope (e.g. an email mismatch under
+    "external_id_only") can never be resolved by the PATCH that mode sends —
+    treating it as actionable would call _patch_user() every sync cycle,
+    which writes only the in-scope fields and leaves the real diff
+    unresolved, forever re-triggering the same no-op update next cycle.
+    """
+    allowed_keys: set[str] = set()
+    for field_name in _update_fields_for_mode(mode):
+        allowed_keys.update(_MODE_FIELD_TO_DIFF_KEYS.get(field_name, ()))
+    return {key: value for key, value in diffs.items() if key in allowed_keys}
+
+
+def _build_update_request(user: dict, mode: str, apple_id: str) -> tuple[str, dict[str, Any], list[str]]:
     """Build the outbound Apple SCIM update request for the configured mode."""
     fields = _update_fields_for_mode(mode)
     if mode == "replace_all":
-        return "PUT", user, fields
+        # Apple rejects PUT bodies that include `externalId` (immutable
+        # after creation) or omit the resource `id` — send everything else
+        # from `user` plus the Apple-assigned id, not the raw dict.
+        put_body = {k: v for k, v in user.items() if k != "externalId"}
+        put_body["id"] = apple_id
+        return "PUT", put_body, fields
 
     operations: list[dict[str, Any]] = []
     for field_name in fields:
@@ -286,7 +323,7 @@ async def _patch_user(
 ) -> None:
     """PATCH a user update. Shared by normal update path and 409-recovery path."""
     apple_id = apple_user["id"]
-    method, update_body, changed_fields = _build_update_request(new_user, settings.apple_scim_update_mode)
+    method, update_body, changed_fields = _build_update_request(new_user, settings.apple_scim_update_mode, apple_id)
     if method == "PUT":
         resp = await client.put(f"{APPLE_SCIM_BASE}/Users/{apple_id}", json=update_body, headers=headers)
     else:
@@ -407,10 +444,20 @@ async def _handle_409(
                         if diffs.get("externalId") and not any(non_external_diffs.values()):
                             external_id_patched = await _patch_external_id(client, headers, found, user, result)
                             diffs = _field_diffs(found, user, include_external_id=False)
-                        if any(diffs.values()):
+                        actionable = _actionable_diffs(diffs, settings.apple_scim_update_mode)
+                        if any(actionable.values()):
                             await _patch_user(client, headers, found, user, result, label="409-recovery")
-                        elif not external_id_patched:
-                            result.unchanged += 1
+                        else:
+                            if any(diffs.values()):
+                                result.out_of_scope_diffs += 1
+                                logger.debug(
+                                    "Apple SCIM: %s has a diff outside update_mode=%s scope — changed: %s",
+                                    _log_user_ref(user),
+                                    settings.apple_scim_update_mode,
+                                    _format_changed_fields(diffs),
+                                )
+                            if not external_id_patched:
+                                result.unchanged += 1
                         return
         else:
             logger.warning(
@@ -513,17 +560,27 @@ async def sync_users(access_token: str, scim_users: list[dict]) -> SyncResult:
                     if recovered_by_username and diffs.get("externalId") and not any(non_external_diffs.values()):
                         external_id_patched = await _patch_external_id(client, headers, apple_user, user, result)
                         diffs = _field_diffs(apple_user, user, include_external_id=False)
-                    if any(diffs.values()):
-                        changed = _format_changed_fields(diffs)
+                    actionable = _actionable_diffs(diffs, settings.apple_scim_update_mode)
+                    if any(actionable.values()):
+                        changed = _format_changed_fields(actionable)
                         logger.debug(
                             "Apple SCIM: update %s — changed: %s",
                             _log_user_ref(user),
                             changed,
                         )
                         await _patch_user(client, headers, apple_user, user, result, label=changed)
-                    elif not external_id_patched:
-                        result.unchanged += 1
-                        logger.debug("Apple SCIM: unchanged %s", _log_user_ref(user))
+                    else:
+                        if any(diffs.values()):
+                            result.out_of_scope_diffs += 1
+                            logger.debug(
+                                "Apple SCIM: %s has a diff outside update_mode=%s scope — changed: %s",
+                                _log_user_ref(user),
+                                settings.apple_scim_update_mode,
+                                _format_changed_fields(diffs),
+                            )
+                        if not external_id_patched:
+                            result.unchanged += 1
+                            logger.debug("Apple SCIM: unchanged %s", _log_user_ref(user))
 
             except httpx.HTTPError:
                 result.errors += 1
@@ -531,18 +588,26 @@ async def sync_users(access_token: str, scim_users: list[dict]) -> SyncResult:
 
     logger.info(
         "Apple SCIM: sync done — created=%d updated=%d unchanged=%d conflicts=%d "
-        "errors=%d update_400_invalid_request=%d",
+        "errors=%d update_400_invalid_request=%d out_of_scope_diffs=%d",
         result.created,
         result.updated,
         result.unchanged,
         result.conflicts,
         result.errors,
         result.update_400_invalid_request,
+        result.out_of_scope_diffs,
     )
     if result.conflicts > 0:
         logger.warning(
             "Apple SCIM: ⚠️  %d account(s) pending user acceptance (personal Apple ID conflict) — go to %s",
             result.conflicts,
             ABM_ACTIVITY_URL,
+        )
+    if result.out_of_scope_diffs > 0:
+        logger.warning(
+            "Apple SCIM: ⚠️  %d user(s) have a field diff outside update_mode=%s scope and will stay "
+            "stale — widen APPLE_SCIM_UPDATE_MODE or fix manually in Apple Business Manager",
+            result.out_of_scope_diffs,
+            settings.apple_scim_update_mode,
         )
     return result

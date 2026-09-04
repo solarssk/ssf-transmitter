@@ -172,7 +172,7 @@ async def _patch_stream_body(body: StreamPatchRequest) -> dict[str, Any]:
         404: {"description": "No stream configured"},
     },
 )
-@limiter.limit("20/minute")
+@limiter.shared_limit("20/minute", scope="patch_stream")
 async def patch_stream_endpoint(request: Request, body: StreamPatchRequest) -> dict[str, Any]:
     """Update the current SSF stream configuration."""
     return await _patch_stream_body(body)
@@ -185,7 +185,7 @@ async def patch_stream_endpoint(request: Request, body: StreamPatchRequest) -> d
         404: {"description": "No stream configured, or stream_id does not match"},
     },
 )
-@limiter.limit("20/minute")
+@limiter.shared_limit("20/minute", scope="patch_stream")
 async def patch_stream_by_id_endpoint(stream_id: str, request: Request, body: StreamPatchRequest) -> dict[str, Any]:
     """Update a stream by ID."""
     await _get_stream_or_404(stream_id)

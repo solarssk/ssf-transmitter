@@ -70,8 +70,14 @@ def test_rate_limit_response_has_security_headers(client: TestClient):
 
 
 @pytest.mark.enable_rate_limit
-def test_patch_stream_by_id_uses_independent_rate_limit(client: TestClient):
-    """PATCH /streams/{id} must not consume or check the non-ID PATCH quota."""
+def test_patch_stream_by_id_shares_rate_limit_with_patch_stream(client: TestClient):
+    """PATCH /streams/{id} must count against the same quota as PATCH /streams —
+    they both mutate the same single stream, so exhausting one via either
+    route must also block the other. Regression test: these used to be two
+    independent 20/minute buckets (slowapi's default per-route behavior),
+    letting an operator double the effective limit by alternating routes.
+    See tests/test_rate_limit.py for the more detailed regression test.
+    """
     from app.rate_limit import limiter
 
     limiter.reset()
@@ -102,5 +108,4 @@ def test_patch_stream_by_id_uses_independent_rate_limit(client: TestClient):
         json={"status": "disabled"},
         headers=MGMT_HEADERS,
     )
-    assert by_id_resp.status_code == 200
-    assert by_id_resp.json()["status"] == "disabled"
+    assert by_id_resp.status_code == 429

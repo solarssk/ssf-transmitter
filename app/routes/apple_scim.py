@@ -305,5 +305,6 @@ async def sync() -> dict:
         # in application logs at WARNING level.
         "errors": result.errors,
         "update_400_invalid_request": result.update_400_invalid_request,
+        "out_of_scope_diffs": result.out_of_scope_diffs,
         "update_mode": settings.apple_scim_update_mode,
     }

@@ -20,6 +20,40 @@ from app.security.log_sanitize import sanitize_for_log
 
 logger = logging.getLogger(__name__)
 
+# Serializes all writes to the (single-row) streams table within this
+# process. update_stream() reads the current row, selectively preserves
+# fields the caller didn't supply (notably endpoint_token), then writes the
+# merged result back — a classic read-modify-write race: two concurrent
+# updates can interleave so the second commit's write silently reverts the
+# first's (e.g. a token rotation reverted by a concurrent status-only PATCH
+# that read the pre-rotation token). The app runs as a single uvicorn
+# worker (see Dockerfile CMD, no --workers flag), so an in-process lock is
+# sufficient — no cross-process coordination is needed.
+_stream_write_lock: asyncio.Lock | None = None
+_stream_write_lock_loop: asyncio.AbstractEventLoop | None = None
+
+
+def _get_stream_write_lock() -> asyncio.Lock:
+    """Return the process-wide stream write lock, recreating it if the
+    running event loop has changed since it was created.
+
+    In production there's exactly one uvicorn event loop for the process's
+    entire lifetime, so this runs once and the lock is reused forever. A
+    module-level `asyncio.Lock()` created eagerly at import time would
+    instead bind to whichever loop first acquires it and then raise
+    "bound to a different event loop" the moment a *different* loop tries
+    to use it — which is exactly what happens under a test suite that
+    creates a fresh event loop per test function. A lock bound to a dead
+    loop isn't protecting anything real across that boundary anyway, so
+    recreating it here is safe.
+    """
+    global _stream_write_lock, _stream_write_lock_loop
+    loop = asyncio.get_running_loop()
+    if _stream_write_lock is None or _stream_write_lock_loop is not loop:
+        _stream_write_lock = asyncio.Lock()
+        _stream_write_lock_loop = loop
+    return _stream_write_lock
+
 
 @dataclass(frozen=True)
 class Stream:
@@ -192,7 +226,7 @@ async def create_stream(payload: dict[str, Any]) -> Stream:
         created_at=int(time.time()),
     )
 
-    async with aiosqlite.connect(settings.database_path) as db:
+    async with _get_stream_write_lock(), aiosqlite.connect(settings.database_path) as db:
         await db.execute("DELETE FROM streams")
         await db.execute(
             """
@@ -238,7 +272,7 @@ async def get_first_stream() -> Stream | None:
 
 async def update_stream(payload: dict[str, Any]) -> Stream | None:
     """Update fields on the existing stream; returns None if no stream exists."""
-    async with aiosqlite.connect(settings.database_path) as db:
+    async with _get_stream_write_lock(), aiosqlite.connect(settings.database_path) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute("SELECT * FROM streams ORDER BY created_at DESC LIMIT 1")
         row = await cursor.fetchone()
@@ -305,7 +339,7 @@ async def delete_stream() -> bool:
 
 async def delete_stream_by_id(stream_id: str) -> bool:
     """Delete a specific stream by ID; returns True if deleted, False if not found."""
-    async with aiosqlite.connect(settings.database_path) as db:
+    async with _get_stream_write_lock(), aiosqlite.connect(settings.database_path) as db:
         cursor = await db.execute("DELETE FROM streams WHERE stream_id = ?", (stream_id,))
         await db.commit()
         deleted = cursor.rowcount > 0

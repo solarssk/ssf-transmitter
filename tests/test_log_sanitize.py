@@ -30,3 +30,21 @@ def test_truncates_long_values():
 def test_does_not_truncate_at_exact_limit():
     result = sanitize_for_log("x" * 200, max_len=200)
     assert result == "x" * 200
+
+
+def test_non_string_value_is_coerced_not_raised():
+    """Regression test: app/events/mapper.py's extract_source_txn() returns
+    body.get("pk") etc. with no type coercion — a webhook with an int `pk`
+    produces a non-string event.txn, and this is called on it at DEBUG log
+    level in app/events/pusher.py. Previously raised TypeError (re.sub on
+    an int), which surfaced as an unhandled 500 aborting webhook delivery.
+    """
+    assert sanitize_for_log(12345) == "12345"
+
+
+def test_non_string_value_still_strips_control_chars_after_str_coercion():
+    class _Weird:
+        def __str__(self) -> str:
+            return "bad\r\nFAKE LOG LINE"
+
+    assert sanitize_for_log(_Weird()) == "badFAKE LOG LINE"
