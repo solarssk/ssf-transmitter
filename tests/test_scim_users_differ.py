@@ -255,10 +255,12 @@ class _FakeAppleClient:
         *,
         apple_users: list[dict] | None = None,
         holder: dict | None = None,
+        fail_external_id_patch: bool = False,
     ):
         self.timeout = timeout
         self.apple_users = list(apple_users) if apple_users is not None else []
         self.requests: list[tuple[str, str, dict | None]] = []
+        self.fail_external_id_patch = fail_external_id_patch
         if holder is not None:
             holder["client"] = self
 
@@ -311,10 +313,14 @@ class _FakeAppleClient:
 
     async def patch(self, url, json, headers):
         self.requests.append(("PATCH", url, json))
+        ops = json.get("Operations", [])
+        is_external_id_repair = len(ops) == 1 and ops[0].get("path") == "externalId"
+        if is_external_id_repair and self.fail_external_id_patch:
+            return _FakeResponse(400, {"scimType": "invalidValue"})
         apple_id = url.rsplit("/", 1)[-1]
         for user in self.apple_users:
             if user.get("id") == apple_id:
-                for op in json.get("Operations", []):
+                for op in ops:
                     path = op.get("path")
                     if path:
                         user[path] = op.get("value")
@@ -322,7 +328,9 @@ class _FakeAppleClient:
         return _FakeResponse(404, {})
 
 
-def _install_fake_apple_client(monkeypatch, *, apple_users: list[dict] | None = None) -> dict:
+def _install_fake_apple_client(
+    monkeypatch, *, apple_users: list[dict] | None = None, fail_external_id_patch: bool = False
+) -> dict:
     """Monkeypatch Apple httpx.AsyncClient with an isolated fake instance."""
     from app.scim import apple
 
@@ -331,7 +339,9 @@ def _install_fake_apple_client(monkeypatch, *, apple_users: list[dict] | None = 
 
     class _BoundFakeAppleClient(_FakeAppleClient):
         def __init__(self, timeout: float):
-            super().__init__(timeout, apple_users=shared_users, holder=holder)
+            super().__init__(
+                timeout, apple_users=shared_users, holder=holder, fail_external_id_patch=fail_external_id_patch
+            )
 
     monkeypatch.setattr(apple.httpx, "AsyncClient", _BoundFakeAppleClient)
     return holder
@@ -547,3 +557,94 @@ async def test_sync_recovered_by_username_repairs_external_id_even_with_other_di
     assert second.unchanged == 1
     assert second.updated == 0
     assert second.out_of_scope_diffs == 0
+
+
+@pytest.mark.anyio
+async def test_sync_reports_out_of_scope_diff_alongside_actionable_update(monkeypatch):
+    """Regression test: out_of_scope_diffs was only counted when there was
+    NO actionable diff at all. A user with BOTH an actionable diff (email,
+    in scope for emails_only) AND an out-of-scope one (name) had the name
+    diff silently dropped from the count — the response/warning reported
+    zero until a later sync saw the name diff alone.
+    """
+    from app.scim import apple
+
+    scoped_settings = dataclasses.replace(real_settings, apple_scim_update_mode="emails_only")
+    monkeypatch.setattr(apple, "settings", scoped_settings)
+    existing = _apple_user(given="OldName", email="stale@example.com")
+    existing["id"] = "apple-1"
+    existing["externalId"] = "1"
+    new_user = _authentik_user(given="NewName", email="fresh@example.com")
+    new_user["externalId"] = "1"
+    new_user["schemas"] = ["urn:ietf:params:scim:schemas:core:2.0:User"]
+    _install_fake_apple_client(monkeypatch, apple_users=[existing])
+
+    result = await apple.sync_users("token", [new_user])
+
+    assert result.updated == 1  # email patched (in scope for emails_only)
+    assert result.out_of_scope_diffs == 1  # name diff reported, not silently dropped
+    assert result.unchanged == 0
+
+
+@pytest.mark.anyio
+async def test_handle_409_reports_out_of_scope_diff_alongside_actionable_update():
+    """Same regression as above, through the 409-recovery path."""
+    from app.scim import apple
+
+    found = _apple_user(given="OldName", email="stale@example.com")
+    found["id"] = "apple-1"
+    found["externalId"] = "1"
+    new_user = _authentik_user(given="NewName", email="fresh@example.com")
+    new_user["externalId"] = "1"
+    fake_client = _FakeAppleClient(30.0, apple_users=[found])
+    result = apple.SyncResult()
+
+    with pytest.MonkeyPatch.context() as mp:
+        scoped_settings = dataclasses.replace(real_settings, apple_scim_update_mode="emails_only")
+        mp.setattr(apple, "settings", scoped_settings)
+        await apple._handle_409(fake_client, {}, new_user, result)
+
+    assert result.updated == 1
+    assert result.out_of_scope_diffs == 1
+    assert result.unchanged == 0
+
+
+@pytest.mark.anyio
+async def test_sync_failed_external_id_repair_is_not_also_counted_unchanged(monkeypatch):
+    """Regression test: a failed externalId repair PATCH is already counted
+    via result.errors (inside _patch_external_id) — the caller used to also
+    increment result.unchanged whenever external_id_patched was falsy,
+    which conflated "no repair needed" with "repair needed and failed",
+    double-counting the same user into two mutually-exclusive buckets.
+    """
+    from app.scim import apple
+
+    holder = _install_fake_apple_client(
+        monkeypatch,
+        apple_users=[_apple_existing(external_id=None)],  # linkage lost, everything else matches
+        fail_external_id_patch=True,
+    )
+
+    result = await apple.sync_users("token", [_authentik_scim(external_id="1")])
+
+    assert result.errors == 1
+    assert result.unchanged == 0
+    assert result.updated == 0
+    assert all(method != "PUT" for method, _, _ in holder["client"].requests)
+
+
+@pytest.mark.anyio
+async def test_handle_409_failed_external_id_repair_is_not_also_counted_unchanged():
+    """Same regression as above, through the 409-recovery path."""
+    from app.scim import apple
+
+    found = _apple_existing(external_id=None)
+    fake_client = _FakeAppleClient(30.0, apple_users=[found], fail_external_id_patch=True)
+    new_user = _authentik_scim(external_id="1")
+    result = apple.SyncResult()
+
+    await apple._handle_409(fake_client, {}, new_user, result)
+
+    assert result.errors == 1
+    assert result.unchanged == 0
+    assert result.updated == 0

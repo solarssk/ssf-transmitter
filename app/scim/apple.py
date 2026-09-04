@@ -46,11 +46,14 @@ class SyncResult:
     conflicts: int = 0  # users that exist but have a personal Apple ID conflict
     errors: int = 0
     update_400_invalid_request: int = 0
-    # Users with a real field diff entirely outside the configured
+    # Users with a real field diff outside the configured
     # APPLE_SCIM_UPDATE_MODE's scope (e.g. an email mismatch under
     # external_id_only) — permanently stale under this mode, not just
-    # transiently unsynced. An overlay tag on a subset of `unchanged`
-    # (already counted there), not a separate bucket.
+    # transiently unsynced. An overlay tag, not a separate bucket: counted
+    # alongside whichever one of `updated`/`unchanged` already applies to
+    # that user (a user can have both an actionable diff that gets patched
+    # AND an unrelated out-of-scope one left over, e.g. under emails_only
+    # with both an email and a name change).
     out_of_scope_diffs: int = 0
     conflict_usernames: list[str] = field(default_factory=list)
 
@@ -439,7 +442,7 @@ async def _handle_409(
                         )
                     else:
                         diffs = _field_diffs(found, user)
-                        external_id_patched = False
+                        external_id_patch_attempted = False
                         # Repair unconditionally, not only when externalId is
                         # the sole diff: under replace_all mode the PUT below
                         # never includes externalId (Apple rejects it there),
@@ -449,22 +452,31 @@ async def _handle_409(
                         # externalId AND some other field would have their
                         # linkage stay broken for another whole sync cycle.
                         if diffs.get("externalId"):
-                            external_id_patched = await _patch_external_id(client, headers, found, user, result)
+                            external_id_patch_attempted = True
+                            await _patch_external_id(client, headers, found, user, result)
                             diffs = _field_diffs(found, user, include_external_id=False)
                         actionable = _actionable_diffs(diffs, settings.apple_scim_update_mode)
+                        # Independent of whether an actionable update also
+                        # happens below — see the matching comment in
+                        # sync_users() for why nesting this would silently
+                        # drop the report for a user with both kinds of diff.
+                        if any(v for k, v in diffs.items() if k not in actionable):
+                            result.out_of_scope_diffs += 1
+                            logger.debug(
+                                "Apple SCIM: %s has a diff outside update_mode=%s scope — changed: %s",
+                                _log_user_ref(user),
+                                settings.apple_scim_update_mode,
+                                _format_changed_fields(diffs),
+                            )
                         if any(actionable.values()):
                             await _patch_user(client, headers, found, user, result, label="409-recovery")
-                        else:
-                            if any(diffs.values()):
-                                result.out_of_scope_diffs += 1
-                                logger.debug(
-                                    "Apple SCIM: %s has a diff outside update_mode=%s scope — changed: %s",
-                                    _log_user_ref(user),
-                                    settings.apple_scim_update_mode,
-                                    _format_changed_fields(diffs),
-                                )
-                            if not external_id_patched:
-                                result.unchanged += 1
+                        elif not external_id_patch_attempted:
+                            # A failed repair attempt is already counted via
+                            # result.errors (and update_400_invalid_request)
+                            # inside _patch_external_id — don't also count it
+                            # here as unchanged, which would double-count the
+                            # same user into two mutually-exclusive buckets.
+                            result.unchanged += 1
                         return
         else:
             logger.warning(
@@ -562,16 +574,32 @@ async def sync_users(access_token: str, scim_users: list[dict]) -> SyncResult:
                         )
                 else:
                     diffs = _field_diffs(apple_user, user)
-                    external_id_patched = False
+                    external_id_patch_attempted = False
                     # Repair unconditionally once recovered by username, not
                     # only when externalId is the sole diff — see the
                     # matching comment in _handle_409 for why gating this on
                     # "no other diff" leaves linkage broken for an extra
                     # sync cycle under replace_all/emails_only/username_only.
                     if recovered_by_username and diffs.get("externalId"):
-                        external_id_patched = await _patch_external_id(client, headers, apple_user, user, result)
+                        external_id_patch_attempted = True
+                        await _patch_external_id(client, headers, apple_user, user, result)
                         diffs = _field_diffs(apple_user, user, include_external_id=False)
                     actionable = _actionable_diffs(diffs, settings.apple_scim_update_mode)
+                    # Computed independently of whether an actionable update
+                    # also happens below — a user can have BOTH (e.g. under
+                    # emails_only, an email diff gets patched while a name
+                    # diff is out of scope); nesting this inside the "no
+                    # actionable diff" branch would silently drop the report
+                    # for that user until a later sync sees only the
+                    # out-of-scope field left.
+                    if any(v for k, v in diffs.items() if k not in actionable):
+                        result.out_of_scope_diffs += 1
+                        logger.debug(
+                            "Apple SCIM: %s has a diff outside update_mode=%s scope — changed: %s",
+                            _log_user_ref(user),
+                            settings.apple_scim_update_mode,
+                            _format_changed_fields(diffs),
+                        )
                     if any(actionable.values()):
                         changed = _format_changed_fields(actionable)
                         logger.debug(
@@ -580,18 +608,14 @@ async def sync_users(access_token: str, scim_users: list[dict]) -> SyncResult:
                             changed,
                         )
                         await _patch_user(client, headers, apple_user, user, result, label=changed)
-                    else:
-                        if any(diffs.values()):
-                            result.out_of_scope_diffs += 1
-                            logger.debug(
-                                "Apple SCIM: %s has a diff outside update_mode=%s scope — changed: %s",
-                                _log_user_ref(user),
-                                settings.apple_scim_update_mode,
-                                _format_changed_fields(diffs),
-                            )
-                        if not external_id_patched:
-                            result.unchanged += 1
-                            logger.debug("Apple SCIM: unchanged %s", _log_user_ref(user))
+                    elif not external_id_patch_attempted:
+                        # A failed repair attempt is already counted via
+                        # result.errors (and update_400_invalid_request)
+                        # inside _patch_external_id — don't also count it
+                        # here as unchanged, which would double-count the
+                        # same user into two mutually-exclusive buckets.
+                        result.unchanged += 1
+                        logger.debug("Apple SCIM: unchanged %s", _log_user_ref(user))
 
             except httpx.HTTPError:
                 result.errors += 1
