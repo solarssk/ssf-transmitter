@@ -41,6 +41,7 @@ Use this when you **already have a working stream** and Apple Business Manager i
    ```yaml
    image: ghcr.io/solarssk/ssf-transmitter:0.5.10
    ```
+   (or `docker.io/solarssk/ssf-transmitter:0.5.10` — same image, public, no login; see [Deployment.md#image](Deployment.md#image))
 3. **Set proxy trust** (if behind NPM/Caddy/Traefik):
    ```env
    SSF_FORWARDED_ALLOW_IPS=172.16.3.0/24   # your proxy subnet
