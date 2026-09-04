@@ -20,6 +20,10 @@ jobs:
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
+          # Credential is set explicitly on the remote right before the one
+          # step that pushes, instead of being left in .git/config (readable
+          # by any step in this job) for the whole job's duration.
+          persist-credentials: false
 
       - name: Configure git identity
         run: |
@@ -41,4 +45,7 @@ jobs:
         run: |
           git checkout beta
           git merge origin/main --no-edit -m "chore: sync main into beta after release"
-          git push origin beta
+          git -c http.https://github.com/.extraheader="Authorization: Basic $(printf 'x-access-token:%s' "${GITHUB_TOKEN}" | base64 -w0)" \
+            push origin beta
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

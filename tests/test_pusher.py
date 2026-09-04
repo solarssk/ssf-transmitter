@@ -1,5 +1,6 @@
 import hashlib
 from dataclasses import replace
+from typing import ClassVar
 
 import pytest
 
@@ -18,7 +19,10 @@ class FakeResponse:
 
 
 class FakeAsyncClient:
-    requests = []
+    # Deliberately class-level, not per-instance: tests monkeypatch these
+    # attributes directly on the class (see monkeypatch.setattr(FakeAsyncClient, ...)
+    # throughout this file), so pytest can restore the originals after each test.
+    requests: ClassVar[list[tuple]] = []
     status_code = 202
     response_text = ""
 

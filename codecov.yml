@@ -1,14 +1,22 @@
 # Coverage is measured only for production code (app/), as configured in pyproject.toml.
-# Keep statuses informational until the first published baseline is reviewed; the PR
-# comment still highlights uncovered changed lines for every contributor.
+# Baseline is ~77% (see pyproject.toml's local --cov-fail-under floor). Both
+# statuses now block the PR merge check (no more `informational: true`):
+#   - patch: every changed line in a PR must be ~90% covered by new/updated
+#     tests — this is what actually stops untested code from landing, since
+#     it applies to the diff regardless of the (much lower) project-wide
+#     average.
+#   - project: total coverage may drop by at most ~1% from main — catches
+#     large deletions of tests without requiring an immediate jump to a
+#     high global percentage.
 coverage:
   status:
     project:
       default:
-        informational: true
+        target: auto
+        threshold: 1%
     patch:
       default:
-        informational: true
+        target: 90%
 
 flags:
   backend:

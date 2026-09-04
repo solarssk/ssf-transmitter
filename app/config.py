@@ -154,7 +154,8 @@ class Settings:
     apple_scim_sync_interval: int = 3600  # seconds between automatic syncs (default: 1 hour)
     apple_scim_alert_webhook_url: str | None = None  # POST alerts here when re-auth is needed
     apple_scim_authorize_url: str = "https://appleid.apple.com/auth/oauth2/v2/authorize"
-    apple_scim_token_url: str = "https://appleid.apple.com/auth/oauth2/v2/token"
+    # URL, not a secret
+    apple_scim_token_url: str = "https://appleid.apple.com/auth/oauth2/v2/token"  # noqa: S105
     apple_scim_log_error_body: bool = False
     apple_scim_update_mode: str = "patch_all"
     # Set true to suppress the startup warning when SSF_ISSUER differs from SSF_BASE_URL.
@@ -191,13 +192,16 @@ class Settings:
 
         Raises :class:`RuntimeError` if any required variable is missing or invalid.
         """
-        required = {
+        raw_required = {
             "SSF_ISSUER": os.getenv("SSF_ISSUER"),
             "SSF_BASE_URL": os.getenv("SSF_BASE_URL"),
         }
-        missing = [name for name, value in required.items() if not value]
+        missing = [name for name, value in raw_required.items() if not value]
         if missing:
             raise RuntimeError(f"Missing required environment variables: {', '.join(missing)}")
+        # Every value is confirmed non-empty above; re-typed so downstream
+        # calls don't need `str | None` handling for values we just checked.
+        required: dict[str, str] = {name: value for name, value in raw_required.items() if value}
 
         for var_name, var_value in required.items():
             try:
@@ -209,6 +213,7 @@ class Settings:
         auth_mode = _parse_webhook_auth_mode(os.getenv("SSF_WEBHOOK_AUTH_MODE"), allow_unsigned)
         webhook_token = _parse_webhook_token(os.getenv("SSF_WEBHOOK_TOKEN"), auth_mode)
         webhook_secret = _parse_webhook_secret(os.getenv("SSF_WEBHOOK_SECRET"), auth_mode)
+        authentik_url_raw = os.getenv("AUTHENTIK_URL")
 
         return cls(
             ssf_issuer=_parse_https_url(required["SSF_ISSUER"], "SSF_ISSUER"),
@@ -226,7 +231,7 @@ class Settings:
             keys_dir=os.getenv("SSF_KEYS_DIR", "/app/keys"),
             apple_scim_client_id=os.getenv("APPLE_SCIM_CLIENT_ID") or None,
             apple_scim_client_secret=os.getenv("APPLE_SCIM_CLIENT_SECRET") or None,
-            authentik_url=(_strip_trailing_slash(os.getenv("AUTHENTIK_URL")) if os.getenv("AUTHENTIK_URL") else None),
+            authentik_url=(_strip_trailing_slash(authentik_url_raw) if authentik_url_raw else None),
             authentik_token=os.getenv("AUTHENTIK_TOKEN") or None,
             apple_scim_group_id=os.getenv("APPLE_SCIM_GROUP_ID") or None,
             apple_scim_sync_interval=_parse_sync_interval(os.getenv("APPLE_SCIM_SYNC_INTERVAL", "3600")),

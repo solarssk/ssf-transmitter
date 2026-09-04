@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import html
 import os
+from collections.abc import Mapping
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -51,7 +52,7 @@ def is_unmatched_route(exc: StarletteHTTPException) -> bool:
     return exc.status_code == 404 and exc.detail == "Not Found"
 
 
-def exception_headers(exc: StarletteHTTPException) -> dict[str, str] | None:
+def exception_headers(exc: StarletteHTTPException) -> Mapping[str, str] | None:
     """Return response headers from the raised HTTPException, if any."""
     return exc.headers
 
