@@ -417,9 +417,7 @@ class TestPreflightStoredStreams:
 
 
 class TestPreflightDeprecation:
-    def test_allow_unsigned_webhook_legacy_alias_logs_deprecation(
-        self, monkeypatch, caplog, tmp_path
-    ):
+    def test_allow_unsigned_webhook_legacy_alias_logs_deprecation(self, monkeypatch, caplog, tmp_path):
         keys_dir = tmp_path / "keys"
         keys_dir.mkdir()
         db_dir = tmp_path / "db"

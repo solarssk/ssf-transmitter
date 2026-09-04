@@ -56,6 +56,7 @@ def test_set_header_kid_present():
 
 def test_set_payload_iss_matches_config():
     from app.config import settings
+
     token = sign_set(event_uri=EVENT_URI, audience=AUDIENCE, email=EMAIL)
     assert _decode_payload(token)["iss"] == settings.ssf_issuer
 
@@ -148,6 +149,7 @@ def test_verification_set_no_sub():
 
 def test_wellknown_spec_version_is_final():
     from app.main import app
+
     with TestClient(app) as client:
         resp = client.get("/.well-known/ssf-configuration")
     assert resp.status_code == 200
@@ -156,6 +158,7 @@ def test_wellknown_spec_version_is_final():
 
 def test_wellknown_delivery_method_is_rfc8935():
     from app.main import app
+
     with TestClient(app) as client:
         resp = client.get("/.well-known/ssf-configuration")
     assert "urn:ietf:rfc:8935" in resp.json()["delivery_methods_supported"]
@@ -178,6 +181,7 @@ def test_set_payload_txn_uses_provided_value():
 
 def test_set_payload_txn_defaults_to_uuid_when_not_provided():
     import uuid
+
     token = sign_set(event_uri=EVENT_URI, audience=AUDIENCE, email=EMAIL)
     txn = _decode_payload(token)["txn"]
     uuid.UUID(txn)  # raises ValueError if not a valid UUID
@@ -203,8 +207,7 @@ def test_verification_set_event_body_uses_ssf_verification_uri():
 
 
 def test_set_payload_event_body_contains_provided_payload():
-    ep = {"event_timestamp": 1234567890, "initiating_entity": "policy",
-          "reason_admin": {"en": "Test"}}
+    ep = {"event_timestamp": 1234567890, "initiating_entity": "policy", "reason_admin": {"en": "Test"}}
     token = sign_set(event_uri=EVENT_URI, audience=AUDIENCE, email=EMAIL, event_payload=ep)
     assert _decode_payload(token)["events"][EVENT_URI] == ep
 
@@ -259,9 +262,11 @@ def test_verification_jwt_not_logged(caplog):
         mock_client.__aexit__ = AsyncMock(return_value=None)
         mock_client.post = AsyncMock(return_value=mock_response)
 
-        with caplog.at_level(logging.DEBUG), patch(
-            "app.events.pusher.httpx.AsyncClient", return_value=mock_client
-        ), patch("app.events.pusher._revalidate_endpoint", return_value=True):
+        with (
+            caplog.at_level(logging.DEBUG),
+            patch("app.events.pusher.httpx.AsyncClient", return_value=mock_client),
+            patch("app.events.pusher._revalidate_endpoint", return_value=True),
+        ):
             result = await push_verification_set(stream)
 
         assert result is True

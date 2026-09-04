@@ -185,9 +185,7 @@ def test_reject_enable_with_undecryptable_token_without_replacement(client: Test
         },
     ],
 )
-def test_reject_enable_with_undecryptable_token_and_empty_replacement(
-    client: TestClient, monkeypatch, payload: dict
-):
+def test_reject_enable_with_undecryptable_token_and_empty_replacement(client: TestClient, monkeypatch, payload: dict):
     """Empty replacement tokens must not bypass the undecryptable enable guard."""
     import dataclasses
 

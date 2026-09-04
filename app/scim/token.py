@@ -129,7 +129,7 @@ async def _refresh(refresh_token: str | None) -> str | None:
         expires_in = int(raw_expires)
         if expires_in <= 0:
             raise ValueError("expires_in must be > 0")
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         logger.error("Apple SCIM: token refresh response has invalid expires_in=%r — defaulting to 3600", raw_expires)
         expires_in = 3600
 

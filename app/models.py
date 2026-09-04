@@ -26,6 +26,7 @@ def canonicalize_event_uri(uri: str) -> str:
     """Return the canonical URI for an event."""
     return uri
 
+
 SUPPORTED_DELIVERY_METHODS: frozenset[str] = frozenset(
     {
         # SSF 1.0 final (RFC 8935)
@@ -77,10 +78,7 @@ def _validate_event_uris(uris: list[str]) -> list[str]:
     canonical = [canonicalize_event_uri(u) for u in uris]
     unsupported = [u for u in canonical if u not in SUPPORTED_EVENT_URIS]
     if unsupported:
-        raise ValueError(
-            f"Unsupported event URI(s): {unsupported}. "
-            f"Supported: {sorted(SUPPORTED_EVENT_URIS)}"
-        )
+        raise ValueError(f"Unsupported event URI(s): {unsupported}. Supported: {sorted(SUPPORTED_EVENT_URIS)}")
     return canonical
 
 
@@ -104,10 +102,7 @@ class DeliveryConfig(BaseModel):
     def _validate_method(cls, v: str | None) -> str | None:
         """Reject delivery methods outside the supported SSF push set."""
         if v is not None and v not in SUPPORTED_DELIVERY_METHODS:
-            raise ValueError(
-                f"Unsupported delivery method: {v!r}. "
-                f"Supported: {sorted(SUPPORTED_DELIVERY_METHODS)}"
-            )
+            raise ValueError(f"Unsupported delivery method: {v!r}. Supported: {sorted(SUPPORTED_DELIVERY_METHODS)}")
         return v
 
 
