@@ -1,5 +1,11 @@
 [project]
 name = "ssf-transmitter"
+# Source of truth for the release-automation pipeline (.github/workflows/release.yml,
+# scripts/generate-release-notes.py, scripts/sync-release-docs.py) — bumped as part of
+# a release PR's "release: vX.Y.Z" commit. Not otherwise read at runtime; the running
+# app's own reported version comes from the APP_VERSION build-arg (Dockerfile), set
+# from the git tag at image build time.
+version = "0.5.10"
 requires-python = ">=3.14"
 
 [tool.pytest.ini_options]

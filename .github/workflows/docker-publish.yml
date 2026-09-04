@@ -1,35 +1,102 @@
 name: Publish Container
 
+# Native ARM64 runners (ubuntu-24.04-arm, free for public repos) build each
+# platform in its own job instead of emulating arm64 under QEMU in a single
+# job — faster and avoids the flakiness QEMU-emulated builds showed here
+# before. Each platform job pushes its layer by digest only to GHCR; the
+# merge job combines both digests into one multi-arch manifest and tags it
+# there, then copies that exact manifest into Docker Hub by reference.
+#
+# Digests can't be pushed straight to two registries from one per-platform
+# build (BuildKit's image exporter takes one `name=` per invocation — a
+# second `name=` silently overwrites the first rather than fanning out), so
+# Docker Hub is never a build target: it only ever receives a registry-to-
+# registry copy of the manifest GHCR already has, via
+# `docker buildx imagetools create -t <dockerhub-tag> <ghcr-ref>`.
+#
+# release.yml dispatches this explicitly via workflow_dispatch after cutting
+# a release (see its own comments for why); `push: tags:` stays wired too,
+# as the trigger for scripts/release-tag.sh's emergency signed-tag path,
+# which pushes with real user credentials rather than GITHUB_TOKEN.
+
 on:
   push:
     branches: ["main", "beta"]
-    tags: ["v*"]
+    tags: ["v*.*.*"]
   workflow_dispatch:
 
-permissions:
-  contents: read
-  packages: write
+concurrency:
+  group: docker-publish-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions: {}
 
 env:
-  REGISTRY: ghcr.io
-  # github.repository is "solarssk/ssf-transmitter" — the Docker Hub
-  # namespace is the same "solarssk" account, so this doubles as the
-  # Docker Hub image path too (see the metadata step below).
-  IMAGE_NAME: ${{ github.repository }}
+  GHCR_IMAGE: ghcr.io/${{ github.repository }}
+  DOCKERHUB_IMAGE: docker.io/${{ github.repository }}
 
 jobs:
-  publish:
-    name: Build and publish image
+  prepare:
+    name: Compute image tags
     runs-on: ubuntu-latest
-
+    permissions:
+      contents: read
+    outputs:
+      tags: ${{ steps.meta.outputs.tags }}
+      labels: ${{ steps.meta.outputs.labels }}
+      version: ${{ steps.meta.outputs.version }}
+      short_sha: ${{ steps.short-sha.outputs.value }}
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8  # v4
+      # Only GHCR here — Docker Hub tags are derived from these by string
+      # substitution once the merge job has something to copy (see top).
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302  # v6
+        with:
+          images: ${{ env.GHCR_IMAGE }}
+          tags: |
+            type=raw,value=latest,enable=${{ github.ref_type == 'tag' && startsWith(github.ref_name, 'v') && !contains(github.ref_name, '-') }}
+            type=raw,value=beta,enable=${{ github.ref == 'refs/heads/beta' }}
+            type=sha,format=short
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+
+      # The sha-<short> tag above is always present regardless of trigger
+      # type, so the merge job uses it as a stable, always-resolvable source
+      # reference — both to copy the manifest into Docker Hub and to look up
+      # its digest for attestation — without parsing `imagetools create`'s
+      # own output.
+      - name: Record short SHA
+        id: short-sha
+        run: echo "value=$(git rev-parse --short=7 HEAD)" >> "$GITHUB_OUTPUT"
+
+  build-and-scan:
+    name: Build & scan (${{ matrix.arch }})
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+            runs-on: ubuntu-latest
+          - arch: arm64
+            platform: linux/arm64
+            runs-on: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runs-on }}
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e  # v4
@@ -37,7 +104,84 @@ jobs:
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f  # v4
         with:
-          registry: ${{ env.REGISTRY }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # provenance: false — buildx's own default provenance attestation
+      # produces an attestation manifest alongside the per-platform image
+      # manifest, which complicates merging two platforms' digests into one
+      # index below. The real, SLSA-style provenance attestation is added
+      # explicitly in merge-and-publish, against the finished multi-arch
+      # manifest, once for each registry.
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a  # v7
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          labels: ${{ needs.prepare.outputs.labels }}
+          provenance: false
+          build-args: |
+            APP_VERSION=${{ needs.prepare.outputs.version }}
+          outputs: type=image,name=${{ env.GHCR_IMAGE }},push-by-digest=true,name-canonical=true,push=true
+
+      # Final backstop, not a duplicate of ci.yml's pre-merge HIGH+CRITICAL
+      # gate: this scans the actual pushed-by-digest image on its native
+      # platform (ci.yml's arm64 pass is QEMU-emulated), and catches CVEs
+      # disclosed between merge and release. CRITICAL-only, since HIGH is
+      # already a hard merge gate.
+      - name: Scan pushed image for CRITICAL vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
+        with:
+          image-ref: ${{ env.GHCR_IMAGE }}@${{ steps.build.outputs.digest }}
+          format: table
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+        env:
+          TRIVY_CACHE_DIR: /tmp/trivy-cache
+
+      - name: Export digest
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: digests-${{ matrix.arch }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge-and-publish:
+    name: Merge manifest and publish
+    needs: [prepare, build-and-scan]
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+      id-token: write
+      attestations: write
+      contents: write
+      actions: write
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        with:
+          path: /tmp/digests
+          pattern: digests-*
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e  # v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f  # v4
+        with:
+          registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
@@ -50,27 +194,96 @@ jobs:
           username: ${{ github.repository_owner }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Extract Docker metadata
-        id: meta
-        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302  # v6
-        with:
-          images: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-            docker.io/${{ env.IMAGE_NAME }}
-          tags: |
-            type=raw,value=latest,enable=${{ github.ref_type == 'tag' && startsWith(github.ref_name, 'v') && !contains(github.ref_name, '-') }}
-            type=raw,value=beta,enable=${{ github.ref == 'refs/heads/beta' }}
-            type=sha,format=short
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
+      - name: Create multi-arch manifest (GHCR)
+        working-directory: /tmp/digests
+        env:
+          TAGS: ${{ needs.prepare.outputs.tags }}
+          GHCR_IMAGE: ${{ env.GHCR_IMAGE }}
+        run: |
+          set -euo pipefail
+          args=()
+          while IFS= read -r tag; do
+            [ -n "$tag" ] && args+=(-t "$tag")
+          done <<< "$TAGS"
+          refs=()
+          for digest in *; do
+            refs+=("${GHCR_IMAGE}@sha256:${digest}")
+          done
+          docker buildx imagetools create "${args[@]}" "${refs[@]}"
 
-      - name: Build and push image
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a  # v7
+      - name: Copy manifest to Docker Hub
+        env:
+          TAGS: ${{ needs.prepare.outputs.tags }}
+          SHA_TAG: ${{ env.GHCR_IMAGE }}:sha-${{ needs.prepare.outputs.short_sha }}
+        run: |
+          set -euo pipefail
+          args=()
+          while IFS= read -r tag; do
+            [ -n "$tag" ] && args+=(-t "${tag/ghcr.io/docker.io}")
+          done <<< "$TAGS"
+          docker buildx imagetools create "${args[@]}" "$SHA_TAG"
+
+      # `imagetools inspect`'s plain-text output has a stable "Digest:" line
+      # for the manifest list itself — used instead of `--format`/JSON so
+      # this doesn't depend on buildx's Go-template field names.
+      - name: Resolve merged manifest digest
+        id: digest
+        env:
+          SHA_TAG: ${{ env.GHCR_IMAGE }}:sha-${{ needs.prepare.outputs.short_sha }}
+        run: |
+          set -euo pipefail
+          digest="$(docker buildx imagetools inspect "$SHA_TAG" | awk '/^Digest:/ {print $2; exit}')"
+          [ -n "$digest" ] || { echo "::error::could not resolve merged manifest digest"; exit 1; }
+          echo "value=$digest" >> "$GITHUB_OUTPUT"
+
+      - name: Attest GHCR image
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8  # v4.2.2
         with:
-          context: .
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          build-args: |
-            APP_VERSION=${{ steps.meta.outputs.version }}
+          subject-name: ${{ env.GHCR_IMAGE }}
+          subject-digest: ${{ steps.digest.outputs.value }}
+          push-to-registry: true
+
+      - name: Attest Docker Hub image
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8  # v4.2.2
+        with:
+          subject-name: ${{ env.DOCKERHUB_IMAGE }}
+          subject-digest: ${{ steps.digest.outputs.value }}
+          push-to-registry: true
+
+      - name: Generate SBOM (CycloneDX)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
+        with:
+          image-ref: ${{ env.GHCR_IMAGE }}@${{ steps.digest.outputs.value }}
+          format: cyclonedx
+          output: sbom-cyclonedx.json
+        env:
+          TRIVY_CACHE_DIR: /tmp/trivy-cache
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: sbom-cyclonedx
+          path: sbom-cyclonedx.json
+          retention-days: 90
+
+      # Everything below is release-only: a real "v0.5.11"-style tag,
+      # whether from release.yml's workflow_dispatch (github.ref_type is
+      # 'tag' there too, since the tag already exists by the time it
+      # dispatches this) or scripts/release-tag.sh's own tag push.
+      - name: Attach SBOM to GitHub Release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: gh release upload "$TAG" sbom-cyclonedx.json --clobber
+
+      # The published image is only really pullable once this job's imagetools
+      # calls above have completed — dispatching the smoke test from here,
+      # rather than from release.yml alongside the publish trigger, avoids a
+      # race against this job's own build/push time.
+      - name: Trigger release smoke test
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: gh workflow run release-smoke.yml --ref "$TAG" -f tag="$TAG"

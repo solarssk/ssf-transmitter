@@ -1,0 +1,87 @@
+name: Release smoke test
+
+# Pulls the just-published GHCR image at the release tag (not a fresh local
+# build — the whole point is verifying the artifact that actually shipped)
+# and runs tests_e2e/ against it. docker-publish.yml's merge-and-publish job
+# dispatches this explicitly once it confirms the image is actually
+# published: GITHUB_TOKEN-authored tag pushes (which `gh release create`
+# performs, in release.yml) don't trigger this workflow's own `push: tags:`
+# listener below — that trigger is a backup for the emergency signed-tag path
+# only (scripts/release-tag.sh), which pushes with real user credentials.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to smoke-test (e.g. v0.5.11)
+        required: true
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: release-smoke-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    name: Smoke test published image
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      # No pip cache here (unlike ci.yml): this workflow's trigger includes a
+      # tag push, which zizmor flags as a cache-poisoning-sensitive context —
+      # and a release smoke test runs rarely enough that the cache's speed
+      # gain isn't worth carrying that surface.
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.14"
+
+      - name: Install test dependencies
+        run: |
+          pip install --no-cache-dir --only-binary :all: --require-hashes -r requirements-dev.lock.txt
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f  # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull and run published image
+        env:
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          docker pull "ghcr.io/${{ github.repository }}:${TAG#v}"
+          docker run -d --name release-smoke -p 18000:8000 \
+            -e SSF_CONTAINER_PORT=8000 \
+            -e SSF_ISSUER=https://ssf.release-smoke.invalid \
+            -e SSF_BASE_URL=https://ssf.release-smoke.invalid \
+            -e SSF_WEBHOOK_TOKEN=release-smoke-test-webhook-token-0000 \
+            -e SSF_MANAGEMENT_TOKEN=release-smoke-test-mgmt-token-00000 \
+            "ghcr.io/${{ github.repository }}:${TAG#v}"
+          ok=""
+          for _ in $(seq 1 15); do
+            if curl -fsS http://localhost:18000/jwks.json > /dev/null; then ok=1; break; fi
+            sleep 1
+          done
+          docker logs release-smoke
+          [ -n "$ok" ] || { echo "::error::published image did not become healthy"; exit 1; }
+
+      - name: Run container E2E tests
+        env:
+          E2E_BASE_URL: http://localhost:18000
+        run: pytest tests_e2e/ -v --no-cov
+
+      - name: Stop smoke test container
+        if: always()
+        run: docker rm -f release-smoke
