@@ -30,7 +30,14 @@ class VerificationRequest(BaseModel):
         return value
 
 
-@router.post("/verification", status_code=202)
+@router.post(
+    "/verification",
+    status_code=202,
+    responses={
+        404: {"description": "No stream configured"},
+        502: {"description": "Verification SET delivery failed"},
+    },
+)
 async def trigger_verification(request: VerificationRequest | None = None) -> Response:
     """Trigger a receiver-initiated verification SET.
 
