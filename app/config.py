@@ -154,7 +154,8 @@ class Settings:
     apple_scim_sync_interval: int = 3600  # seconds between automatic syncs (default: 1 hour)
     apple_scim_alert_webhook_url: str | None = None  # POST alerts here when re-auth is needed
     apple_scim_authorize_url: str = "https://appleid.apple.com/auth/oauth2/v2/authorize"
-    apple_scim_token_url: str = "https://appleid.apple.com/auth/oauth2/v2/token"  # noqa: S105 (URL, not a secret)
+    # URL, not a secret
+    apple_scim_token_url: str = "https://appleid.apple.com/auth/oauth2/v2/token"  # noqa: S105
     apple_scim_log_error_body: bool = False
     apple_scim_update_mode: str = "patch_all"
     # Set true to suppress the startup warning when SSF_ISSUER differs from SSF_BASE_URL.
