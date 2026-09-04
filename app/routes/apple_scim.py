@@ -120,8 +120,14 @@ async def authorize() -> RedirectResponse:
     "/callback",
     summary="OAuth callback — Apple redirects here after admin approves",
     responses={
-        400: {"description": "Missing/invalid code or state, or Apple returned an OAuth error"},
-        502: {"description": "Network error or invalid response from Apple's token endpoint"},
+        400: {
+            "description": "Missing 'code' or 'state' parameter, invalid/expired state "
+            "(CSRF check failed), or Apple returned an OAuth error via ?error="
+        },
+        502: {
+            "description": "Network error, or Apple rejected the authorization code "
+            "(token exchange failed or returned no access_token)"
+        },
         503: {"description": "Apple SCIM sync is not configured"},
     },
 )

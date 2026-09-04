@@ -110,6 +110,8 @@ Registers an SSF push stream. The receiver calls this to configure where SETs ar
 ```
 
 **Response** `201 Created`
+**Response** `400 Bad Request` — invalid `endpoint_url`, or the registration payload was otherwise rejected.
+**Response** `502 Bad Gateway` — the verification SET could not be delivered to `endpoint_url`; registration was rolled back and no stream was created.
 ```json
 {
   "iss": "https://idp.example.com/shared-signals",
@@ -156,6 +158,7 @@ Returns the current stream configuration.
 Updates the current stream. Accepts the same fields as POST; omitted fields retain their values.
 
 **Response** `200 OK` — updated stream.
+**Response** `400 Bad Request` — invalid `endpoint_url`, or the patch payload was otherwise rejected.
 **Response** `404 Not Found` — no stream configured.
 
 If the current stream is `paused` because its stored receiver token is undecryptable, setting `status: "enabled"` requires a replacement `delivery.endpoint_url_token` in the same PATCH. When you send a `delivery` block, include `delivery.endpoint_url` as well — the nested PATCH schema still requires it.
@@ -251,6 +254,11 @@ Possible `status` values when no SET is delivered:
 | `"ignored"` | `"unmapped_event"` | Authentik event has no SSF mapping |
 | `"ignored"` | `"missing_email"` | Event has no user email |
 | `"ignored"` | `"no_enabled_stream"` | No active stream configured |
+
+**Response** `400 Bad Request` — malformed JSON body.
+**Response** `401 Unauthorized` — missing or invalid webhook authentication (see `SSF_WEBHOOK_AUTH_MODE` above).
+**Response** `413 Payload Too Large` — request body exceeds the configured size limit.
+**Response** `500 Internal Server Error` — invalid `SSF_WEBHOOK_AUTH_MODE` configuration on the server.
 
 ---
 
