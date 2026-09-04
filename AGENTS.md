@@ -155,7 +155,7 @@ Prefer **focused regression tests** over broad mocks. Security fixes should incl
 
 - Semver tags: `v0.5.x`
 - Changelog: [`CHANGELOG.md`](CHANGELOG.md) (Keep a Changelog format)
-- Docker image: `ghcr.io/solarssk/ssf-transmitter:<version>`
+- Docker image: `ghcr.io/solarssk/ssf-transmitter:<version>` (private) and `docker.io/solarssk/ssf-transmitter:<version>` (public) — same build, both platforms, published by `.github/workflows/docker-publish.yml`
 - `APP_VERSION` is set at image build time; local dev shows `dev`
 
 ---

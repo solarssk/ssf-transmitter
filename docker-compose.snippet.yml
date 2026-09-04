@@ -1,4 +1,6 @@
 ssf-transmitter:
+  # docker.io/solarssk/ssf-transmitter:latest is the same image, public,
+  # no `docker login` needed — see docs/Deployment.md#image.
   image: ghcr.io/solarssk/ssf-transmitter:latest
   container_name: authentik-ssf
   restart: unless-stopped

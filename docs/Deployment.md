@@ -4,12 +4,17 @@ SSF Transmitter runs as a single Docker container next to Authentik. TLS termina
 
 ## Image
 
+Published to two registries, built for both `linux/amd64` and `linux/arm64` (e.g. Synology DS220+/DS920+ vs. Apple Silicon/ARM NAS):
+
 ```text
-ghcr.io/solarssk/ssf-transmitter:0.5.10   # pinned release
-ghcr.io/solarssk/ssf-transmitter:latest    # tracks main
+ghcr.io/solarssk/ssf-transmitter:0.5.10     # pinned release
+ghcr.io/solarssk/ssf-transmitter:latest      # tracks main
+
+docker.io/solarssk/ssf-transmitter:0.5.10   # same image, Docker Hub
+docker.io/solarssk/ssf-transmitter:latest
 ```
 
-Private GHCR packages require `docker login ghcr.io` with a GitHub PAT (`read:packages`).
+GHCR's package is private — `docker pull ghcr.io/...` requires `docker login ghcr.io` first with a GitHub PAT (`read:packages`). The Docker Hub image is public, so `docker.io/solarssk/ssf-transmitter` needs no login at all; use it if you'd rather not manage a GitHub PAT just to pull images. Both are built from the same source in the same CI run.
 
 ## Minimal compose service
 
@@ -40,6 +45,8 @@ ssf-transmitter:
   networks:
     - authentik_network
 ```
+
+Swap `image:` to `docker.io/solarssk/ssf-transmitter:0.5.10` to pull from Docker Hub instead — skips the `docker login` GHCR needs.
 
 Set `SSF_FORWARDED_ALLOW_IPS` to your **reverse proxy Docker subnet** when using Nginx Proxy Manager or similar. See [Configuration](Configuration.md).
 

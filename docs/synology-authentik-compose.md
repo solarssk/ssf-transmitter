@@ -4,7 +4,7 @@ This service runs as a fourth container next to PostgreSQL, Authentik `server`, 
 
 Keep hostnames and secrets in `stack.env`. **Never commit** `stack.env` or paste secrets into compose YAML.
 
-**Current release:** `ghcr.io/solarssk/ssf-transmitter:0.5.10`
+**Current release:** `ghcr.io/solarssk/ssf-transmitter:0.5.10` (or `docker.io/solarssk/ssf-transmitter:0.5.10` — same image, public, no registry login needed; see below)
 
 See also: [Deployment.md](Deployment.md), [Upgrading.md](Upgrading.md), [Configuration.md](Configuration.md).
 
@@ -19,17 +19,22 @@ See also: [Deployment.md](Deployment.md), [Upgrading.md](Upgrading.md), [Configu
 └── ssf-transmitter/   # optional: clone for local builds
 ```
 
-Recommended: pull the prebuilt GHCR image — no local build required.
+Recommended: pull the prebuilt image — no local build required.
 
-## Private GHCR access
+## Registry access
 
-```bash
-docker login ghcr.io
-# Username: GitHub username
-# Password: PAT with read:packages
-```
+Two options, same image:
 
-In Portainer: Registry → `ghcr.io` with the same credentials.
+- **`docker.io/solarssk/ssf-transmitter`** — public, no login. Simplest if you're using Synology's Container Manager UI or Portainer without wanting to manage a GitHub PAT.
+- **`ghcr.io/solarssk/ssf-transmitter`** — private, requires a login first:
+
+  ```bash
+  docker login ghcr.io
+  # Username: GitHub username
+  # Password: PAT with read:packages
+  ```
+
+  In Portainer: Registry → `ghcr.io` with the same credentials. Skip this section entirely if you're pulling from Docker Hub instead.
 
 ## `stack.env`
 
@@ -69,6 +74,8 @@ Replace `idp.example.com` with your hostname.
 Match your Docker bridge subnet. Example below uses `172.16.3.0/24`. If NPM uses a different network, adjust accordingly.
 
 ## Service block
+
+Swap `image:` to `docker.io/solarssk/ssf-transmitter:0.5.10` for the public, no-login Docker Hub image (see [Registry access](#registry-access) above).
 
 ```yaml
   ssf-transmitter:
