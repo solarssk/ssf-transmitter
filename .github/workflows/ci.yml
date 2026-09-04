@@ -1,7 +1,15 @@
 name: CI
 
 on:
+  # Scoped to main/beta: pull_request already covers every push to an open
+  # PR branch — an unscoped `push:` here would run the whole job a second
+  # time for the same commit on every PR push (double the CI cost, and two
+  # differently-named-but-identical "Test and lint" check runs where a
+  # transient failure in one looks like a real problem even though the
+  # other passed). Feature branches without an open PR simply don't need CI
+  # until one is opened.
   push:
+    branches: [main, beta]
   pull_request:
 
 jobs:
@@ -84,7 +92,7 @@ jobs:
         run: zizmor --min-severity low .github/workflows/
 
       - name: Test
-        run: pytest
+        run: pytest --junitxml=junit.xml -o junit_family=legacy
 
       - name: Upload coverage to Codecov
         # Fork and Dependabot workflows cannot read repository secrets; tests still run.
@@ -97,6 +105,19 @@ jobs:
           files: coverage.xml
           flags: backend
           fail_ci_if_error: true
+
+      # Test Analytics (flaky-test detection, failure/duration trends) needs the
+      # JUnit report from every run, including failed ones — !cancelled() (not
+      # success()) so this still uploads when pytest itself failed.
+      - name: Upload test results to Codecov
+        if: ${{ !cancelled() && env.CODECOV_TOKEN != '' }}
+        uses: codecov/test-results-action@0fa95f0e1eeaafde2c782583b36b28ad0d8c77d3  # v1.2.1
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+        with:
+          token: ${{ env.CODECOV_TOKEN }}
+          files: junit.xml
+          flags: backend
 
       - name: Check for unused/missing dependencies
         run: deptry .
