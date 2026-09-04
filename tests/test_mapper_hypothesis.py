@@ -92,6 +92,61 @@ def test_extract_email_with_arbitrary_value_type_never_raises(email):
 
 
 # ---------------------------------------------------------------------------
+# Reserved keys holding the wrong JSON type entirely
+#
+# arbitrary_payload's dict-of-arbitrary-keys strategy essentially never
+# generates the *literal* key "body" (or "context", "user") by chance —
+# across the whole random text space, hitting one exact 4-character string is
+# vanishingly unlikely. So the "never raises" tests above never actually
+# exercise {"body": <not-a-dict>}, even though that's exactly the shape a
+# misbehaving Authentik instance or a mangling proxy could send, and it's
+# what map_authentik_event/extract_* call .get() on directly. Target these
+# reserved keys explicitly instead of hoping the fuzzer stumbles onto them.
+# ---------------------------------------------------------------------------
+
+_wrong_type_leaf = st.one_of(
+    st.integers(),
+    st.floats(allow_nan=False, allow_infinity=False),
+    st.text(min_size=1),
+    st.booleans(),
+    st.lists(st.text(), min_size=1, max_size=3),
+)
+
+
+@given(body=_wrong_type_leaf)
+@settings(deadline=None)
+def test_body_key_with_wrong_type_never_raises(body):
+    payload = {"body": body}
+    assert isinstance(map_authentik_event(payload), list)
+    email = extract_email(payload)
+    assert email is None or isinstance(email, str)
+    extract_action(payload)
+    txn = extract_source_txn(payload)
+    assert txn is None or isinstance(txn, (str, int, float))
+
+
+@given(context=_wrong_type_leaf)
+@settings(deadline=None)
+def test_context_key_with_wrong_type_never_raises(context):
+    payload = {"body": {"action": "authentik.core.user.write", "context": context}}
+    assert isinstance(map_authentik_event(payload), list)
+
+
+@given(user=_wrong_type_leaf)
+@settings(deadline=None)
+def test_user_key_with_wrong_type_never_raises(user):
+    result = extract_email({"body": {"user": user}})
+    assert result is None or isinstance(result, str)
+
+
+@given(changed_fields=_wrong_type_leaf)
+@settings(deadline=None)
+def test_changed_fields_key_with_wrong_type_never_raises(changed_fields):
+    payload = {"body": {"action": "authentik.core.user.write", "context": {"changed_fields": changed_fields}}}
+    assert isinstance(map_authentik_event(payload), list)
+
+
+# ---------------------------------------------------------------------------
 # Well-formed inputs: the actual mapping contract
 # ---------------------------------------------------------------------------
 

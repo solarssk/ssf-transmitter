@@ -21,7 +21,7 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from app.security.url_validation import _BLOCKED_NETWORKS, _is_blocked_ip, validate_receiver_endpoint_url
+from app.security.url_validation import _is_blocked_ip, validate_receiver_endpoint_url
 
 # ---------------------------------------------------------------------------
 # Strategies
@@ -36,10 +36,37 @@ def _addresses_in(network: ipaddress.IPv4Network | ipaddress.IPv6Network):
     )
 
 
-# One strategy per blocked network, combined — covers every reserved/private
-# range the module knows about (RFC1918, loopback, link-local/cloud metadata,
-# multicast, documentation ranges, IPv6 equivalents, ...).
-blocked_ip_strategy = st.one_of(*(_addresses_in(net) for net in _BLOCKED_NETWORKS))
+# Deliberately NOT imported from app.security.url_validation._BLOCKED_NETWORKS.
+# If this list were derived from the module under test, deleting or
+# mistyping a CIDR there would silently shrink what this test generates too
+# — both the unit and end-to-end properties below would stay green while the
+# SSRF blocklist quietly lost a range. Redefining the policy independently
+# (transcribed from the same RFC/IANA references the module's own comments
+# cite) means a drift between "what url_validation.py blocks" and "what this
+# policy says it should block" actually fails the test.
+_EXPECTED_BLOCKED_RANGES = [
+    "0.0.0.0/8",  # "This" network (RFC 791)
+    "10.0.0.0/8",  # RFC1918 private
+    "100.64.0.0/10",  # Shared address space (RFC 6598)
+    "127.0.0.0/8",  # Loopback
+    "169.254.0.0/16",  # Link-local / cloud metadata (RFC 3927)
+    "172.16.0.0/12",  # RFC1918 private
+    "192.0.0.0/24",  # IETF protocol assignments (RFC 6890)
+    "192.0.2.0/24",  # TEST-NET-1 (RFC 5737, documentation)
+    "192.168.0.0/16",  # RFC1918 private
+    "198.18.0.0/15",  # Benchmarking (RFC 2544)
+    "198.51.100.0/24",  # TEST-NET-2 (RFC 5737, documentation)
+    "203.0.113.0/24",  # TEST-NET-3 (RFC 5737, documentation)
+    "224.0.0.0/4",  # Multicast
+    "240.0.0.0/4",  # Reserved
+    "255.255.255.255/32",  # Broadcast
+    "::1/128",  # IPv6 loopback
+    "fc00::/7",  # IPv6 unique local (RFC 4193)
+    "fe80::/10",  # IPv6 link-local
+    "ff00::/8",  # IPv6 multicast
+]
+_expected_blocked_networks = [ipaddress.ip_network(cidr) for cidr in _EXPECTED_BLOCKED_RANGES]
+blocked_ip_strategy = st.one_of(*(_addresses_in(net) for net in _expected_blocked_networks))
 
 # A small set of address blocks known to be *publicly routable* — deliberately
 # not exhaustive (unlike the blocklist, "public" isn't a fixed list of
