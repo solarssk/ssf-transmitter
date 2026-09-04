@@ -20,6 +20,12 @@ name: Release
 # does NOT gate on whether the GitHub Release already exists — a rerun after
 # a partial failure (release created but a downstream dispatch or the
 # milestone close failed) should still retry those steps, not skip them.
+#
+# A squash merge also rewrites the commit *subject* itself: GitHub appends
+# " (#<PR number>)" to the PR title (e.g. "release: v0.5.11 (#130)"), so the
+# match below tolerates an optional trailing "(#NNN)" instead of anchoring
+# on an exact "release: vX.Y.Z" line — a real v0.5.11 release silently
+# no-op'd on first use because of this exact mismatch.
 
 on:
   push:
@@ -65,7 +71,7 @@ jobs:
             MESSAGES="$(gh api "repos/${GITHUB_REPOSITORY}/compare/${BEFORE}...${AFTER}" --jq '.commits[].commit.message')"
           fi
 
-          if ! printf '%s\n' "$MESSAGES" | grep -qiE "^release:[[:space:]]+${TAG_RE}\$"; then
+          if ! printf '%s\n' "$MESSAGES" | grep -qiE "^release:[[:space:]]+${TAG_RE}([[:space:]]+\(#[0-9]+\))?\$"; then
             echo "This push didn't introduce a 'release: ${TAG}' commit — skipping."
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
