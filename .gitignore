@@ -4,6 +4,7 @@
 .pytest_cache/
 .coverage
 coverage.xml
+junit.xml
 .ruff_cache/
 .testdata/
 __pycache__/
