@@ -10,9 +10,9 @@
 # Use this script instead only if release.yml itself is broken, or you need a
 # release cut with your own signed tag rather than release.yml's GITHUB_TOKEN-
 # authored one. Pushing a signed tag with real user credentials (not
-# GITHUB_TOKEN) DOES trigger docker-publish.yml's and release-smoke.yml's own
-# `push: tags:` fallback triggers directly — no separate dispatch step needed
-# for this path.
+# GITHUB_TOKEN) DOES trigger docker-publish.yml's own `push: tags:` fallback
+# trigger directly, which then dispatches release-smoke.yml itself once the
+# image is actually published — same as the normal release.yml path.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -108,13 +108,28 @@ fi
 
 git pull --ff-only origin main
 
+# Cross-check against the checked-out release metadata rather than trusting
+# the typed-in version — a mistyped argument, or running this before the
+# intended release commit has actually landed on main, would otherwise sign
+# and can push a permanent tag for the wrong commit.
+PYPROJECT_VERSION="$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+if [[ "$PYPROJECT_VERSION" != "$VERSION" ]]; then
+  echo "pyproject.toml's [project].version is '$PYPROJECT_VERSION', not '$VERSION' — refusing to tag." >&2
+  echo "Make sure the release commit bumping to $VERSION is on main before running this." >&2
+  exit 1
+fi
+if ! grep -q "^## \[${VERSION}\] — [0-9-]* — .*\$" CHANGELOG.md; then
+  echo "No CHANGELOG.md entry for [$VERSION] — refusing to tag." >&2
+  exit 1
+fi
+
 echo "Creating signed tag $TAG at $(git rev-parse --short HEAD)"
 git tag -s "$TAG" -m "$MESSAGE"
 
 if [[ "$PUSH" == true ]]; then
   echo "Pushing $TAG to origin"
   git push origin "$TAG"
-  echo "Done. docker-publish.yml and release-smoke.yml should start automatically (push: tags: trigger)."
+  echo "Done. docker-publish.yml should start automatically (push: tags: trigger) and will dispatch release-smoke.yml once the image is published."
   echo "Next: gh release create $TAG --latest --generate-notes  (release.yml only fires on a 'release: vX.Y.Z' commit push to main, not on a bare tag push)."
 else
   echo "Created locally. Push with: git push origin $TAG"

@@ -78,6 +78,11 @@ def patterns_for(version: str, title: str) -> tuple[tuple[str, str, str], ...]:
         ),
         (
             "docs/synology-authentik-compose.md",
+            r"Swap `image:` to `docker\.io/solarssk/ssf-transmitter:[\d.]+` for the public",
+            f"Swap `image:` to `docker.io/solarssk/ssf-transmitter:{version}` for the public",
+        ),
+        (
+            "docs/synology-authentik-compose.md",
             r"image: ghcr\.io/solarssk/ssf-transmitter:[\d.]+",
             f"image: ghcr.io/solarssk/ssf-transmitter:{version}",
         ),

@@ -21,22 +21,31 @@ ROOT = Path(__file__).resolve().parent.parent
 CHANGELOG = ROOT / "CHANGELOG.md"
 OUT_DIR = ROOT / ".github" / "release-notes"
 
+# Any "## [...]" heading — including titleless prerelease entries like
+# "## [0.5.3-b4] — 2026-06-04" — used only to find where a section's body
+# ends. HEADER_RE below is stricter (requires a title) and is what actually
+# selects releasable versions; using it alone for boundaries too would let a
+# titleless heading's content get swallowed into the *previous* titled
+# section's body, since a boundary that doesn't match HEADER_RE wouldn't end
+# anything.
+SECTION_RE = re.compile(r"^## \[[^\]]+\].*$", re.M)
+
 # ## [X.Y.Z] — YYYY-MM-DD — Title
 HEADER_RE = re.compile(r"^## \[([^\]]+)\] — (\d{4}-\d{2}-\d{2}) — (.+?)\s*$", re.M)
 
 
 def parse_sections(text: str) -> dict[str, tuple[str, str, str]]:
-    """Return {version: (date, title, body)} for every dated CHANGELOG.md entry.
+    """Return {version: (date, title, body)} for every dated, titled CHANGELOG.md entry.
 
     ``## [Unreleased]`` has no date and no title, so HEADER_RE's required
     date/title groups naturally exclude it — nothing else needed to skip it.
     """
-    matches = list(HEADER_RE.finditer(text))
+    boundaries = [m.start() for m in SECTION_RE.finditer(text)]
     sections: dict[str, tuple[str, str, str]] = {}
-    for i, match in enumerate(matches):
+    for match in HEADER_RE.finditer(text):
         version, date, title = match.group(1), match.group(2), match.group(3)
         start = match.end()
-        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+        end = next((b for b in boundaries if b > match.start()), len(text))
         body = text[start:end].strip()
         # Strip this repo's own "---" section divider (see CHANGELOG.md) so it
         # doesn't collide with deploy_footer()'s own "---" below it.
