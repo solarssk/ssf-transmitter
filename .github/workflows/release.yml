@@ -34,6 +34,11 @@ on:
 permissions:
   contents: write
   actions: write
+  # Required by the Milestones API's PATCH endpoint (grouped under Issues,
+  # not Contents) — without it, "Close matching GitHub milestone" 403s on
+  # every real release that has a matching open milestone, failing the job
+  # even though the release/tag/docker-dispatch steps above already succeeded.
+  issues: write
 
 concurrency:
   group: release-${{ github.repository }}
