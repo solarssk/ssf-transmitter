@@ -10,7 +10,7 @@ Standalone service that sits next to Authentik and forwards user security events
 
 Events are signed as RS256 JWTs (Security Event Tokens) and pushed over HTTPS. No admin panel — all configuration is environment variables.
 
-**Current release:** [v0.5.10 — Stream recovery hardening](https://github.com/solarssk/ssf-transmitter/releases/tag/v0.5.10)
+**Current release:** [v0.5.11 — Security audit fixes & release automation](https://github.com/solarssk/ssf-transmitter/releases/tag/v0.5.11)
 
 ## Features
 
@@ -39,11 +39,11 @@ A **stream** is the receiver configuration stored in SQLite: receiver URL, beare
 
 ## Upgrading
 
-**Already running with Apple Business Manager?** See [docs/Upgrading.md](docs/Upgrading.md#v0510--stream-recovery-hardening-from-058-or-earlier):
+**Already running with Apple Business Manager?** See [docs/Upgrading.md](docs/Upgrading.md#v0511--security-audit-fixes--release-automation-from-0510):
 
-- Bump image to `0.5.10`
-- Set `SSF_FORWARDED_ALLOW_IPS` behind reverse proxy
-- Keep `SSF_WEBHOOK_AUTH_MODE=hmac` explicitly if your Authentik webhook still uses legacy HMAC
+- Bump image to `0.5.11` — no config changes, no required env vars
+- If you've set `APPLE_SCIM_UPDATE_MODE` to a non-default value, see the new `out_of_scope_diffs` note
+- If you script the management API, `PATCH /ssf/streams` and `PATCH /ssf/streams/{id}` now share one rate limit
 - Do **not** add `SSF_TOKEN_ENCRYPTION_KEY` unless re-registering the stream
 
 ## Public endpoints

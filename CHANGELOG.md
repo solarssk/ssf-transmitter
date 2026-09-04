@@ -9,6 +9,10 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+---
+
+## [0.5.11] — 2026-09-04 — Security audit fixes & release automation
+
 ### Security
 - **SSRF blocklist bypass via IPv6 literals that embed a blocked IPv4 address** — `_is_blocked_ip()` now unwraps IPv4-mapped (`::ffff:a.b.c.d`), 6to4, Teredo, IPv4-compatible, and NAT64 (`64:ff9b::/96`) IPv6 addresses before checking them against the blocklist; previously an address like `::[ffff:169.254.169.254]` sailed straight through stream create/PATCH validation and every push-time revalidation
 - **Container image supply chain hardening** — `pip`, `setuptools`, and `wheel` are removed from the runtime image after installing dependencies (they are build-time-only and unused at runtime); this also drops pip's internally vendored, unpatchable copies of `msgpack`/`setuptools` that were tripping the CI Trivy scan on every base-image bump
@@ -26,6 +30,7 @@ Versioning: [Semantic Versioning](https://semver.org/)
 - **Apple SCIM background task shutdown** — an unexpected exception from the sync loop is now logged explicitly at shutdown instead of only a clean cancellation being handled
 
 ### Added
+- **CI: automated release publishing** — merging a `release: vX.Y.Z` commit to `main` now creates the GitHub Release and tag, builds and publishes the image to both registries (native-runner per-platform builds, provenance attestation, a generated SBOM), and smoke-tests the actually-published image, all without a manual step — see AGENTS.md's "Cutting a release" section
 - **CI: multi-platform smoke tests** — `Test and lint` now builds and boots the image for both published platforms (`linux/amd64` natively, `linux/arm64` via QEMU) and polls `GET /jwks.json`, so a broken build or runtime regression fails before merge instead of only in the post-merge publish job
 - **CI: locked-dependency auditing** — `pip-audit` now also runs against `requirements.lock.txt` / `requirements-dev.lock.txt`, auditing the exact pinned versions actually installed, not just the ranges they were resolved from
 - **CI: lock-freshness check** — fails if either `.lock.txt` file is out of sync with its source `requirements*.txt`, since a stale lock installs successfully on outdated pins with no other error

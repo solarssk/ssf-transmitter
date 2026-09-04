@@ -1,5 +1,22 @@
 # Upgrading
 
+## v0.5.11 — Security audit fixes & release automation (from 0.5.10)
+
+Release notes: [v0.5.11](https://github.com/solarssk/ssf-transmitter/releases/tag/v0.5.11)
+
+No config changes, no required env vars, no migration. This release is a set of internal bug fixes (an SSRF blocklist gap, a stream-write race condition, several Apple SCIM sync correctness fixes, a rate-limit sharing fix) plus new release-automation tooling that doesn't touch the running app. Bump the image tag and redeploy:
+
+```bash
+docker compose pull ssf-transmitter
+docker compose up -d ssf-transmitter
+docker compose logs ssf-transmitter --tail 50
+```
+
+Two things worth knowing, neither requiring action unless they apply to you:
+
+- **If you've set `APPLE_SCIM_UPDATE_MODE`** to anything other than the default `patch_all`: the sync loop that could previously retry the same no-op update forever under a narrow mode is fixed, and a new `out_of_scope_diffs` counter (plus a one-time `WARNING` log) now tells you when a field difference is permanently outside what that mode will write. See [docs/Apple-SCIM-Sync.md](Apple-SCIM-Sync.md#apple_scim_update_mode).
+- **If you script against the management API**: `PATCH /ssf/streams` and `PATCH /ssf/streams/{stream_id}` now share one rate-limit counter instead of each getting its own — a script alternating between the two routes will hit `429` sooner than before (20/minute total, not 40).
+
 ## v0.5.10 — Stream recovery hardening (from 0.5.8 or earlier)
 
 Release notes: [v0.5.10](https://github.com/solarssk/ssf-transmitter/releases/tag/v0.5.10)
@@ -113,7 +130,7 @@ docker compose up -d ssf-transmitter
 docker compose logs ssf-transmitter --tail 50
 ```
 
-Pin to a version tag (`0.5.10`) in production; use `:latest` only if you accept automatic updates on redeploy.
+Pin to a version tag (`0.5.11`) in production; use `:latest` only if you accept automatic updates on redeploy.
 
 ## Rolling back
 
