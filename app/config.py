@@ -20,6 +20,7 @@ class _HealthcheckFilter(logging.Filter):
         msg = record.getMessage()
         return not ("127.0.0.1" in msg and "/jwks.json" in msg)
 
+
 _WEBHOOK_AUTH_MODES = {"bearer", "hmac", "unsigned"}
 _APPLE_SCIM_UPDATE_MODES = {
     "patch_all",
@@ -39,9 +40,7 @@ def _parse_https_url(value: str, env_name: str) -> str:
     """Validate that value is a well-formed HTTPS URL; raise ValueError otherwise."""
     parsed = urlparse(value)
     if parsed.scheme != "https" or not parsed.hostname:
-        raise ValueError(
-            f"{env_name} must be a valid HTTPS URL, got {value!r}"
-        )
+        raise ValueError(f"{env_name} must be a valid HTTPS URL, got {value!r}")
     return value
 
 
@@ -57,10 +56,7 @@ def _parse_apple_scim_update_mode(value: str | None) -> str:
     """Validate APPLE_SCIM_UPDATE_MODE against the supported experiment set."""
     mode = (value or "patch_all").strip().lower()
     if mode not in _APPLE_SCIM_UPDATE_MODES:
-        raise ValueError(
-            "APPLE_SCIM_UPDATE_MODE must be one of: "
-            f"{', '.join(sorted(_APPLE_SCIM_UPDATE_MODES))}"
-        )
+        raise ValueError(f"APPLE_SCIM_UPDATE_MODE must be one of: {', '.join(sorted(_APPLE_SCIM_UPDATE_MODES))}")
     return mode
 
 
@@ -69,9 +65,7 @@ def _parse_management_token(value: str | None) -> str:
     if not value:
         raise RuntimeError("Missing required environment variable: SSF_MANAGEMENT_TOKEN")
     if len(value) < 32:
-        raise RuntimeError(
-            f"SSF_MANAGEMENT_TOKEN is too short ({len(value)} chars); minimum is 32 characters"
-        )
+        raise RuntimeError(f"SSF_MANAGEMENT_TOKEN is too short ({len(value)} chars); minimum is 32 characters")
     return value
 
 
@@ -85,9 +79,7 @@ def _parse_webhook_auth_mode(value: str | None, allow_unsigned_legacy: bool) -> 
         return "unsigned"
     mode = (value or "bearer").lower().strip()
     if mode not in _WEBHOOK_AUTH_MODES:
-        raise RuntimeError(
-            f"SSF_WEBHOOK_AUTH_MODE must be one of: {', '.join(sorted(_WEBHOOK_AUTH_MODES))}"
-        )
+        raise RuntimeError(f"SSF_WEBHOOK_AUTH_MODE must be one of: {', '.join(sorted(_WEBHOOK_AUTH_MODES))}")
     return mode
 
 
@@ -97,13 +89,10 @@ def _parse_webhook_token(value: str | None, mode: str) -> str | None:
         return value or None
     if not value:
         raise RuntimeError(
-            "Missing required environment variable: SSF_WEBHOOK_TOKEN "
-            "(required when SSF_WEBHOOK_AUTH_MODE=bearer)"
+            "Missing required environment variable: SSF_WEBHOOK_TOKEN (required when SSF_WEBHOOK_AUTH_MODE=bearer)"
         )
     if len(value) < 32:
-        raise RuntimeError(
-            f"SSF_WEBHOOK_TOKEN is too short ({len(value)} chars); minimum is 32 characters"
-        )
+        raise RuntimeError(f"SSF_WEBHOOK_TOKEN is too short ({len(value)} chars); minimum is 32 characters")
     return value
 
 
@@ -119,9 +108,7 @@ def _parse_log_level(value: str | None) -> str:
     level = (value or "INFO").upper()
     valid = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
     if level not in valid:
-        raise ValueError(
-            f"SSF_LOG_LEVEL must be one of {', '.join(sorted(valid))}, got {level!r}"
-        )
+        raise ValueError(f"SSF_LOG_LEVEL must be one of {', '.join(sorted(valid))}, got {level!r}")
     return level
 
 
@@ -129,8 +116,7 @@ def _parse_webhook_secret(value: str | None, mode: str) -> str:
     """Validate SSF_WEBHOOK_SECRET — required when mode is 'hmac'."""
     if mode == "hmac" and not value:
         raise RuntimeError(
-            "Missing required environment variable: SSF_WEBHOOK_SECRET "
-            "(required when SSF_WEBHOOK_AUTH_MODE=hmac)"
+            "Missing required environment variable: SSF_WEBHOOK_SECRET (required when SSF_WEBHOOK_AUTH_MODE=hmac)"
         )
     return value or ""
 
@@ -146,9 +132,9 @@ class Settings:
     ssf_management_token: str
     log_level: str
     # Webhook authentication
-    ssf_webhook_auth_mode: str = "bearer"   # bearer | hmac | unsigned
-    ssf_webhook_token: str | None = None    # required in bearer mode
-    ssf_webhook_secret: str = ""           # required in hmac mode
+    ssf_webhook_auth_mode: str = "bearer"  # bearer | hmac | unsigned
+    ssf_webhook_token: str | None = None  # required in bearer mode
+    ssf_webhook_secret: str = ""  # required in hmac mode
     database_path: str = "/app/data/ssf.db"
     keys_dir: str = "/app/keys"
     # Privacy — when False (default), emails are replaced by a keyed HMAC token in logs.
@@ -165,10 +151,10 @@ class Settings:
     authentik_url: str | None = None
     authentik_token: str | None = None
     apple_scim_group_id: str | None = None  # sync only members of this Authentik group UUID
-    apple_scim_sync_interval: int = 3600    # seconds between automatic syncs (default: 1 hour)
+    apple_scim_sync_interval: int = 3600  # seconds between automatic syncs (default: 1 hour)
     apple_scim_alert_webhook_url: str | None = None  # POST alerts here when re-auth is needed
     apple_scim_authorize_url: str = "https://appleid.apple.com/auth/oauth2/v2/authorize"
-    apple_scim_token_url: str = "https://appleid.apple.com/auth/oauth2/v2/token"
+    apple_scim_token_url: str = "https://appleid.apple.com/auth/oauth2/v2/token"  # noqa: S105 (URL, not a secret)
     apple_scim_log_error_body: bool = False
     apple_scim_update_mode: str = "patch_all"
     # Set true to suppress the startup warning when SSF_ISSUER differs from SSF_BASE_URL.
@@ -196,10 +182,7 @@ class Settings:
     def apple_scim_enabled(self) -> bool:
         """True when all required Apple SCIM variables are configured."""
         return bool(
-            self.apple_scim_client_id
-            and self.apple_scim_client_secret
-            and self.authentik_url
-            and self.authentik_token
+            self.apple_scim_client_id and self.apple_scim_client_secret and self.authentik_url and self.authentik_token
         )
 
     @classmethod
@@ -208,13 +191,16 @@ class Settings:
 
         Raises :class:`RuntimeError` if any required variable is missing or invalid.
         """
-        required = {
+        raw_required = {
             "SSF_ISSUER": os.getenv("SSF_ISSUER"),
             "SSF_BASE_URL": os.getenv("SSF_BASE_URL"),
         }
-        missing = [name for name, value in required.items() if not value]
+        missing = [name for name, value in raw_required.items() if not value]
         if missing:
             raise RuntimeError(f"Missing required environment variables: {', '.join(missing)}")
+        # Every value is confirmed non-empty above; re-typed so downstream
+        # calls don't need `str | None` handling for values we just checked.
+        required: dict[str, str] = {name: value for name, value in raw_required.items() if value}
 
         for var_name, var_value in required.items():
             try:
@@ -226,12 +212,11 @@ class Settings:
         auth_mode = _parse_webhook_auth_mode(os.getenv("SSF_WEBHOOK_AUTH_MODE"), allow_unsigned)
         webhook_token = _parse_webhook_token(os.getenv("SSF_WEBHOOK_TOKEN"), auth_mode)
         webhook_secret = _parse_webhook_secret(os.getenv("SSF_WEBHOOK_SECRET"), auth_mode)
+        authentik_url_raw = os.getenv("AUTHENTIK_URL")
 
         return cls(
             ssf_issuer=_parse_https_url(required["SSF_ISSUER"], "SSF_ISSUER"),
-            ssf_base_url=_strip_trailing_slash(
-                _parse_https_url(required["SSF_BASE_URL"], "SSF_BASE_URL")
-            ),
+            ssf_base_url=_strip_trailing_slash(_parse_https_url(required["SSF_BASE_URL"], "SSF_BASE_URL")),
             ssf_root_path=os.getenv("SSF_ROOT_PATH", ""),
             ssf_container_port=int(os.getenv("SSF_CONTAINER_PORT", "8000")),
             ssf_management_token=_parse_management_token(os.getenv("SSF_MANAGEMENT_TOKEN")),
@@ -240,25 +225,21 @@ class Settings:
             ssf_webhook_secret=webhook_secret,
             log_pii=os.getenv("SSF_LOG_PII", "false").lower() == "true",
             pii_pepper=os.getenv("SSF_PII_PEPPER", ""),
-            log_level=_parse_log_level(
-                os.getenv("SSF_LOG_LEVEL", os.getenv("LOG_LEVEL", "INFO"))
-            ),
+            log_level=_parse_log_level(os.getenv("SSF_LOG_LEVEL", os.getenv("LOG_LEVEL", "INFO"))),
             database_path=os.getenv("SSF_DATABASE_PATH", "/app/data/ssf.db"),
             keys_dir=os.getenv("SSF_KEYS_DIR", "/app/keys"),
             apple_scim_client_id=os.getenv("APPLE_SCIM_CLIENT_ID") or None,
             apple_scim_client_secret=os.getenv("APPLE_SCIM_CLIENT_SECRET") or None,
-            authentik_url=(
-                _strip_trailing_slash(os.getenv("AUTHENTIK_URL"))
-                if os.getenv("AUTHENTIK_URL")
-                else None
-            ),
+            authentik_url=(_strip_trailing_slash(authentik_url_raw) if authentik_url_raw else None),
             authentik_token=os.getenv("AUTHENTIK_TOKEN") or None,
             apple_scim_group_id=os.getenv("APPLE_SCIM_GROUP_ID") or None,
             apple_scim_sync_interval=_parse_sync_interval(os.getenv("APPLE_SCIM_SYNC_INTERVAL", "3600")),
             apple_scim_alert_webhook_url=_parse_https_url(
                 os.getenv("APPLE_SCIM_ALERT_WEBHOOK_URL", ""),
                 "APPLE_SCIM_ALERT_WEBHOOK_URL",
-            ) if os.getenv("APPLE_SCIM_ALERT_WEBHOOK_URL") else None,
+            )
+            if os.getenv("APPLE_SCIM_ALERT_WEBHOOK_URL")
+            else None,
             apple_scim_authorize_url=_parse_https_url(
                 os.getenv("APPLE_SCIM_AUTHORIZE_URL", "https://appleid.apple.com/auth/oauth2/v2/authorize"),
                 "APPLE_SCIM_AUTHORIZE_URL",
@@ -273,9 +254,7 @@ class Settings:
             ssf_log_color=os.getenv("SSF_LOG_COLOR", "false").lower() == "true",
             ssf_log_receiver_error_body=os.getenv("SSF_LOG_RECEIVER_ERROR_BODY", "false").lower() == "true",
             ssf_enable_openapi=os.getenv("SSF_ENABLE_OPENAPI", "false").lower() == "true",
-            ssf_allowed_receiver_hosts=_parse_allowed_receiver_hosts(
-                os.getenv("SSF_ALLOWED_RECEIVER_HOSTS")
-            ),
+            ssf_allowed_receiver_hosts=_parse_allowed_receiver_hosts(os.getenv("SSF_ALLOWED_RECEIVER_HOSTS")),
             ssf_token_encryption_key=os.getenv("SSF_TOKEN_ENCRYPTION_KEY") or None,
         )
 
@@ -310,6 +289,7 @@ try:
     settings = Settings.from_env()
 except (RuntimeError, ValueError) as _cfg_exc:
     import sys as _sys
+
     print(f"\n❌  Configuration error: {_cfg_exc}\n", file=_sys.stderr)
     _sys.exit(0)  # exit 0 → Docker restart: unless-stopped does NOT restart
 
@@ -330,6 +310,7 @@ def configure_logging() -> None:
     if settings.ssf_log_color:
         try:
             import colorlog  # optional dependency
+
             formatter = colorlog.ColoredFormatter(
                 "%(log_color)s%(asctime)s %(levelname)s%(reset)s [%(name)s] %(message)s",
                 log_colors={

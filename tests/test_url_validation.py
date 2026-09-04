@@ -15,7 +15,7 @@ from app.security.url_validation import receiver_host_allowed, validate_receiver
 _PUBLIC_IP = "93.184.216.34"  # example.com
 
 
-def _mock_resolve(public_ips: list[str] = None):
+def _mock_resolve(public_ips: list[str] | None = None):
     """Return a patch for _resolve_host that returns the given IPs."""
     ips = public_ips if public_ips is not None else [_PUBLIC_IP]
     return patch("app.security.url_validation._resolve_host", return_value=ips)

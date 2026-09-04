@@ -38,15 +38,17 @@ def map_authentik_event(payload: dict[str, Any]) -> list[MappedEvent]:
         logger.info("Skipping Authentik event action=%s reason=login_failed", action)
         return []
     if action == "authentik.core.auth.logout":
-        return [MappedEvent(
-            uri=SESSION_REVOKED,
-            payload={
-                "event_timestamp": _event_timestamp(),
-                "initiating_entity": "policy",
-                "reason_admin": {"en": "Session revoked in Authentik"},
-            },
-            txn=txn,
-        )]
+        return [
+            MappedEvent(
+                uri=SESSION_REVOKED,
+                payload={
+                    "event_timestamp": _event_timestamp(),
+                    "initiating_entity": "policy",
+                    "reason_admin": {"en": "Session revoked in Authentik"},
+                },
+                txn=txn,
+            )
+        ]
     if action == "authentik.core.user.delete":
         logger.info("Skipping Authentik event action=%s reason=event_not_supported", action)
         return []
@@ -57,17 +59,19 @@ def map_authentik_event(payload: dict[str, Any]) -> list[MappedEvent]:
     events: list[MappedEvent] = []
     changed_fields = context.get("changed_fields") or []
     if "password" in changed_fields:
-        events.append(MappedEvent(
-            uri=CREDENTIAL_CHANGE,
-            payload={
-                "event_timestamp": _event_timestamp(),
-                "initiating_entity": "user",
-                "credential_type": "password",
-                "change_type": "update",
-                "reason_admin": {"en": "Password changed in Authentik"},
-            },
-            txn=txn,
-        ))
+        events.append(
+            MappedEvent(
+                uri=CREDENTIAL_CHANGE,
+                payload={
+                    "event_timestamp": _event_timestamp(),
+                    "initiating_entity": "user",
+                    "credential_type": "password",
+                    "change_type": "update",
+                    "reason_admin": {"en": "Password changed in Authentik"},
+                },
+                txn=txn,
+            )
+        )
 
     if "is_active" in changed_fields:
         logger.info(

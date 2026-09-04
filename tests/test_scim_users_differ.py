@@ -16,6 +16,7 @@ from app.scim.apple import (
 # _primary_email
 # ---------------------------------------------------------------------------
 
+
 class TestPrimaryEmail:
     def test_explicit_primary_true(self):
         user = {"emails": [{"value": "a@example.com", "primary": True}]}
@@ -35,16 +36,19 @@ class TestPrimaryEmail:
         assert _primary_email({"emails": []}) is None
 
     def test_mixed_primary_picks_true(self):
-        user = {"emails": [
-            {"value": "first@example.com", "primary": False},
-            {"value": "primary@example.com", "primary": True},
-        ]}
+        user = {
+            "emails": [
+                {"value": "first@example.com", "primary": False},
+                {"value": "primary@example.com", "primary": True},
+            ]
+        }
         assert _primary_email(user) == "primary@example.com"
 
 
 # ---------------------------------------------------------------------------
 # _users_differ
 # ---------------------------------------------------------------------------
+
 
 def _apple_user(
     username="user@example.com",
@@ -95,7 +99,7 @@ class TestUsersDiffer:
     def test_apple_omits_primary_flag_no_false_diff(self):
         """Core bug fix: Apple returns email without primary flag → must not diff."""
         existing = _apple_user(email_primary=None)  # Apple omits primary
-        new = _authentik_user()                      # We always send primary=True
+        new = _authentik_user()  # We always send primary=True
         assert _users_differ(existing, new) is False
 
     def test_apple_omits_active_no_false_diff(self):
@@ -138,9 +142,11 @@ class TestUsersDiffer:
         new = _authentik_user(email="user@example.com")
         assert _users_differ(existing, new) is True
 
+
 # ---------------------------------------------------------------------------
 # _can_recover_by_username
 # ---------------------------------------------------------------------------
+
 
 class TestFormatChangedFields:
     def test_lists_changed_fields(self):
@@ -193,6 +199,7 @@ class TestBuildUpdateRequest:
 # sync_users idempotence / externalId repair
 # ---------------------------------------------------------------------------
 
+
 class _FakeResponse:
     def __init__(self, status_code: int, payload: dict | None = None):
         self.status_code = status_code
@@ -227,12 +234,15 @@ class _FakeAppleClient:
 
     async def get(self, url, headers):
         self.requests.append(("GET", url, None))
-        return _FakeResponse(200, {
-            "Resources": self.apple_users,
-            "totalResults": len(self.apple_users),
-            "startIndex": 1,
-            "itemsPerPage": len(self.apple_users),
-        })
+        return _FakeResponse(
+            200,
+            {
+                "Resources": self.apple_users,
+                "totalResults": len(self.apple_users),
+                "startIndex": 1,
+                "itemsPerPage": len(self.apple_users),
+            },
+        )
 
     async def post(self, url, json, headers):
         self.requests.append(("POST", url, json))
@@ -368,10 +378,12 @@ async def test_sync_recovered_by_username_missing_external_id_patches_once_then_
 
 
 def test_primary_email_prefers_primary_when_multiple_emails():
-    user = {"emails": [
-        {"value": "alias@example.com", "primary": False},
-        {"value": "primary@example.com", "primary": True},
-    ]}
+    user = {
+        "emails": [
+            {"value": "alias@example.com", "primary": False},
+            {"value": "primary@example.com", "primary": True},
+        ]
+    }
     assert _primary_email(user) == "primary@example.com"
 
 

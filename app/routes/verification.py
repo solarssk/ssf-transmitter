@@ -58,7 +58,5 @@ async def trigger_verification(request: VerificationRequest | None = None) -> Re
             detail="Verification SET delivery failed",
         )
 
-    logger.info(
-        "Verification SET delivered stream_id=%s aud=%s", stream.stream_id, sanitize_for_log(stream.aud)
-    )
+    logger.info("Verification SET delivered stream_id=%s aud=%s", stream.stream_id, sanitize_for_log(stream.aud))
     return Response(status_code=202)

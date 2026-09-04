@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from types import SimpleNamespace
+from typing import ClassVar
 
 import pytest
 
@@ -21,8 +22,10 @@ class FakeResponse:
 
 
 class FakeAsyncClient:
-    requests: list[str] = []
-    responses: list[FakeResponse] = []
+    # Deliberately class-level, not per-instance — see test_pusher.py's
+    # FakeAsyncClient for why (tests monkeypatch these directly on the class).
+    requests: ClassVar[list[str]] = []
+    responses: ClassVar[list[FakeResponse]] = []
 
     def __init__(self, timeout: float):
         self.timeout = timeout

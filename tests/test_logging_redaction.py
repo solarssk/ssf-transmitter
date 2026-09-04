@@ -39,11 +39,7 @@ def client():
 
 def _app_log_text(caplog) -> str:
     """Return formatted text of all log records emitted by the *app* namespace."""
-    return " ".join(
-        r.getMessage()
-        for r in caplog.records
-        if r.name.startswith("app.")
-    )
+    return " ".join(r.getMessage() for r in caplog.records if r.name.startswith("app."))
 
 
 # ---------------------------------------------------------------------------
@@ -130,9 +126,7 @@ def test_receiver_token_not_in_create_response(client: TestClient):
 
 def test_webhook_secret_not_logged_on_valid_request(client: TestClient, caplog):
     """Processing a valid signed webhook must not write the HMAC secret to app logs."""
-    body = json.dumps(
-        {"body": {"action": "authentik.core.auth.logout", "user": {"email": "u@example.com"}}}
-    ).encode()
+    body = json.dumps({"body": {"action": "authentik.core.auth.logout", "user": {"email": "u@example.com"}}}).encode()
     with caplog.at_level(logging.DEBUG, logger="app"):
         client.post("/webhook/authentik", content=body, headers=_signed_headers(body))
     assert _WEBHOOK_SECRET.decode() not in _app_log_text(caplog)

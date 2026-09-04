@@ -112,7 +112,8 @@ async def lifespan(app: FastAPI):
         # CancelledError`, there is no exception left needing a re-raise for
         # this coroutine's own cancellation semantics, since the exception
         # belongs to apple_scim_task, not to lifespan().
-        (result,) = await asyncio.gather(apple_scim_task, return_exceptions=True)
+        gather_results = await asyncio.gather(apple_scim_task, return_exceptions=True)
+        result = gather_results[0]
         if isinstance(result, asyncio.CancelledError):
             logger.info("Apple SCIM: sync loop stopped")
         elif isinstance(result, BaseException):
@@ -137,7 +138,13 @@ def create_app() -> FastAPI:
         openapi_url=openapi_url,
     )
     application.state.limiter = limiter
-    application.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+    # slowapi's own handler is typed for RateLimitExceeded specifically, narrower
+    # than Starlette's generic ExceptionHandler protocol this call expects —
+    # a stub limitation in slowapi, not a real type mismatch at runtime.
+    application.add_exception_handler(
+        RateLimitExceeded,
+        _rate_limit_exceeded_handler,  # type: ignore[arg-type]  # pyright: ignore[reportArgumentType]
+    )
     # Starlette middleware is LIFO — register innermost first, outermost last.
     # RequestIDMiddleware wraps SlowAPIMiddleware so 429 responses still get X-Request-ID.
     application.add_middleware(SlowAPIMiddleware)

@@ -267,24 +267,28 @@ def test_wellknown_remains_public(client: TestClient, monkeypatch):
 def test_bearer_mode_without_token_raises():
     """bearer mode without SSF_WEBHOOK_TOKEN must raise RuntimeError at startup."""
     from app.config import _parse_webhook_token
+
     with pytest.raises(RuntimeError, match="SSF_WEBHOOK_TOKEN"):
         _parse_webhook_token(None, "bearer")
 
 
 def test_bearer_mode_short_token_raises():
     from app.config import _parse_webhook_token
+
     with pytest.raises(RuntimeError, match="too short"):
         _parse_webhook_token("short", "bearer")
 
 
 def test_invalid_auth_mode_raises():
     from app.config import _parse_webhook_auth_mode
+
     with pytest.raises(RuntimeError, match="SSF_WEBHOOK_AUTH_MODE"):
         _parse_webhook_auth_mode("ftp", False)
 
 
 def test_hmac_mode_without_secret_raises():
     from app.config import _parse_webhook_secret
+
     with pytest.raises(RuntimeError, match="SSF_WEBHOOK_SECRET"):
         _parse_webhook_secret(None, "hmac")
 
@@ -292,6 +296,7 @@ def test_hmac_mode_without_secret_raises():
 def test_allow_unsigned_legacy_alias():
     """SSF_ALLOW_UNSIGNED_WEBHOOK=true maps to unsigned mode regardless of SSF_WEBHOOK_AUTH_MODE."""
     from app.config import _parse_webhook_auth_mode
+
     # Legacy flag overrides any explicit mode value
     assert _parse_webhook_auth_mode(None, allow_unsigned_legacy=True) == "unsigned"
     assert _parse_webhook_auth_mode("bearer", allow_unsigned_legacy=True) == "unsigned"
@@ -300,5 +305,3 @@ def test_allow_unsigned_legacy_alias():
     assert _parse_webhook_auth_mode("bearer", allow_unsigned_legacy=False) == "bearer"
     assert _parse_webhook_auth_mode("hmac", allow_unsigned_legacy=False) == "hmac"
     assert _parse_webhook_auth_mode(None, allow_unsigned_legacy=False) == "bearer"  # default
-
-

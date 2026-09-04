@@ -1,5 +1,6 @@
 import hashlib
 from dataclasses import replace
+from typing import ClassVar
 
 import pytest
 
@@ -18,7 +19,10 @@ class FakeResponse:
 
 
 class FakeAsyncClient:
-    requests = []
+    # Deliberately class-level, not per-instance: tests monkeypatch these
+    # attributes directly on the class (see monkeypatch.setattr(FakeAsyncClient, ...)
+    # throughout this file), so pytest can restore the originals after each test.
+    requests: ClassVar[list[tuple]] = []
     status_code = 202
     response_text = ""
 
@@ -114,6 +118,7 @@ async def test_receiver_error_body_not_logged_at_warn(monkeypatch, stream, event
     monkeypatch.setattr(pusher.httpx, "AsyncClient", FakeAsyncClient)
 
     import logging
+
     with caplog.at_level(logging.WARNING, logger="app.events.pusher"):
         delivered = await pusher.push_set(stream, event, "user@example.com")
 
@@ -134,6 +139,7 @@ async def test_receiver_error_body_hash_logged_at_warn(monkeypatch, stream, even
     monkeypatch.setattr(pusher.httpx, "AsyncClient", FakeAsyncClient)
 
     import logging
+
     with caplog.at_level(logging.WARNING, logger="app.events.pusher"):
         await pusher.push_set(stream, event, "user@example.com")
 
@@ -233,6 +239,7 @@ async def test_push_set_allows_all_when_events_requested_empty(monkeypatch, stre
 
     assert delivered is True
 
+
 @pytest.mark.anyio
 async def test_push_set_passes_empty_risc_event_payload_to_signer(monkeypatch, stream):
     captured = {}
@@ -267,6 +274,7 @@ async def test_receiver_error_body_logged_only_when_enabled(monkeypatch, stream,
     monkeypatch.setattr(pusher, "settings", replace(pusher.settings, ssf_log_receiver_error_body=True))
 
     import logging
+
     with caplog.at_level(logging.DEBUG, logger="app.events.pusher"):
         delivered = await pusher.push_set(stream, event, "user@example.com")
 
@@ -284,6 +292,7 @@ async def test_verification_receiver_error_body_logged_only_when_enabled(monkeyp
     monkeypatch.setattr(pusher, "settings", replace(pusher.settings, ssf_log_receiver_error_body=True))
 
     import logging
+
     with caplog.at_level(logging.DEBUG, logger="app.events.pusher"):
         delivered = await pusher.push_verification_set(stream)
 
@@ -303,6 +312,7 @@ async def test_push_set_blocked_when_host_not_in_allowlist(monkeypatch, stream, 
     )
 
     import logging
+
     with caplog.at_level(logging.WARNING, logger="app.events.pusher"):
         delivered = await pusher.push_set(stream, event, "user@example.com")
 
@@ -323,6 +333,7 @@ async def test_push_verification_set_blocked_when_host_not_in_allowlist(monkeypa
     )
 
     import logging
+
     with caplog.at_level(logging.WARNING, logger="app.events.pusher"):
         delivered = await pusher.push_verification_set(stream)
 
@@ -346,6 +357,7 @@ async def test_push_set_logs_claims_from_inputs_without_decoding_token(monkeypat
     monkeypatch.setattr(pusher.httpx, "AsyncClient", FakeAsyncClient)
 
     import logging
+
     with caplog.at_level(logging.DEBUG, logger="app.events.pusher"):
         delivered = await pusher.push_set(stream, event, "user@example.com")
 
@@ -375,6 +387,7 @@ async def test_push_set_sanitizes_control_characters_in_logged_claims(monkeypatc
     monkeypatch.setattr(pusher.httpx, "AsyncClient", FakeAsyncClient)
 
     import logging
+
     with caplog.at_level(logging.DEBUG, logger="app.events.pusher"):
         delivered = await pusher.push_set(malicious_stream, malicious_event, "user@example.com")
 

@@ -56,6 +56,33 @@ jobs:
       - name: Lint
         run: ruff check .
 
+      - name: Check formatting
+        run: ruff format --check .
+
+      - name: Type check
+        run: mypy
+
+      # rhysd/actionlint ships no first-party GitHub Action (no action.yml in
+      # its repo, only a Go binary + checksums) — download the pinned release
+      # and verify its checksum directly, the same discipline as the
+      # hash-verified Python dependency installs above.
+      - name: Install actionlint
+        run: |
+          curl -fsSLo actionlint.tar.gz \
+            https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz
+          echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  actionlint.tar.gz" | sha256sum -c -
+          tar -xzf actionlint.tar.gz actionlint
+          rm actionlint.tar.gz
+
+      - name: Lint GitHub Actions workflows
+        run: ./actionlint -color .github/workflows/*.yml
+
+      # --min-severity low: keep pure code-smell/style suggestions
+      # (informational, e.g. "prefer `gh release` over an action") from
+      # blocking CI, while still failing on any actual security finding.
+      - name: Audit workflows for security issues
+        run: zizmor --min-severity low .github/workflows/
+
       - name: Test
         run: pytest
 

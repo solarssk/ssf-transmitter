@@ -173,7 +173,7 @@ async def callback(
         expires_in = int(raw_expires)
         if expires_in <= 0:
             raise ValueError("expires_in must be > 0")
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         logger.warning(
             "Apple SCIM: token exchange response has invalid expires_in=%r — defaulting to 3600",
             raw_expires,
@@ -187,7 +187,8 @@ async def callback(
     await save_tokens(access_token, refresh_token, expires_in)
     logger.info(
         "Apple SCIM: authorization complete has_refresh_token=%s expires_in=%s",
-        bool(refresh_token), expires_in,
+        bool(refresh_token),
+        expires_in,
     )
 
     # Kick off an immediate sync in the background so the admin doesn't have

@@ -6,8 +6,9 @@ Extra fields are forbidden on all models to prevent parameter smuggling.
 from __future__ import annotations
 
 from enum import StrEnum
+from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, BeforeValidator, ConfigDict, field_validator
 
 # ---------------------------------------------------------------------------
 # Supported values
@@ -25,6 +26,7 @@ SUPPORTED_EVENT_URIS: frozenset[str] = frozenset(
 def canonicalize_event_uri(uri: str) -> str:
     """Return the canonical URI for an event."""
     return uri
+
 
 SUPPORTED_DELIVERY_METHODS: frozenset[str] = frozenset(
     {
@@ -72,15 +74,17 @@ def _coerce_aud(v: object) -> str:
     return v
 
 
+def _coerce_aud_optional(v: object) -> str | None:
+    """``_coerce_aud``, but pass ``None`` through unchanged (for optional patch fields)."""
+    return None if v is None else _coerce_aud(v)
+
+
 def _validate_event_uris(uris: list[str]) -> list[str]:
     """Canonicalize and validate event URIs; raises ValueError for unsupported URIs."""
     canonical = [canonicalize_event_uri(u) for u in uris]
     unsupported = [u for u in canonical if u not in SUPPORTED_EVENT_URIS]
     if unsupported:
-        raise ValueError(
-            f"Unsupported event URI(s): {unsupported}. "
-            f"Supported: {sorted(SUPPORTED_EVENT_URIS)}"
-        )
+        raise ValueError(f"Unsupported event URI(s): {unsupported}. Supported: {sorted(SUPPORTED_EVENT_URIS)}")
     return canonical
 
 
@@ -104,10 +108,7 @@ class DeliveryConfig(BaseModel):
     def _validate_method(cls, v: str | None) -> str | None:
         """Reject delivery methods outside the supported SSF push set."""
         if v is not None and v not in SUPPORTED_DELIVERY_METHODS:
-            raise ValueError(
-                f"Unsupported delivery method: {v!r}. "
-                f"Supported: {sorted(SUPPORTED_DELIVERY_METHODS)}"
-            )
+            raise ValueError(f"Unsupported delivery method: {v!r}. Supported: {sorted(SUPPORTED_DELIVERY_METHODS)}")
         return v
 
 
@@ -121,16 +122,10 @@ class StreamCreateRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    aud: str | list[str]
+    aud: Annotated[str, BeforeValidator(_coerce_aud)]
     delivery: DeliveryConfig
     events_requested: list[str] = []
     status: StreamStatus = StreamStatus.enabled
-
-    @field_validator("aud", mode="before")
-    @classmethod
-    def _normalize_aud(cls, v: object) -> str:
-        """Coerce aud from a string or single-element list."""
-        return _coerce_aud(v)
 
     @field_validator("events_requested")
     @classmethod
@@ -147,13 +142,7 @@ class StreamPatchRequest(BaseModel):
     status: StreamStatus | None = None
     events_requested: list[str] | None = None
     delivery: DeliveryConfig | None = None
-    aud: str | list[str] | None = None
-
-    @field_validator("aud", mode="before")
-    @classmethod
-    def _normalize_aud(cls, v: object) -> str | None:
-        """Coerce aud from a string or single-element list when provided."""
-        return None if v is None else _coerce_aud(v)
+    aud: Annotated[str | None, BeforeValidator(_coerce_aud_optional)] = None
 
     @field_validator("events_requested")
     @classmethod

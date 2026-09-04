@@ -57,9 +57,7 @@ async def send_alert(event: str, message: str, severity: str = "error") -> None:
             resp = await client.post(url, json=payload)
         _last_sent[event] = now  # server reached — start cooldown
         if resp.status_code >= 300:
-            logger.warning(
-                "Alert webhook returned non-2xx status=%s event=%s", resp.status_code, event
-            )
+            logger.warning("Alert webhook returned non-2xx status=%s event=%s", resp.status_code, event)
         else:
             logger.info("Alert sent event=%s severity=%s", event, severity)
     except httpx.HTTPError:

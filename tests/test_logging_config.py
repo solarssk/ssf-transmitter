@@ -61,6 +61,7 @@ def test_logging_without_colorlog_still_starts(monkeypatch):
 
     with patch.dict("sys.modules", {"colorlog": None}):
         from app.config import configure_logging
+
         configure_logging()  # must not raise
 
 
@@ -70,4 +71,5 @@ def test_logging_color_disabled_uses_plain_formatter(monkeypatch):
     monkeypatch.setattr("app.config.settings", mock_settings)
 
     from app.config import configure_logging
+
     configure_logging()  # must not raise; no colorlog import attempted

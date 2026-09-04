@@ -32,27 +32,29 @@ def _check_scim_authorized() -> None:
     """Check whether Apple SCIM OAuth tokens are stored in the database."""
     import sqlite3
     from contextlib import closing
+
     try:
         with closing(sqlite3.connect(settings.database_path)) as con:
-            row = con.execute(
-                "SELECT expires_at FROM apple_scim_tokens WHERE id = 1"
-            ).fetchone()
+            row = con.execute("SELECT expires_at FROM apple_scim_tokens WHERE id = 1").fetchone()
     except Exception:
         row = None
 
     if row:
         import time as _time
+
         if _time.time() < row[0]:
             logger.info("%s Apple SCIM OAuth       authorized (token valid)", _OK)
         else:
             logger.warning(
                 "%s Apple SCIM OAuth       token expired — visit %s/apple-scim/authorize to re-authorize",
-                _WARN, settings.ssf_base_url,
+                _WARN,
+                settings.ssf_base_url,
             )
     else:
         logger.warning(
             "%s Apple SCIM OAuth       not authorized — visit %s/apple-scim/authorize to connect",
-            _WARN, settings.ssf_base_url,
+            _WARN,
+            settings.ssf_base_url,
         )
 
 
@@ -136,9 +138,7 @@ def quarantine_undecryptable_receiver_tokens() -> None:
 
     try:
         with closing(sqlite3.connect(settings.database_path)) as con:
-            if con.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='streams'"
-            ).fetchone() is None:
+            if con.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='streams'").fetchone() is None:
                 return
 
             rows = con.execute("SELECT stream_id, endpoint_token FROM streams").fetchall()
@@ -228,8 +228,9 @@ def run_preflight_checks() -> None:
             logger.info("%s SSF_WEBHOOK_TOKEN      configured (%d chars)", _OK, wt_len)
         else:
             logger.info("%s SSF_WEBHOOK_AUTH_MODE  bearer", _OK)
-            logger.error("%s SSF_WEBHOOK_TOKEN      %s",
-                         _FAIL, f"too short ({wt_len} chars, min 32)" if wt_len else "NOT SET")
+            logger.error(
+                "%s SSF_WEBHOOK_TOKEN      %s", _FAIL, f"too short ({wt_len} chars, min 32)" if wt_len else "NOT SET"
+            )
             failed = True
     elif mode == "hmac":
         # Config contract (_parse_webhook_secret) only requires non-empty in hmac mode.
@@ -244,8 +245,7 @@ def run_preflight_checks() -> None:
             failed = True
     elif mode == "unsigned":
         logger.warning(
-            "%s SSF_WEBHOOK_AUTH_MODE  unsigned — NO authentication on webhook "
-            "(dev/lab only, never use in production)",
+            "%s SSF_WEBHOOK_AUTH_MODE  unsigned — NO authentication on webhook (dev/lab only, never use in production)",
             _WARN,
         )
         if os.getenv("SSF_ALLOW_UNSIGNED_WEBHOOK", "").lower() == "true":
@@ -269,30 +269,28 @@ def run_preflight_checks() -> None:
     else:
         # Missing key is not fatal at preflight — ensure_keys() will generate it.
         # Only warn; if generation is also broken it will surface as an exception.
-        logger.warning("%s Signing key            %s not found — will be generated on first start",
-                       _WARN, private_pem)
+        logger.warning("%s Signing key            %s not found — will be generated on first start", _WARN, private_pem)
 
     # JWKS
     jwks_path = Path(settings.keys_dir) / "jwks.json"
     if jwks_path.exists():
         logger.info("%s JWKS                   %s (exists)", _OK, jwks_path)
     else:
-        logger.warning("%s JWKS                   %s not found — will be generated on first start",
-                       _WARN, jwks_path)
+        logger.warning("%s JWKS                   %s not found — will be generated on first start", _WARN, jwks_path)
 
     # Database directory
     db_path = Path(settings.database_path)
     db_dir = db_path.parent
     if not db_dir.exists():
         # Directory will be created by init_db(); warn but don't fail.
-        logger.warning("%s Database dir           %s does not exist yet — will be created on start",
-                       _WARN, db_dir)
+        logger.warning("%s Database dir           %s does not exist yet — will be created on start", _WARN, db_dir)
     elif not os.access(db_dir, os.W_OK):
         logger.error("%s Database dir           %s is not writable — check volume permissions", _FAIL, db_dir)
         failed = True
     elif db_path.exists() and not os.access(db_path, os.W_OK):
-        logger.error("%s Database               %s is not writable — run: chown -R 10001:10001 %s",
-                     _FAIL, db_path, db_dir)
+        logger.error(
+            "%s Database               %s is not writable — run: chown -R 10001:10001 %s", _FAIL, db_path, db_dir
+        )
         failed = True
     else:
         status = "exists" if db_path.exists() else "will be created"
@@ -340,8 +338,7 @@ def run_preflight_checks() -> None:
         logger.info("%s SSF_FORWARDED_ALLOW_IPS  %s", _OK, forwarded_ips)
 
     if settings.apple_scim_enabled:
-        logger.info("%s Apple SCIM             enabled (sync every %ds)",
-                    _OK, settings.apple_scim_sync_interval)
+        logger.info("%s Apple SCIM             enabled (sync every %ds)", _OK, settings.apple_scim_sync_interval)
         if settings.apple_scim_group_id:
             logger.info(
                 "%s Apple SCIM group filter enabled (APPLE_SCIM_GROUP_ID=%s)",
@@ -370,18 +367,21 @@ def run_preflight_checks() -> None:
                 logger.warning(
                     "%s %s uses appleaccount.apple.com — "
                     "Apple Business UI currently shows appleid.apple.com; verify before use",
-                    _WARN, url_name,
+                    _WARN,
+                    url_name,
                 )
         _check_scim_authorized()
         _check_authentik_connectivity()
     else:
         missing = [
-            name for name, val in [
+            name
+            for name, val in [
                 ("APPLE_SCIM_CLIENT_ID", settings.apple_scim_client_id),
                 ("APPLE_SCIM_CLIENT_SECRET", settings.apple_scim_client_secret),
                 ("AUTHENTIK_URL", settings.authentik_url),
                 ("AUTHENTIK_TOKEN", settings.authentik_token),
-            ] if not val
+            ]
+            if not val
         ]
         logger.warning("%s Apple SCIM             disabled — missing: %s", _WARN, ", ".join(missing))
 
@@ -395,6 +395,7 @@ def run_preflight_checks() -> None:
             "The container will NOT restart automatically."
         )
         import sys
+
         sys.exit(0)  # exit 0 → Docker restart: unless-stopped does NOT restart
 
     logger.info("── preflight OK — starting ──")
