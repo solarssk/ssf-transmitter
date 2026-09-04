@@ -60,7 +60,15 @@ def _pii_key() -> str:
     return settings.pii_pepper or settings.ssf_management_token
 
 
-@router.post("/webhook/authentik")
+@router.post(
+    "/webhook/authentik",
+    responses={
+        400: {"description": "Malformed JSON body"},
+        401: {"description": "Missing or invalid webhook authentication"},
+        413: {"description": "Request body too large"},
+        500: {"description": "Invalid SSF_WEBHOOK_AUTH_MODE configuration"},
+    },
+)
 @limiter.limit("60/minute")
 async def authentik_webhook(request: Request) -> dict:
     """Receive an Authentik webhook event, verify authentication, and push

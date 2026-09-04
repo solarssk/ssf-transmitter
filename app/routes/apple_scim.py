@@ -88,7 +88,11 @@ def _require_scim_configured() -> None:
         )
 
 
-@router.get("/authorize", summary="Start Apple OAuth to authorize SCIM sync")
+@router.get(
+    "/authorize",
+    summary="Start Apple OAuth to authorize SCIM sync",
+    responses={503: {"description": "Apple SCIM sync is not configured"}},
+)
 async def authorize() -> RedirectResponse:
     """Redirect the admin to Apple's login page to authorize SCIM access.
 
@@ -112,7 +116,15 @@ async def authorize() -> RedirectResponse:
     return RedirectResponse(url=url)
 
 
-@router.get("/callback", summary="OAuth callback — Apple redirects here after admin approves")
+@router.get(
+    "/callback",
+    summary="OAuth callback — Apple redirects here after admin approves",
+    responses={
+        400: {"description": "Missing/invalid code or state, or Apple returned an OAuth error"},
+        502: {"description": "Network error or invalid response from Apple's token endpoint"},
+        503: {"description": "Apple SCIM sync is not configured"},
+    },
+)
 async def callback(
     code: str | None = None,
     state: str | None = None,
@@ -249,6 +261,11 @@ async def status() -> dict:
     "/sync",
     summary="Trigger an immediate user sync to Apple Business Manager",
     dependencies=[Depends(require_management_auth)],
+    responses={
+        401: {"description": "No valid Apple access token — visit /apple-scim/authorize"},
+        502: {"description": "Could not fetch users from Authentik"},
+        503: {"description": "Apple SCIM sync is not configured"},
+    },
 )
 async def sync() -> dict:
     """Fetch users from Authentik and push them to Apple Business Manager via SCIM.

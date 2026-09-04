@@ -54,7 +54,14 @@ async def _get_stream_or_404(stream_id: str | None = None):
     return stream
 
 
-@router.post("/streams", status_code=201)
+@router.post(
+    "/streams",
+    status_code=201,
+    responses={
+        400: {"description": "Invalid endpoint_url or rejected stream registration payload"},
+        502: {"description": "Verification SET delivery failed; stream registration was not confirmed"},
+    },
+)
 @limiter.limit("10/minute")
 async def create_stream_endpoint(request: Request, body: StreamCreateRequest) -> dict[str, Any]:
     """Create a new SSF stream and confirm delivery by pushing a verification SET."""
@@ -106,13 +113,16 @@ async def create_stream_endpoint(request: Request, body: StreamCreateRequest) ->
     return _stream_response(stream)
 
 
-@router.get("/streams")
+@router.get("/streams", responses={404: {"description": "No stream configured"}})
 async def get_stream_endpoint() -> dict[str, Any]:
     """Return the current SSF stream configuration."""
     return _stream_response(await _get_stream_or_404())
 
 
-@router.get("/streams/{stream_id}")
+@router.get(
+    "/streams/{stream_id}",
+    responses={404: {"description": "No stream configured, or stream_id does not match"}},
+)
 async def get_stream_by_id_endpoint(stream_id: str) -> dict[str, Any]:
     """Return a stream by ID."""
     return _stream_response(await _get_stream_or_404(stream_id))
@@ -155,14 +165,26 @@ async def _patch_stream_body(body: StreamPatchRequest) -> dict[str, Any]:
     return _stream_response(stream)
 
 
-@router.patch("/streams")
+@router.patch(
+    "/streams",
+    responses={
+        400: {"description": "Invalid endpoint_url or rejected patch payload"},
+        404: {"description": "No stream configured"},
+    },
+)
 @limiter.limit("20/minute")
 async def patch_stream_endpoint(request: Request, body: StreamPatchRequest) -> dict[str, Any]:
     """Update the current SSF stream configuration."""
     return await _patch_stream_body(body)
 
 
-@router.patch("/streams/{stream_id}")
+@router.patch(
+    "/streams/{stream_id}",
+    responses={
+        400: {"description": "Invalid endpoint_url or rejected patch payload"},
+        404: {"description": "No stream configured, or stream_id does not match"},
+    },
+)
 @limiter.limit("20/minute")
 async def patch_stream_by_id_endpoint(
     stream_id: str, request: Request, body: StreamPatchRequest
@@ -179,7 +201,11 @@ async def delete_stream_endpoint() -> Response:
     return Response(status_code=204)
 
 
-@router.delete("/streams/{stream_id}", status_code=204)
+@router.delete(
+    "/streams/{stream_id}",
+    status_code=204,
+    responses={404: {"description": "Stream not found"}},
+)
 async def delete_stream_by_id_endpoint(stream_id: str) -> Response:
     """Delete a stream by ID."""
     deleted = await delete_stream_by_id(stream_id)
@@ -216,7 +242,10 @@ async def stream_status() -> dict[str, Any]:
     }
 
 
-@router.get("/streams/{stream_id}/status")
+@router.get(
+    "/streams/{stream_id}/status",
+    responses={404: {"description": "No stream configured, or stream_id does not match"}},
+)
 async def stream_status_by_id(stream_id: str) -> dict[str, Any]:
     """Return the current status for a stream by ID."""
     stream = await _get_stream_or_404(stream_id)
@@ -228,7 +257,14 @@ async def stream_status_by_id(stream_id: str) -> dict[str, Any]:
     }
 
 
-@router.post("/streams/{stream_id}/verify", status_code=202)
+@router.post(
+    "/streams/{stream_id}/verify",
+    status_code=202,
+    responses={
+        404: {"description": "No stream configured, or stream_id does not match"},
+        502: {"description": "Verification SET delivery failed"},
+    },
+)
 async def verify_stream_by_id(stream_id: str) -> Response:
     """Push a verification SET for a stream by ID."""
     stream = await _get_stream_or_404(stream_id)
