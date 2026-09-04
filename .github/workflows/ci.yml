@@ -1,7 +1,15 @@
 name: CI
 
 on:
+  # Scoped to main/beta: pull_request already covers every push to an open
+  # PR branch — an unscoped `push:` here would run the whole job a second
+  # time for the same commit on every PR push (double the CI cost, and two
+  # differently-named-but-identical "Test and lint" check runs where a
+  # transient failure in one looks like a real problem even though the
+  # other passed). Feature branches without an open PR simply don't need CI
+  # until one is opened.
   push:
+    branches: [main, beta]
   pull_request:
 
 jobs:
