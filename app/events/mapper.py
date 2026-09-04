@@ -27,11 +27,36 @@ def _event_timestamp() -> int:
     return int(time.time())
 
 
+def _extract_body(payload: dict[str, Any]) -> dict[str, Any]:
+    """Return the nested 'body' object, falling back to the top-level
+    payload when 'body' is absent or not itself an object.
+
+    Some Authentik webhook shapes send fields at the top level instead of
+    nested under 'body'. A plain `payload.get("body") or payload` handled
+    that fallback but not the case where 'body' is *present* with the wrong
+    JSON type (e.g. `{"body": 1}`) — `.get()` on that would raise instead
+    of falling back, so this checks the type explicitly.
+    """
+    raw_body = payload.get("body")
+    return raw_body if isinstance(raw_body, dict) else payload
+
+
+def _nested_dict(container: dict[str, Any], key: str) -> dict[str, Any]:
+    """Return container[key] if it's a dict, else {}.
+
+    Guards 'context'/'user' the same way _extract_body guards 'body' — a
+    webhook payload where a reserved key holds a truthy non-dict value must
+    not crash extraction, just yield nothing for that key.
+    """
+    value = container.get(key)
+    return value if isinstance(value, dict) else {}
+
+
 def map_authentik_event(payload: dict[str, Any]) -> list[MappedEvent]:
     """Translate an Authentik webhook body into zero or more SSF mapped events."""
-    body = payload.get("body") or payload
+    body = _extract_body(payload)
     action = body.get("action")
-    context = body.get("context") or {}
+    context = _nested_dict(body, "context")
     txn = extract_source_txn(payload)
 
     if action == "authentik.core.auth.login_failed":
@@ -57,7 +82,9 @@ def map_authentik_event(payload: dict[str, Any]) -> list[MappedEvent]:
         return []
 
     events: list[MappedEvent] = []
-    changed_fields = context.get("changed_fields") or []
+    changed_fields = context.get("changed_fields")
+    if not isinstance(changed_fields, list):
+        changed_fields = []
     if "password" in changed_fields:
         events.append(
             MappedEvent(
@@ -88,8 +115,8 @@ def map_authentik_event(payload: dict[str, Any]) -> list[MappedEvent]:
 
 def extract_email(payload: dict[str, Any]) -> str | None:
     """Return a normalized email from an Authentik webhook payload, or None."""
-    body = payload.get("body") or payload
-    user = body.get("user") or {}
+    body = _extract_body(payload)
+    user = _nested_dict(body, "user")
     raw = user.get("email")
     if raw is None:
         return None
@@ -103,7 +130,7 @@ def extract_email(payload: dict[str, Any]) -> str | None:
 
 def extract_action(payload: dict[str, Any]) -> str | None:
     """Return the Authentik action string from a webhook payload."""
-    body = payload.get("body") or payload
+    body = _extract_body(payload)
     return body.get("action")
 
 
@@ -113,5 +140,5 @@ def extract_source_txn(payload: dict[str, Any]) -> str | None:
     Uses the Authentik event pk (UUID) when present so that multiple SETs
     produced from a single webhook share the same txn value.
     """
-    body = payload.get("body") or payload
+    body = _extract_body(payload)
     return body.get("pk") or body.get("event_uuid") or body.get("request_id") or None
