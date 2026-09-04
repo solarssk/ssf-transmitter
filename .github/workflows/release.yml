@@ -1,40 +1,170 @@
 name: Release
 
+# After a "release: vX.Y.Z" commit lands on main (a release PR bumping
+# pyproject.toml's [project].version), create the git tag + GitHub Release,
+# close the matching milestone, and explicitly trigger docker-publish.yml.
+# GITHUB_TOKEN-authored tag pushes (which `gh release create` below
+# performs) do not themselves start other workflows — GitHub's own loop-
+# prevention — so docker-publish.yml needs an explicit `gh workflow run`
+# dispatch here rather than relying on its own tag trigger. docker-publish.yml
+# in turn dispatches release-smoke.yml itself once the image it just built is
+# actually published — see that workflow's own comments for why that step
+# isn't done here instead.
+#
+# The release commit isn't always HEAD: a "Create a merge commit" merge of
+# the release PR puts it one or more commits behind the merge commit that
+# actually triggers this push event (only a squash merge lands it at HEAD
+# directly). Detection below checks every commit this specific push
+# introduced (via the compare API, not just HEAD's own subject), so it fires
+# the same way regardless of which merge method landed the release PR. It
+# does NOT gate on whether the GitHub Release already exists — a rerun after
+# a partial failure (release created but a downstream dispatch or the
+# milestone close failed) should still retry those steps, not skip them.
+
 on:
   push:
-    tags: ["v*"]
+    branches: [main]
 
 permissions:
   contents: write
+  actions: write
+
+concurrency:
+  group: release-${{ github.repository }}
+  cancel-in-progress: false
 
 jobs:
-  release:
-    name: Create GitHub Release
+  publish-release:
     runs-on: ubuntu-latest
-
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
+          fetch-depth: 1
           persist-credentials: false
 
-      - name: Resolve release title from CHANGELOG
-        id: meta
+      - name: Detect version bump
+        id: bump
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Heading format: ## [X.Y.Z] — YYYY-MM-DD — Short release title
-          version="${GITHUB_REF_NAME#v}"
-          line="$(grep -m1 "^\## \[${version}\]" CHANGELOG.md || true)"
-          subtitle="$(printf '%s\n' "$line" | sed -n 's/^## \[.*\] — [0-9-]* — \(.*\)$/\1/p')"
-          if [ -n "$subtitle" ]; then
-            echo "name=${GITHUB_REF_NAME} — ${subtitle}" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          NEW="$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+          if ! printf '%s' "$NEW" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "Invalid pyproject.toml [project].version: $NEW" >&2
+            exit 1
+          fi
+          TAG="v${NEW}"
+          TAG_RE="v${NEW//./\\.}"
+
+          BEFORE='${{ github.event.before }}'
+          AFTER='${{ github.sha }}'
+          if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+            MESSAGES="$(git log -1 --format=%s "$AFTER")"
           else
-            echo "name=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+            MESSAGES="$(gh api "repos/${GITHUB_REPOSITORY}/compare/${BEFORE}...${AFTER}" --jq '.commits[].commit.message')"
           fi
 
-      - name: Create release with auto-generated notes
-        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64  # v3.0.3
-        with:
-          name: ${{ steps.meta.outputs.name }}
-          generate_release_notes: true
-          prerelease: ${{ contains(github.ref_name, '-') }}
-          make_latest: ${{ !contains(github.ref_name, '-') }}
+          if ! printf '%s\n' "$MESSAGES" | grep -qiE "^release:[[:space:]]+${TAG_RE}\$"; then
+            echo "This push didn't introduce a 'release: ${TAG}' commit — skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          {
+            echo "skip=false"
+            echo "version=$NEW"
+            echo "tag=$TAG"
+          } >> "$GITHUB_OUTPUT"
+          echo "Version bump detected: ${TAG}"
+
+      - name: Verify release artifacts
+        if: steps.bump.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          VERSION='${{ steps.bump.outputs.version }}'
+          NOTES=".github/release-notes/v${VERSION}.md"
+          test -f "$NOTES"
+          grep -q "^## \[${VERSION}\] — [0-9-]* — .*\$" CHANGELOG.md
+          python3 scripts/sync-release-docs.py --check
+          echo "Release artifacts OK for v${VERSION}"
+
+      - name: Resolve release title from CHANGELOG
+        if: steps.bump.outputs.skip != 'true'
+        id: meta
+        run: |
+          set -euo pipefail
+          VERSION='${{ steps.bump.outputs.version }}'
+          line="$(grep -m1 "^## \[${VERSION}\]" CHANGELOG.md)"
+          subtitle="$(printf '%s\n' "$line" | sed -n 's/^## \[.*\] — [0-9-]* — \(.*\)$/\1/p')"
+          if [ -n "$subtitle" ]; then
+            echo "name=v${VERSION} — ${subtitle}" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=v${VERSION}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create GitHub Release and tag
+        if: steps.bump.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG='${{ steps.bump.outputs.tag }}'
+          VERSION='${{ steps.bump.outputs.version }}'
+          NOTES=".github/release-notes/v${VERSION}.md"
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists — skipping create."
+            exit 0
+          fi
+
+          # --target pins the new tag to the exact commit this run checked
+          # out and verified above — without it, a tag that doesn't exist
+          # yet is created against main's *current* tip, which could have
+          # moved if another push landed between this run starting and this
+          # step running.
+          gh release create "$TAG" \
+            --title "${{ steps.meta.outputs.name }}" \
+            --notes-file "$NOTES" \
+            --target "${{ github.sha }}" \
+            --latest
+          echo "Created $TAG (${{ steps.meta.outputs.name }})."
+
+      # `gh release create` above tags and pushes with GITHUB_TOKEN, which does
+      # NOT trigger docker-publish.yml's own `push: tags:` listener — dispatch
+      # it explicitly. This also means a rerun of this job (e.g. after a
+      # transient failure below) safely re-triggers publishing even though the
+      # release itself already exists, per the "no gh release exists check"
+      # note at the top of this file.
+      #
+      # release-smoke.yml is deliberately NOT dispatched from here too: it
+      # needs the image to already be pullable, and dispatching both at once
+      # would race docker-publish.yml's own build/push time. docker-publish.yml
+      # dispatches release-smoke.yml itself, once the image it just pushed is
+      # confirmed present in the registry.
+      - name: Trigger container publish
+        if: steps.bump.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG='${{ steps.bump.outputs.tag }}'
+          gh workflow run docker-publish.yml --ref "$TAG"
+          echo "Triggered docker-publish for ${TAG}."
+
+      - name: Close matching GitHub milestone
+        if: steps.bump.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION='${{ steps.bump.outputs.version }}'
+          MID="$(gh api "repos/${GITHUB_REPOSITORY}/milestones" \
+            --jq ".[] | select(.title == \"${VERSION}\" and .state == \"open\") | .number" \
+            | head -n 1)"
+          if [ -z "$MID" ]; then
+            echo "No open milestone titled ${VERSION} — skipping."
+            exit 0
+          fi
+          gh api -X PATCH "repos/${GITHUB_REPOSITORY}/milestones/${MID}" -f state=closed
+          echo "Closed milestone ${VERSION} (#${MID})"

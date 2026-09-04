@@ -158,6 +158,30 @@ Prefer **focused regression tests** over broad mocks. Security fixes should incl
 - Docker image: `ghcr.io/solarssk/ssf-transmitter:<version>` (private) and `docker.io/solarssk/ssf-transmitter:<version>` (public) — same build, both platforms, published by `.github/workflows/docker-publish.yml`
 - `APP_VERSION` is set at image build time; local dev shows `dev`
 
+### Cutting a release
+
+The normal path is a "release PR": bump the version, generate the release
+artifacts, commit as `release: vX.Y.Z`, merge to `main`. From there,
+[`.github/workflows/release.yml`](.github/workflows/release.yml) detects the
+commit and does the rest automatically (GitHub Release + tag, triggers
+[`docker-publish.yml`](.github/workflows/docker-publish.yml) which builds and
+publishes to both registries, attests, generates an SBOM, and triggers
+[`release-smoke.yml`](.github/workflows/release-smoke.yml) against the
+published image; closes the matching milestone).
+
+1. Bump `version` in [`pyproject.toml`](pyproject.toml).
+2. Add a `## [X.Y.Z] — YYYY-MM-DD — Title` entry to `CHANGELOG.md` describing the release.
+3. Rewrite the release's narrative upgrade content by hand — none of it is auto-synced, since it's prose about a *specific* version transition, not a bare pointer: `docs/Upgrading.md` (a live walkthrough, not a log), README.md's "## Upgrading" summary, and `docs/synology-authentik-compose.md`'s "## Upgrading from X.Y.Z" section (rename its heading too).
+4. Run, from repo root:
+   ```bash
+   python3 scripts/generate-release-notes.py X.Y.Z   # writes .github/release-notes/vX.Y.Z.md
+   python3 scripts/sync-release-docs.py               # updates "current release" pointers in README.md/docs/
+   ```
+5. Commit everything above — including the generated `.github/release-notes/vX.Y.Z.md` — as `release: vX.Y.Z`, and open the PR (milestone `X.Y.Z` if one exists).
+6. Merging to `main` fires the automation described above.
+
+`scripts/release-tag.sh` is an emergency-only fallback (signed manual tag) for when `release.yml` itself is broken — see the script's own header comment.
+
 ---
 
 ## Pull requests
