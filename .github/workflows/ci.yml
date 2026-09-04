@@ -172,8 +172,22 @@ jobs:
             sleep 1
           done
           docker logs smoke-amd64
-          docker rm -f smoke-amd64
           [ -n "$ok" ] || { echo "::error::container did not become healthy"; exit 1; }
+
+      # Exercises discovery, JWKS, the management API's stream CRUD, and the
+      # webhook receiver over real HTTP against the container the previous
+      # step just booted — catches things an in-process TestClient can't
+      # (a broken CMD/entrypoint, the container's actual ASGI wiring, real
+      # DNS resolution for SSRF checks, ...). See tests_e2e/conftest.py for
+      # what this does and doesn't cover.
+      - name: Run container E2E tests (linux/amd64)
+        env:
+          E2E_BASE_URL: http://localhost:18000
+        run: pytest tests_e2e/ -v --no-cov
+
+      - name: Stop smoke test container (linux/amd64)
+        if: always()
+        run: docker rm -f smoke-amd64
 
       - name: Generate SBOM (CycloneDX)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
