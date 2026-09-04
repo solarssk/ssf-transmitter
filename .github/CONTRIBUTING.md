@@ -20,7 +20,7 @@ quick-start on top of them, not a replacement.
 | Bug report | Open a [Bug report](https://github.com/solarssk/ssf-transmitter/issues/new?template=bug_report.yml) issue. Include the version/tag, reproduction steps, and expected vs. actual behaviour. Strip tokens, webhook payloads, and any real user data from logs first. |
 | Feature request | Open a [Feature request](https://github.com/solarssk/ssf-transmitter/issues/new?template=feature_request.yml) issue. |
 | Code change | Branch and open a pull request (see below). |
-| Documentation | Operator docs live in [`README.md`](../README.md) and [`docs/`](../docs/); the threat model is [`SECURITY.md`](../SECURITY.md). See [Documentation split](../AGENTS.md#documentation-split) in AGENTS.md for which doc covers what. |
+| Documentation | Operator docs live in [`README.md`](../README.md) and [`docs/`](../docs/); the threat model is [`SECURITY.md`](../SECURITY.md). See [Documentation split](../CLAUDE.md#documentation-split) in CLAUDE.md for which doc covers what. |
 
 ## Development setup
 
@@ -53,7 +53,7 @@ guide and this file assumes it.
 
 3. After a security-related change, check whether `tests/conftest.py`'s
    fixtures still apply and add a regression test — see
-   [AGENTS.md](../AGENTS.md#before-making-changes).
+   [CLAUDE.md](../CLAUDE.md#before-making-changes).
 
 ## Using AI coding tools
 

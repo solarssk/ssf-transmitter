@@ -31,4 +31,4 @@ API calls, a running container, etc). If tests weren't run, say so and why.
 - [ ] GitHub Actions pinned by commit SHA (repo convention — see AGENTS.md)
 - [ ] `CHANGELOG.md`'s `## [Unreleased]` section updated, if this is a user-visible change
 - [ ] `docs/` updated, if this changes operator-facing behavior (not just README)
-- [ ] New/changed security-sensitive code has a regression test (see AGENTS.md's High-risk areas table)
+- [ ] New/changed security-sensitive code has a regression test (see CLAUDE.md's High-risk areas table)
