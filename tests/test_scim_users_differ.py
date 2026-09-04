@@ -289,10 +289,24 @@ class _FakeAppleClient:
     async def put(self, url, json, headers):
         self.requests.append(("PUT", url, json))
         apple_id = url.rsplit("/", 1)[-1]
-        for idx, user in enumerate(self.apple_users):
+        for user in self.apple_users:
             if user.get("id") == apple_id:
-                self.apple_users[idx] = {**json}
-                return _FakeResponse(200, self.apple_users[idx])
+                # Mutate the existing dict in place (matching patch() below)
+                # rather than rebinding this list slot to a new dict — a
+                # fresh _FakeAppleClient for a later sync_users() call holds
+                # its own shallow-copied `apple_users` list, so a rebind here
+                # would silently not propagate to it, only an in-place
+                # mutation of the shared dict object would.
+                external_id = user.get("externalId")
+                user.clear()
+                user.update(json)
+                # Real Apple SCIM treats externalId as immutable-after-creation
+                # and rejects a PUT body that includes it (see
+                # _build_update_request's replace_all mode) — it does not get
+                # cleared server-side just because a PUT omits it.
+                if "externalId" not in user and external_id is not None:
+                    user["externalId"] = external_id
+                return _FakeResponse(200, user)
         return _FakeResponse(404, {})
 
     async def patch(self, url, json, headers):
@@ -502,3 +516,34 @@ async def test_handle_409_patches_actionable_diff():
     assert result.unchanged == 0
     assert result.out_of_scope_diffs == 0
     assert any(method == "PATCH" for method, _, _ in fake_client.requests)
+
+
+@pytest.mark.anyio
+async def test_sync_recovered_by_username_repairs_external_id_even_with_other_diffs(monkeypatch):
+    """Regression test: externalId repair used to be gated on "no other
+    field differs" — under replace_all mode the PUT it falls through to
+    never includes externalId (Apple rejects it there), so a user missing
+    externalId AND with e.g. a changed email would have linkage stay
+    broken for a whole extra sync cycle even though the email got fixed.
+    """
+    from app.scim import apple
+
+    scoped_settings = dataclasses.replace(real_settings, apple_scim_update_mode="replace_all")
+    monkeypatch.setattr(apple, "settings", scoped_settings)
+    holder = _install_fake_apple_client(
+        monkeypatch, apple_users=[_apple_existing(external_id=None, email="stale@example.com")]
+    )
+
+    first = await apple.sync_users("token", [_authentik_scim(external_id="1", email="fresh@example.com")])
+    first_methods = [r[0] for r in holder["client"].requests]
+    second = await apple.sync_users("token", [_authentik_scim(external_id="1", email="fresh@example.com")])
+
+    # Two real writes happened — the dedicated externalId repair (PATCH) and
+    # the replace_all email update (PUT) — each counted independently.
+    assert first.updated == 2
+    assert "PATCH" in first_methods  # the dedicated externalId repair
+    assert "PUT" in first_methods  # the replace_all update for email
+    # Both repaired in one pass — the second sync must find nothing left to fix.
+    assert second.unchanged == 1
+    assert second.updated == 0
+    assert second.out_of_scope_diffs == 0

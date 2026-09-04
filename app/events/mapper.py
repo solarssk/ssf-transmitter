@@ -148,5 +148,8 @@ def extract_source_txn(payload: dict[str, Any]) -> str | None:
     hint would otherwise lie about what it's passing).
     """
     body = _extract_body(payload)
-    value = body.get("pk") or body.get("event_uuid") or body.get("request_id") or None
-    return str(value) if value is not None else None
+    for key in ("pk", "event_uuid", "request_id"):
+        value = body.get(key)
+        if value is not None:
+            return str(value)
+    return None

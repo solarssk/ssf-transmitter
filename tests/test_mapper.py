@@ -158,6 +158,15 @@ def test_extract_source_txn_coerces_non_string_pk_to_string():
     assert isinstance(txn, str)
 
 
+def test_extract_source_txn_preserves_falsy_pk():
+    """Regression test: `body.get("pk") or body.get("event_uuid") or ...`
+    treats pk=0 (or pk=False) as missing and falls through to the other
+    fields, silently dropping a valid-but-falsy transaction identifier.
+    """
+    txn = extract_source_txn({"body": {"pk": 0, "event_uuid": "should-not-be-used"}})
+    assert txn == "0"
+
+
 def test_mapped_event_is_frozen():
     import pytest
 

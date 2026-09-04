@@ -440,8 +440,15 @@ async def _handle_409(
                     else:
                         diffs = _field_diffs(found, user)
                         external_id_patched = False
-                        non_external_diffs = {k: v for k, v in diffs.items() if k != "externalId"}
-                        if diffs.get("externalId") and not any(non_external_diffs.values()):
+                        # Repair unconditionally, not only when externalId is
+                        # the sole diff: under replace_all mode the PUT below
+                        # never includes externalId (Apple rejects it there),
+                        # and narrow single-field modes (emails_only,
+                        # username_only) never include it either — so if this
+                        # were gated on "no other diff", a user missing
+                        # externalId AND some other field would have their
+                        # linkage stay broken for another whole sync cycle.
+                        if diffs.get("externalId"):
                             external_id_patched = await _patch_external_id(client, headers, found, user, result)
                             diffs = _field_diffs(found, user, include_external_id=False)
                         actionable = _actionable_diffs(diffs, settings.apple_scim_update_mode)
@@ -556,8 +563,12 @@ async def sync_users(access_token: str, scim_users: list[dict]) -> SyncResult:
                 else:
                     diffs = _field_diffs(apple_user, user)
                     external_id_patched = False
-                    non_external_diffs = {k: v for k, v in diffs.items() if k != "externalId"}
-                    if recovered_by_username and diffs.get("externalId") and not any(non_external_diffs.values()):
+                    # Repair unconditionally once recovered by username, not
+                    # only when externalId is the sole diff — see the
+                    # matching comment in _handle_409 for why gating this on
+                    # "no other diff" leaves linkage broken for an extra
+                    # sync cycle under replace_all/emails_only/username_only.
+                    if recovered_by_username and diffs.get("externalId"):
                         external_id_patched = await _patch_external_id(client, headers, apple_user, user, result)
                         diffs = _field_diffs(apple_user, user, include_external_id=False)
                     actionable = _actionable_diffs(diffs, settings.apple_scim_update_mode)
