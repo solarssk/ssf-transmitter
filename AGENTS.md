@@ -52,7 +52,8 @@ app/
   events/              # mapper.py (Authentik→SET), pusher.py (outbound HTTPS)
   security/            # url_validation (SSRF), pii, http_logging
   scim/                # Apple + Authentik SCIM clients
-tests/                 # pytest; mirrors app modules
+tests/                 # pytest; mirrors app modules (hermetic, in-process TestClient)
+tests_e2e/             # Real HTTP against a running container; see Testing conventions
 docs/                  # Operator documentation (API, Synology guide; more in docs PR)
 ```
 
@@ -120,6 +121,8 @@ Read `tests/conftest.py` before writing tests.
 Default test webhook mode is **hmac** (legacy tests). Bearer/unsigned tests patch settings via `dataclasses.replace()` + `monkeypatch`.
 
 Prefer **focused regression tests** over broad mocks. Security fixes should include a test that fails without the fix.
+
+`tests_e2e/` is a separate top-level directory, not under `tests/`, and not picked up by `pyproject.toml`'s `testpaths = ["tests"]` — plain `pytest` never runs it. It hits a *real* running instance of the built Docker image over HTTP (discovery, JWKS, management API CRUD, webhook auth) rather than the in-process `TestClient`, so it needs a container already up and listening — CI's amd64 smoke-test step starts one and runs it against that; to run locally, build+run the image the same way (see `tests_e2e/conftest.py`) then `E2E_BASE_URL=http://localhost:<port> pytest tests_e2e/`.
 
 ---
 

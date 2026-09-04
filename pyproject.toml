@@ -57,6 +57,7 @@ ignore = ["B008"]
 # matches here is a fake token/secret used to verify it does *not* leak —
 # see tests/test_database_security.py — not a real credential.
 "tests/*" = ["S101", "S105", "S106", "S107"]
+"tests_e2e/*" = ["S101", "S105", "S106", "S107"]
 
 [tool.ruff.format]
 quote-style = "double"
