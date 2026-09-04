@@ -20,6 +20,37 @@ Generate the client secret in ABM under **Settings → Directory Sync**. It expi
 | `APPLE_SCIM_GROUP_ID` | Authentik group UUID — sync only members (recommended in production) |
 | `APPLE_SCIM_SYNC_INTERVAL` | Seconds between automatic syncs (default `3600`) |
 | `APPLE_SCIM_ALERT_WEBHOOK_URL` | Alerts for re-authorization or expired client secret |
+| `APPLE_SCIM_UPDATE_MODE` | Which fields a sync writes back to Apple (default `patch_all`) — see below |
+
+### `APPLE_SCIM_UPDATE_MODE`
+
+Controls which user fields a sync is allowed to write to Apple. Leave this at
+the default unless you have a specific reason to narrow it (e.g. isolating
+which field an Apple `400` response is coming from).
+
+| Value | Writes |
+|---|---|
+| `patch_all` (default) | Every syncable field (`externalId`, `userName`, name, emails, `active`) |
+| `replace_all` | Same fields as `patch_all`, via a full `PUT` instead of a `PATCH` |
+| `external_id_only` | Only `externalId` (identity linkage) |
+| `emails_only` | Only the email address |
+| `username_only` | Only `userName` |
+
+**A narrow mode (anything but `patch_all`/`replace_all`) can permanently
+undersync a user.** If a user's email (say) differs from Apple's record but
+`APPLE_SCIM_UPDATE_MODE=external_id_only`, that email difference is outside
+what the configured mode will ever write — it does not get retried forever,
+but it also never gets fixed automatically. `POST /apple-scim/sync`'s
+response and the sync-done log line report this as `out_of_scope_diffs`; a
+non-zero count also triggers a one-time `WARNING` log after the sync:
+
+```
+Apple SCIM: ⚠️  N user(s) have a field diff outside update_mode=... scope and will stay stale — widen APPLE_SCIM_UPDATE_MODE or fix manually in Apple Business Manager
+```
+
+To resolve it: either widen `APPLE_SCIM_UPDATE_MODE` back to `patch_all` (or
+`replace_all`) so the next sync writes the missing field, or edit the
+user's record directly in Apple Business Manager.
 
 ## OAuth authorization
 

@@ -139,6 +139,17 @@ def extract_source_txn(payload: dict[str, Any]) -> str | None:
 
     Uses the Authentik event pk (UUID) when present so that multiple SETs
     produced from a single webhook share the same txn value.
+
+    pk/event_uuid/request_id are all attacker-suppliable JSON values, not
+    guaranteed strings (e.g. a numeric pk) — coerce to match this
+    function's own `str | None` contract, otherwise a non-string value
+    propagates into SET/JWT claim construction (not JSON-serializable) and
+    log calls (sanitize_for_log expects to coerce, but the caller's type
+    hint would otherwise lie about what it's passing).
     """
     body = _extract_body(payload)
-    return body.get("pk") or body.get("event_uuid") or body.get("request_id") or None
+    for key in ("pk", "event_uuid", "request_id"):
+        value = body.get(key)
+        if value is not None:
+            return str(value)
+    return None
