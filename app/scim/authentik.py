@@ -54,9 +54,7 @@ def _map_to_scim(user: dict) -> dict:
             "familyName": family_name,
             "formatted": full_name,
         },
-        "emails": [
-            {"value": (user.get("email") or "").strip(), "primary": True, "type": "work"}
-        ],
+        "emails": [{"value": (user.get("email") or "").strip(), "primary": True, "type": "work"}],
         "active": user.get("is_active", True),
     }
 
@@ -81,10 +79,7 @@ async def get_users() -> list[dict] | None:
 
     group_id = (settings.apple_scim_group_id or "").strip()
     if group_id:
-        url = (
-            f"{base}/api/v3/core/users/"
-            f"?groups_by_pk={group_id}&type=internal&page_size=500"
-        )
+        url = f"{base}/api/v3/core/users/?groups_by_pk={group_id}&type=internal&page_size=500"
         logger.info("Apple SCIM: Authentik group filtering enabled group_id=%s", group_id)
     else:
         url = f"{base}/api/v3/core/users/?type=internal&page_size=500"
@@ -130,9 +125,7 @@ async def get_users() -> list[dict] | None:
     for u in all_users:
         pk = u.get("pk")
         if not pk:
-            logger.warning(
-                "Apple SCIM: skipping Authentik user with missing pk — cannot map to SCIM externalId"
-            )
+            logger.warning("Apple SCIM: skipping Authentik user with missing pk — cannot map to SCIM externalId")
             continue
         ext_id = str(pk)
         email = (u.get("email") or "").strip()

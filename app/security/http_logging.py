@@ -53,6 +53,7 @@ def json_key_summary(value: object) -> str:
 
 def redact_text(text: str, *, log_pii: bool, pii_key: str = "") -> str:
     """Redact emails from free-form text while preserving non-PII diagnostics."""
+
     def _replace(match: re.Match[str]) -> str:
         return mask_email(match.group(1), log_pii=log_pii, pii_key=pii_key)
 

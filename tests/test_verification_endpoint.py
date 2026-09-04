@@ -105,9 +105,13 @@ def test_post_verification_accepts_bare_string_as_state(client):
     from app.database import Stream
 
     stream = Stream(
-        stream_id="s1", aud="aud",
+        stream_id="s1",
+        aud="aud",
         endpoint_url="https://receiver.example.test/events",
-        endpoint_token="tok", events_requested=[], status="enabled", created_at=0,
+        endpoint_token="tok",
+        events_requested=[],
+        status="enabled",
+        created_at=0,
     )
     mock_push = AsyncMock(return_value=True)
     with (

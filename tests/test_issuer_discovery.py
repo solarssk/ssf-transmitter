@@ -63,8 +63,11 @@ def test_startup_warns_when_issuer_differs_from_base_url(monkeypatch, caplog):
         with patch("app.startup.os.access", return_value=True):
             run_preflight_checks()
 
-    assert any("SSF_ISSUER" in r.getMessage() and "differs" in r.getMessage()
-               for r in caplog.records if r.levelno == logging.WARNING)
+    assert any(
+        "SSF_ISSUER" in r.getMessage() and "differs" in r.getMessage()
+        for r in caplog.records
+        if r.levelno == logging.WARNING
+    )
 
 
 def test_startup_warns_on_oidc_looking_issuer(monkeypatch, caplog):
@@ -82,8 +85,11 @@ def test_startup_warns_on_oidc_looking_issuer(monkeypatch, caplog):
         with patch("app.startup.os.access", return_value=True):
             run_preflight_checks()
 
-    assert any("/application/o/" in r.getMessage() or "OIDC" in r.getMessage()
-               for r in caplog.records if r.levelno == logging.WARNING)
+    assert any(
+        "/application/o/" in r.getMessage() or "OIDC" in r.getMessage()
+        for r in caplog.records
+        if r.levelno == logging.WARNING
+    )
 
 
 def test_startup_allow_custom_issuer_suppresses_warning(monkeypatch, caplog):
@@ -103,8 +109,7 @@ def test_startup_allow_custom_issuer_suppresses_warning(monkeypatch, caplog):
             run_preflight_checks()
 
     warn_msgs = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
-    assert not any("SSF_ISSUER" in m and ("differs" in m or "OIDC" in m or "application/o" in m)
-                   for m in warn_msgs)
+    assert not any("SSF_ISSUER" in m and ("differs" in m or "OIDC" in m or "application/o" in m) for m in warn_msgs)
 
 
 def test_startup_does_not_exit_on_mismatched_issuer(monkeypatch):
@@ -164,8 +169,12 @@ def test_wellknown_all_urls_under_ssf_base_url():
 
     data = resp.json()
     url_fields = [
-        "jwks_uri", "configuration_endpoint", "add_subject_endpoint",
-        "remove_subject_endpoint", "status_endpoint", "verification_endpoint",
+        "jwks_uri",
+        "configuration_endpoint",
+        "add_subject_endpoint",
+        "remove_subject_endpoint",
+        "status_endpoint",
+        "verification_endpoint",
     ]
     for field in url_fields:
         assert data[field].startswith(settings.ssf_base_url), (
@@ -220,7 +229,8 @@ def test_startup_warns_when_pii_pepper_not_set(monkeypatch, caplog):
 
     assert any(
         "SSF_PII_PEPPER" in r.getMessage() and "falling back" in r.getMessage()
-        for r in caplog.records if r.levelno == logging.WARNING
+        for r in caplog.records
+        if r.levelno == logging.WARNING
     )
 
 
@@ -238,5 +248,6 @@ def test_startup_no_pii_pepper_warning_when_set(monkeypatch, caplog):
 
     assert not any(
         "SSF_PII_PEPPER" in r.getMessage() and "falling back" in r.getMessage()
-        for r in caplog.records if r.levelno == logging.WARNING
+        for r in caplog.records
+        if r.levelno == logging.WARNING
     )

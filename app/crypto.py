@@ -210,9 +210,7 @@ def _decrypt_fernet_blob(blob: str) -> str:
             "SSF_TOKEN_ENCRYPTION_KEY or SSF_MANAGEMENT_TOKEN may have changed; "
             "re-register the stream with delivery.endpoint_url_token"
         )
-        raise TokenDecryptionError(
-            "Receiver endpoint token cannot be decrypted — re-register the stream"
-        ) from exc
+        raise TokenDecryptionError("Receiver endpoint token cannot be decrypted — re-register the stream") from exc
 
 
 def decrypt_token(ciphertext: str) -> str:
@@ -220,7 +218,7 @@ def decrypt_token(ciphertext: str) -> str:
     if not ciphertext:
         return ""
     if ciphertext.startswith(_FERNET_PREFIX):
-        blob = ciphertext[len(_FERNET_PREFIX):]
+        blob = ciphertext[len(_FERNET_PREFIX) :]
         try:
             return _decrypt_fernet_blob(blob)
         except TokenDecryptionError:

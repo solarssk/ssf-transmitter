@@ -30,30 +30,30 @@ logger = logging.getLogger(__name__)
 _BLOCKED_HOSTNAMES = {
     "localhost",
     "metadata.google.internal",  # GCE metadata
-    "169.254.169.254",            # also caught as bare IP, belt-and-suspenders
+    "169.254.169.254",  # also caught as bare IP, belt-and-suspenders
 }
 
 _BLOCKED_NETWORKS = [
-    ipaddress.ip_network("0.0.0.0/8"),          # "This" network
-    ipaddress.ip_network("10.0.0.0/8"),          # RFC1918 private
-    ipaddress.ip_network("100.64.0.0/10"),       # Shared address space
-    ipaddress.ip_network("127.0.0.0/8"),         # Loopback
-    ipaddress.ip_network("169.254.0.0/16"),      # Link-local / cloud metadata
-    ipaddress.ip_network("172.16.0.0/12"),       # RFC1918 private
-    ipaddress.ip_network("192.0.0.0/24"),        # IETF protocol assignments
-    ipaddress.ip_network("192.0.2.0/24"),        # TEST-NET-1 (documentation)
-    ipaddress.ip_network("192.168.0.0/16"),      # RFC1918 private
-    ipaddress.ip_network("198.18.0.0/15"),       # Benchmarking
-    ipaddress.ip_network("198.51.100.0/24"),     # TEST-NET-2 (documentation)
-    ipaddress.ip_network("203.0.113.0/24"),      # TEST-NET-3 (documentation)
-    ipaddress.ip_network("224.0.0.0/4"),         # Multicast
-    ipaddress.ip_network("240.0.0.0/4"),         # Reserved
+    ipaddress.ip_network("0.0.0.0/8"),  # "This" network
+    ipaddress.ip_network("10.0.0.0/8"),  # RFC1918 private
+    ipaddress.ip_network("100.64.0.0/10"),  # Shared address space
+    ipaddress.ip_network("127.0.0.0/8"),  # Loopback
+    ipaddress.ip_network("169.254.0.0/16"),  # Link-local / cloud metadata
+    ipaddress.ip_network("172.16.0.0/12"),  # RFC1918 private
+    ipaddress.ip_network("192.0.0.0/24"),  # IETF protocol assignments
+    ipaddress.ip_network("192.0.2.0/24"),  # TEST-NET-1 (documentation)
+    ipaddress.ip_network("192.168.0.0/16"),  # RFC1918 private
+    ipaddress.ip_network("198.18.0.0/15"),  # Benchmarking
+    ipaddress.ip_network("198.51.100.0/24"),  # TEST-NET-2 (documentation)
+    ipaddress.ip_network("203.0.113.0/24"),  # TEST-NET-3 (documentation)
+    ipaddress.ip_network("224.0.0.0/4"),  # Multicast
+    ipaddress.ip_network("240.0.0.0/4"),  # Reserved
     ipaddress.ip_network("255.255.255.255/32"),  # Broadcast
     # IPv6
-    ipaddress.ip_network("::1/128"),             # Loopback
-    ipaddress.ip_network("fc00::/7"),            # Unique local
-    ipaddress.ip_network("fe80::/10"),           # Link-local
-    ipaddress.ip_network("ff00::/8"),            # Multicast
+    ipaddress.ip_network("::1/128"),  # Loopback
+    ipaddress.ip_network("fc00::/7"),  # Unique local
+    ipaddress.ip_network("fe80::/10"),  # Link-local
+    ipaddress.ip_network("ff00::/8"),  # Multicast
 ]
 
 
@@ -114,9 +114,7 @@ def validate_receiver_endpoint_url(url: str, allowed_hosts: list[str] | None = N
 
     # --- scheme ---
     if parsed.scheme != "https":
-        raise ValueError(
-            f"endpoint_url scheme must be 'https', got '{parsed.scheme}'"
-        )
+        raise ValueError(f"endpoint_url scheme must be 'https', got '{parsed.scheme}'")
 
     # --- credentials in URL ---
     if parsed.username or parsed.password:
@@ -146,9 +144,7 @@ def validate_receiver_endpoint_url(url: str, allowed_hosts: list[str] | None = N
 
     # --- allowlist check (if configured) ---
     if allowed_hosts and not receiver_host_allowed(url, allowed_hosts):
-        raise ValueError(
-            f"endpoint_url host {host!r} is not in SSF_ALLOWED_RECEIVER_HOSTS allowlist"
-        )
+        raise ValueError(f"endpoint_url host {host!r} is not in SSF_ALLOWED_RECEIVER_HOSTS allowlist")
 
     # --- DNS resolution + IP block check ---
     resolved_ips = _resolve_host(host)
@@ -157,9 +153,7 @@ def validate_receiver_endpoint_url(url: str, allowed_hosts: list[str] | None = N
 
     for ip in resolved_ips:
         if _is_blocked_ip(ip):
-            raise ValueError(
-                f"endpoint_url host {host!r} resolves to blocked IP {ip!r}"
-            )
+            raise ValueError(f"endpoint_url host {host!r} resolves to blocked IP {ip!r}")
 
     logger.debug("endpoint_url validated host=%s resolved_ips=%s", host, resolved_ips)
     return url

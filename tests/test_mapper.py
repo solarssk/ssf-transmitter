@@ -39,24 +39,28 @@ def test_maps_user_write_password_and_disabled_to_multiple_events():
 
 
 def test_user_delete_is_skipped_until_apple_confirms_support():
-    events = map_authentik_event({
-        "body": {
-            "action": "authentik.core.user.delete",
-            "user": {"email": "deleted@example.com"},
+    events = map_authentik_event(
+        {
+            "body": {
+                "action": "authentik.core.user.delete",
+                "user": {"email": "deleted@example.com"},
+            }
         }
-    })
+    )
 
     assert events == []
 
 
 def test_account_enabled_change_is_skipped_until_supported():
-    events = map_authentik_event({
-        "body": {
-            "action": "authentik.core.user.write",
-            "user": {"email": "user@example.com"},
-            "context": {"changed_fields": ["is_active"], "is_active": True},
+    events = map_authentik_event(
+        {
+            "body": {
+                "action": "authentik.core.user.write",
+                "user": {"email": "user@example.com"},
+                "context": {"changed_fields": ["is_active"], "is_active": True},
+            }
         }
-    })
+    )
 
     assert events == []
 
@@ -78,9 +82,11 @@ def test_extract_email_strips_and_rejects_whitespace_only():
 
 
 def test_user_delete_with_whitespace_email_is_skipped():
-    events = map_authentik_event({
-        "body": {"action": "authentik.core.user.delete", "user": {"email": "   "}},
-    })
+    events = map_authentik_event(
+        {
+            "body": {"action": "authentik.core.user.delete", "user": {"email": "   "}},
+        }
+    )
     assert events == []
 
 
