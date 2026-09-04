@@ -10,6 +10,7 @@ from pydantic import BaseModel, model_validator
 from app.auth import require_management_auth
 from app.database import get_first_stream
 from app.events.pusher import push_verification_set
+from app.security.log_sanitize import sanitize_for_log
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/ssf", dependencies=[Depends(require_management_auth)])
@@ -50,12 +51,14 @@ async def trigger_verification(request: VerificationRequest | None = None) -> Re
         logger.warning(
             "Verification SET delivery failed stream_id=%s aud=%s",
             stream.stream_id,
-            stream.aud,
+            sanitize_for_log(stream.aud),
         )
         raise HTTPException(
             status_code=502,
             detail="Verification SET delivery failed",
         )
 
-    logger.info("Verification SET delivered stream_id=%s aud=%s", stream.stream_id, stream.aud)
+    logger.info(
+        "Verification SET delivered stream_id=%s aud=%s", stream.stream_id, sanitize_for_log(stream.aud)
+    )
     return Response(status_code=202)

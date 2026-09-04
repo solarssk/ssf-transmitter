@@ -10,6 +10,7 @@ from app.config import settings
 from app.crypto import sign_set, sign_verification_set
 from app.database import Stream
 from app.events.mapper import MappedEvent
+from app.security.log_sanitize import sanitize_for_log
 from app.security.url_validation import _is_blocked_ip, _resolve_host, receiver_host_allowed
 
 logger = logging.getLogger(__name__)
@@ -85,20 +86,26 @@ async def push_set(stream: Stream, event: MappedEvent, email: str) -> bool | Non
             txn=event.txn,
         )
     except Exception:
-        logger.exception("Failed to sign SET event_uri=%s aud=%s", event.uri, stream.aud)
+        logger.exception("Failed to sign SET event_uri=%s aud=%s", event.uri, sanitize_for_log(stream.aud))
         return False
 
     # Log the claims we just signed *from the inputs*, not by decoding the
     # token — decoding our own freshly-signed JWT just to read it back adds
     # nothing (we already have every value), and unconditionally invites the
     # signature-verification-bypass pattern (python:S5659) even though there
-    # is no untrusted token here to be misled by.
+    # is no untrusted token here to be misled by. aud and txn are logged
+    # unescaped here — unlike payload (a dict, whose repr() escapes control
+    # characters in its string values), so sanitize them explicitly: aud is
+    # client-supplied when a stream is created (no format validation), and
+    # txn can come straight from an Authentik webhook body (pk/event_uuid/
+    # request_id, see extract_source_txn) — both bare-string CRLF log
+    # injection (CWE-117) vectors otherwise.
     if logger.isEnabledFor(logging.DEBUG):
         logger.debug(
             "SET claims event_uri=%s aud=%s txn=%s payload=%s",
             event.uri,
-            stream.aud,
-            event.txn,
+            sanitize_for_log(stream.aud),
+            sanitize_for_log(event.txn),
             event.payload,
         )
 
@@ -116,7 +123,7 @@ async def push_set(stream: Stream, event: MappedEvent, email: str) -> bool | Non
         logger.exception(
             "Failed to push SET event_uri=%s aud=%s endpoint_host=%s",
             event.uri,
-            stream.aud,
+            sanitize_for_log(stream.aud),
             _safe_host(stream.endpoint_url),
         )
         return False
@@ -126,7 +133,7 @@ async def push_set(stream: Stream, event: MappedEvent, email: str) -> bool | Non
         logger.warning(
             "Receiver returned error for SET event_uri=%s aud=%s endpoint_host=%s status_code=%s body_hash=%s",
             event.uri,
-            stream.aud,
+            sanitize_for_log(stream.aud),
             _safe_host(stream.endpoint_url),
             response.status_code,
             body_hash,
@@ -146,7 +153,7 @@ async def push_set(stream: Stream, event: MappedEvent, email: str) -> bool | Non
     logger.info(
         "Pushed SET event_uri=%s aud=%s endpoint_host=%s status_code=%s",
         event.uri,
-        stream.aud,
+        sanitize_for_log(stream.aud),
         _safe_host(stream.endpoint_url),
         response.status_code,
     )
@@ -165,7 +172,7 @@ async def push_verification_set(stream: Stream, state: str | None = None) -> boo
     try:
         token = sign_verification_set(audience=stream.aud, stream_id=stream.stream_id, state=state)
     except Exception:
-        logger.exception("Failed to sign verification SET aud=%s", stream.aud)
+        logger.exception("Failed to sign verification SET aud=%s", sanitize_for_log(stream.aud))
         return False
 
     headers: dict[str, str] = {
@@ -181,7 +188,7 @@ async def push_verification_set(stream: Stream, state: str | None = None) -> boo
     except httpx.HTTPError:
         logger.exception(
             "Failed to push verification SET aud=%s endpoint_host=%s",
-            stream.aud,
+            sanitize_for_log(stream.aud),
             _safe_host(stream.endpoint_url),
         )
         return False
@@ -190,7 +197,7 @@ async def push_verification_set(stream: Stream, state: str | None = None) -> boo
         body_hash = hashlib.sha256(response.content).hexdigest()[:8]
         logger.warning(
             "Receiver rejected verification SET aud=%s endpoint_host=%s status_code=%s body_hash=%s",
-            stream.aud,
+            sanitize_for_log(stream.aud),
             _safe_host(stream.endpoint_url),
             response.status_code,
             body_hash,
@@ -208,7 +215,7 @@ async def push_verification_set(stream: Stream, state: str | None = None) -> boo
 
     logger.info(
         "Pushed verification SET aud=%s endpoint_host=%s status_code=%s",
-        stream.aud,
+        sanitize_for_log(stream.aud),
         _safe_host(stream.endpoint_url),
         response.status_code,
     )
