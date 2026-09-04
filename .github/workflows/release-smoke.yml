@@ -2,12 +2,13 @@ name: Release smoke test
 
 # Pulls the just-published GHCR image at the release tag (not a fresh local
 # build — the whole point is verifying the artifact that actually shipped)
-# and runs tests_e2e/ against it. docker-publish.yml's merge-and-publish job
-# dispatches this explicitly once it confirms the image is actually
-# published: GITHUB_TOKEN-authored tag pushes (which `gh release create`
-# performs, in release.yml) don't trigger this workflow's own `push: tags:`
-# listener below — that trigger is a backup for the emergency signed-tag path
-# only (scripts/release-tag.sh), which pushes with real user credentials.
+# and runs tests_e2e/ against it. Always dispatched by docker-publish.yml's
+# merge-and-publish job, once it confirms the image is actually published —
+# including for the emergency signed-tag path (scripts/release-tag.sh),
+# where docker-publish.yml's own `push: tags:` trigger fires it. This
+# workflow has no `push: tags:` trigger of its own: firing directly on a tag
+# push would race docker-publish.yml's build/push time, since nothing then
+# guarantees the image is pullable yet.
 
 on:
   workflow_dispatch:
@@ -15,15 +16,13 @@ on:
       tag:
         description: Release tag to smoke-test (e.g. v0.5.11)
         required: true
-  push:
-    tags: ["v*.*.*"]
 
 permissions:
   contents: read
   packages: read
 
 concurrency:
-  group: release-smoke-${{ github.event.inputs.tag || github.ref_name }}
+  group: release-smoke-${{ github.event.inputs.tag }}
   cancel-in-progress: false
 
 jobs:
@@ -57,17 +56,21 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Same token values as ci.yml's pre-merge smoke test (and
+      # tests_e2e/conftest.py's own defaults) — the E2E tests below
+      # authenticate with those defaults unless overridden, so the container
+      # has to be configured to match rather than the other way around.
       - name: Pull and run published image
         env:
-          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+          TAG: ${{ github.event.inputs.tag }}
         run: |
           docker pull "ghcr.io/${{ github.repository }}:${TAG#v}"
           docker run -d --name release-smoke -p 18000:8000 \
             -e SSF_CONTAINER_PORT=8000 \
             -e SSF_ISSUER=https://ssf.release-smoke.invalid \
             -e SSF_BASE_URL=https://ssf.release-smoke.invalid \
-            -e SSF_WEBHOOK_TOKEN=release-smoke-test-webhook-token-0000 \
-            -e SSF_MANAGEMENT_TOKEN=release-smoke-test-mgmt-token-00000 \
+            -e SSF_WEBHOOK_TOKEN=ci-smoke-test-webhook-token-000000 \
+            -e SSF_MANAGEMENT_TOKEN=ci-smoke-test-mgmt-token-0000000 \
             "ghcr.io/${{ github.repository }}:${TAG#v}"
           ok=""
           for _ in $(seq 1 15); do

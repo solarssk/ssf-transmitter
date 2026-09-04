@@ -118,9 +118,15 @@ jobs:
             exit 0
           fi
 
+          # --target pins the new tag to the exact commit this run checked
+          # out and verified above — without it, a tag that doesn't exist
+          # yet is created against main's *current* tip, which could have
+          # moved if another push landed between this run starting and this
+          # step running.
           gh release create "$TAG" \
             --title "${{ steps.meta.outputs.name }}" \
             --notes-file "$NOTES" \
+            --target "${{ github.sha }}" \
             --latest
           echo "Created $TAG (${{ steps.meta.outputs.name }})."
 
