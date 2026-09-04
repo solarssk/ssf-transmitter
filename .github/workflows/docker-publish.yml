@@ -269,7 +269,14 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
-        run: gh release upload "$TAG" sbom-cyclonedx.json --clobber
+        run: |
+          set -euo pipefail
+          # release.yml's path already created the release before dispatching
+          # here; scripts/release-tag.sh's emergency path only pushes a tag,
+          # so create it here if it's still missing — otherwise the upload
+          # below fails and the smoke-test dispatch after it never runs.
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "$TAG" --generate-notes --latest
+          gh release upload "$TAG" sbom-cyclonedx.json --clobber
 
       # The published image is only really pullable once this job's imagetools
       # calls above have completed — dispatching the smoke test from here,

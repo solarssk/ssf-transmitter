@@ -171,7 +171,7 @@ published image; closes the matching milestone).
 
 1. Bump `version` in [`pyproject.toml`](pyproject.toml).
 2. Add a `## [X.Y.Z] — YYYY-MM-DD — Title` entry to `CHANGELOG.md` describing the release.
-3. Rewrite `docs/Upgrading.md` for this release (it's a live walkthrough, not a log — not auto-synced).
+3. Rewrite the release's narrative upgrade content by hand — none of it is auto-synced, since it's prose about a *specific* version transition, not a bare pointer: `docs/Upgrading.md` (a live walkthrough, not a log), README.md's "## Upgrading" summary, and `docs/synology-authentik-compose.md`'s "## Upgrading from X.Y.Z" section (rename its heading too).
 4. Run, from repo root:
    ```bash
    python3 scripts/generate-release-notes.py X.Y.Z   # writes .github/release-notes/vX.Y.Z.md

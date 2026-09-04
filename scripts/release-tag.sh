@@ -129,8 +129,8 @@ git tag -s "$TAG" -m "$MESSAGE"
 if [[ "$PUSH" == true ]]; then
   echo "Pushing $TAG to origin"
   git push origin "$TAG"
-  echo "Done. docker-publish.yml should start automatically (push: tags: trigger) and will dispatch release-smoke.yml once the image is published."
-  echo "Next: gh release create $TAG --latest --generate-notes  (release.yml only fires on a 'release: vX.Y.Z' commit push to main, not on a bare tag push)."
+  echo "Done. docker-publish.yml should start automatically (push: tags: trigger)."
+  echo "It creates the GitHub Release itself if one doesn't already exist, then attaches the SBOM and dispatches release-smoke.yml once the image is published."
 else
   echo "Created locally. Push with: git push origin $TAG"
 fi

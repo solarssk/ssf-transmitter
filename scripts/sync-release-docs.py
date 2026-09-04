@@ -6,10 +6,15 @@ release" (version, title, and release URL), the image tag in a
 copy-pasteable example, a sample API response — and go stale the moment a
 new version ships if nobody remembers to touch them by hand. This does NOT
 touch every place a version number appears: docs/Upgrading.md's upgrade
-walkthrough and the historical "since vX.Y" notes elsewhere are about a
-*specific past* version and must stay exactly as written — rewriting those
-would misrepresent history, not fix a typo. Only add a pattern below for a
-genuine "this is the current version" spot.
+walkthrough, README.md's "## Upgrading" summary, and
+docs/synology-authentik-compose.md's "## Upgrading from X.Y.Z" section (plus
+the historical "since vX.Y" notes elsewhere) all describe a *specific past
+version's* upgrade steps, not just a version number — rewriting those
+mechanically would leave stale prose under a fresh-looking version, which is
+worse than leaving it visibly stale. They're a required manual step in the
+release checklist (see AGENTS.md) instead. Only add a pattern below for a
+genuine "this is the current version" spot, where swapping the number is the
+whole story.
 
 Run after bumping pyproject.toml's version and adding the new CHANGELOG.md
 entry during a release cut (before generate-release-notes.py, which needs
@@ -85,6 +90,16 @@ def patterns_for(version: str, title: str) -> tuple[tuple[str, str, str], ...]:
             "docs/synology-authentik-compose.md",
             r"image: ghcr\.io/solarssk/ssf-transmitter:[\d.]+",
             f"image: ghcr.io/solarssk/ssf-transmitter:{version}",
+        ),
+        (
+            "docs/synology-authentik-compose.md",
+            r"Pin `[\d.]+` in production\.",
+            f"Pin `{version}` in production.",
+        ),
+        (
+            "docs/synology-authentik-compose.md",
+            r"Stable release tags \(`v[\d.]+`\) update the `latest` Docker tag",
+            f"Stable release tags (`v{version}`) update the `latest` Docker tag",
         ),
         (
             "docs/Deployment.md",
