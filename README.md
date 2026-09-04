@@ -2,6 +2,9 @@
 
 [![CI](https://github.com/solarssk/ssf-transmitter/actions/workflows/ci.yml/badge.svg)](https://github.com/solarssk/ssf-transmitter/actions/workflows/ci.yml)
 [![Code coverage](https://codecov.io/gh/solarssk/ssf-transmitter/graph/badge.svg)](https://codecov.io/gh/solarssk/ssf-transmitter)
+[![License: MIT](https://img.shields.io/github/license/solarssk/ssf-transmitter)](LICENSE)
+[![Latest release](https://img.shields.io/github/v/release/solarssk/ssf-transmitter)](https://github.com/solarssk/ssf-transmitter/releases/latest)
+[![Platforms](https://img.shields.io/badge/platforms-amd64%20%7C%20arm64-blue)](https://github.com/solarssk/ssf-transmitter/pkgs/container/ssf-transmitter)
 
 Standalone service that sits next to Authentik and forwards user security events (logout, password change) to receivers implementing the [OpenID Shared Signals Framework](https://openid.net/specs/openid-sharedsignals-framework-1_0.html). One container supports one active SSF stream — registering a new stream replaces the existing one. Multi-stream support (fan-out to multiple receivers) is planned for v1.1. Primary receiver: Apple Business Manager CAEP.
 
