@@ -69,7 +69,12 @@ TARGETS = [
     LockTarget(
         source="requirements-dev.txt",
         lock="requirements-dev.lock.txt",
-        platforms=("x86_64-manylinux2014",),
+        # manylinux_2_28 (not manylinux2014, unlike the runtime lock below):
+        # this only ever installs on GitHub's ubuntu-latest runner, whose
+        # glibc is comfortably newer than manylinux_2_28 requires, and some
+        # dev-only tooling (e.g. zizmor) publishes no manylinux2014 wheels
+        # at all.
+        platforms=("x86_64-manylinux_2_28",),
         consumer="CI's Test and lint job (`pip install --require-hashes -r requirements-dev.lock.txt`), "
         "which only ever runs on ubuntu-latest (linux/amd64) — see .github/workflows/ci.yml",
     ),
@@ -100,8 +105,14 @@ def compile_for_platform(source: Path, platform: str, out_path: Path) -> None:
     # uv build its sdist (running the package's own build-backend code) just
     # to compile the lock — on every CI run, via the freshness check, before
     # the hardened install step ever gets a chance to reject it.
-    result = subprocess.run(
-        [
+    # S603/S607: every argument here is a fixed literal or an internal value
+    # we constructed ourselves (source path, platform tuple, this module's
+    # own PYTHON_VERSION constant, temp output path) — none is external
+    # input. "uv" is resolved via PATH rather than a hardcoded absolute path
+    # because its install location varies (setup-uv action, homebrew, cargo,
+    # ...); this matches how the rest of this script and CI already invoke it.
+    result = subprocess.run(  # noqa: S603
+        [  # noqa: S607
             "uv",
             "pip",
             "compile",

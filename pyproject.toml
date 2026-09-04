@@ -1,9 +1,15 @@
 [project]
+name = "ssf-transmitter"
 requires-python = ">=3.14"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q --cov=app --cov-report=term-missing --cov-report=xml:coverage.xml"
+# --cov-fail-under is a local backstop below Codecov's own project/patch
+# gates (see codecov.yml): it fails fast, offline, on any PR/fork run where
+# the Codecov token isn't available, rather than silently passing. Set a
+# few points under the current ~77% baseline so routine coverage noise
+# doesn't flap it — Codecov's 1% project-drop threshold is the real gate.
+addopts = "-q --cov=app --cov-report=term-missing --cov-report=xml:coverage.xml --cov-fail-under=74"
 pythonpath = ["."]
 markers = [
     "no_dns_mock: skip the autouse mock_dns_resolve fixture (for tests that set up their own mocks)",
@@ -35,8 +41,33 @@ line-length = 120
 target-version = "py314"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "SIM"]
+# S (flake8-bandit): security-relevant patterns (hardcoded secrets, weak
+# hashes/crypto, subprocess/exec misuse, ...).
+# ASYNC: blocking calls inside async functions.
+# RUF: ruff's own additional checks (mutable class-attribute defaults,
+# implicit Optional, pyproject.toml validity, ...).
+select = ["E", "F", "I", "UP", "B", "SIM", "S", "ASYNC", "RUF"]
 ignore = ["B008"]
+
+[tool.ruff.lint.per-file-ignores]
+# S101 (assert): bare `assert` is the correct, idiomatic way to write a
+# pytest assertion — the rule exists to flag `assert` in *production* code
+# (stripped by python -O, so unsafe to rely on for real checks).
+# S105/S106/S107 (possible hardcoded password): every one of the 40+
+# matches here is a fake token/secret used to verify it does *not* leak —
+# see tests/test_database_security.py — not a real credential.
+"tests/*" = ["S101", "S105", "S106", "S107"]
 
 [tool.ruff.format]
 quote-style = "double"
+
+[tool.mypy]
+python_version = "3.14"
+files = ["app"]
+# Default (non-strict) rule set — already catches genuine bugs with zero
+# false positives on this codebase (verified). `--strict` surfaces ~47
+# more findings, mostly mechanical (bare `dict`/`list` generics needing
+# type args, a handful of missing return annotations) — real but sizeable
+# enough to land as its own follow-up rather than folding into this one.
+warn_unused_ignores = true
+warn_redundant_casts = true

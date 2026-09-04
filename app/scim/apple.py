@@ -58,7 +58,7 @@ async def _get_existing_users(client: httpx.AsyncClient, headers: dict) -> tuple
     """
     by_ext_id: dict[str, dict] = {}
     by_username: dict[str, dict] = {}
-    url = f"{APPLE_SCIM_BASE}/Users?count=200"
+    url: str | None = f"{APPLE_SCIM_BASE}/Users?count=200"
     while url:
         resp = await client.get(url, headers=headers)
         if resp.status_code != 200:

@@ -73,7 +73,10 @@ def _resolve_host(host: str) -> list[str]:
     """
     try:
         results = socket.getaddrinfo(host, None)
-        return [r[4][0] for r in results]
+        # sockaddr is (address, port) for IPv4 or (address, port, flowinfo,
+        # scope_id) for IPv6 — typeshed types it loosely across both shapes,
+        # so make the "it's always an address string" contract explicit.
+        return [str(r[4][0]) for r in results]
     except OSError:
         return []
 
