@@ -483,7 +483,15 @@ def test_sync_success_returns_result_summary(client, monkeypatch):
     async def _sync(access_token, scim_users):
         assert access_token == "valid-token"
         assert scim_users == [{"userName": "a@example.com"}]
-        return SyncResult(created=1, updated=2, unchanged=3, conflicts=1, errors=0, update_400_invalid_request=0)
+        return SyncResult(
+            created=1,
+            updated=2,
+            unchanged=3,
+            conflicts=1,
+            errors=0,
+            update_400_invalid_request=0,
+            out_of_scope_diffs=1,
+        )
 
     monkeypatch.setattr(scim_routes, "get_valid_access_token", _has_token)
     monkeypatch.setattr(scim_routes, "get_users", _users)
@@ -501,6 +509,7 @@ def test_sync_success_returns_result_summary(client, monkeypatch):
         "conflicts": 1,
         "errors": 0,
         "update_400_invalid_request": 0,
+        "out_of_scope_diffs": 1,
         "update_mode": "patch_all",
     }
     # conflict_usernames must never appear in the API response (PII).

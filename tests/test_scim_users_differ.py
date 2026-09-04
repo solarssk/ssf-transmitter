@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import dataclasses
+
 import pytest
 
+from app.config import settings as real_settings
 from app.scim.apple import (
+    _actionable_diffs,
     _build_update_request,
     _can_recover_by_username,
     _format_changed_fields,
@@ -173,7 +177,7 @@ class TestBuildUpdateRequest:
     def test_patch_all_mode_builds_patch_operations(self):
         user = _authentik_user()
         user["externalId"] = "42"
-        method, body, fields = _build_update_request(user, "patch_all")
+        method, body, fields = _build_update_request(user, "patch_all", "apple-1")
         assert method == "PATCH"
         assert fields == ["externalId", "userName", "name", "emails", "active"]
         assert [op["path"] for op in body["Operations"]] == fields
@@ -181,18 +185,50 @@ class TestBuildUpdateRequest:
     def test_external_id_only_mode_builds_single_operation(self):
         user = _authentik_user()
         user["externalId"] = "42"
-        method, body, fields = _build_update_request(user, "external_id_only")
+        method, body, fields = _build_update_request(user, "external_id_only", "apple-1")
         assert method == "PATCH"
         assert fields == ["externalId"]
         assert body["Operations"] == [{"op": "Replace", "path": "externalId", "value": "42"}]
 
     def test_replace_all_mode_builds_put(self):
+        """Apple rejects a PUT body containing `externalId` (immutable) or
+        missing the resource `id` — regression test for a real bug where
+        this mode sent the raw Authentik-mapped dict (externalId present,
+        no id) and every replace_all-mode update permanently failed."""
         user = _authentik_user()
         user["externalId"] = "42"
-        method, body, fields = _build_update_request(user, "replace_all")
+        method, body, fields = _build_update_request(user, "replace_all", "apple-1")
         assert method == "PUT"
-        assert body == user
+        assert "externalId" not in body
+        assert body["id"] == "apple-1"
+        assert body["userName"] == user["userName"]
+        assert body["emails"] == user["emails"]
         assert fields == ["externalId", "userName", "name", "emails", "active"]
+
+
+class TestActionableDiffs:
+    """A diff outside update_mode's scope can never be fixed by _patch_user() —
+    treating it as actionable would re-trigger the same no-op PATCH forever."""
+
+    def test_patch_all_mode_keeps_every_diff(self):
+        diffs = {"email": True, "userName": False, "externalId": True}
+        assert _actionable_diffs(diffs, "patch_all") == diffs
+
+    def test_external_id_only_mode_drops_out_of_scope_diffs(self):
+        diffs = {"email": True, "userName": False, "externalId": False}
+        assert _actionable_diffs(diffs, "external_id_only") == {"externalId": False}
+
+    def test_emails_only_mode_maps_email_key(self):
+        diffs = {"email": True, "externalId": True}
+        assert _actionable_diffs(diffs, "emails_only") == {"email": True}
+
+    def test_username_only_mode_maps_username_key(self):
+        diffs = {"userName": True, "email": True}
+        assert _actionable_diffs(diffs, "username_only") == {"userName": True}
+
+    def test_replace_all_mode_covers_name_split_fields(self):
+        diffs = {"givenName": True, "familyName": False, "email": True}
+        assert _actionable_diffs(diffs, "replace_all") == diffs
 
 
 # ---------------------------------------------------------------------------
@@ -219,10 +255,12 @@ class _FakeAppleClient:
         *,
         apple_users: list[dict] | None = None,
         holder: dict | None = None,
+        fail_external_id_patch: bool = False,
     ):
         self.timeout = timeout
         self.apple_users = list(apple_users) if apple_users is not None else []
         self.requests: list[tuple[str, str, dict | None]] = []
+        self.fail_external_id_patch = fail_external_id_patch
         if holder is not None:
             holder["client"] = self
 
@@ -253,18 +291,36 @@ class _FakeAppleClient:
     async def put(self, url, json, headers):
         self.requests.append(("PUT", url, json))
         apple_id = url.rsplit("/", 1)[-1]
-        for idx, user in enumerate(self.apple_users):
+        for user in self.apple_users:
             if user.get("id") == apple_id:
-                self.apple_users[idx] = {**json}
-                return _FakeResponse(200, self.apple_users[idx])
+                # Mutate the existing dict in place (matching patch() below)
+                # rather than rebinding this list slot to a new dict — a
+                # fresh _FakeAppleClient for a later sync_users() call holds
+                # its own shallow-copied `apple_users` list, so a rebind here
+                # would silently not propagate to it, only an in-place
+                # mutation of the shared dict object would.
+                external_id = user.get("externalId")
+                user.clear()
+                user.update(json)
+                # Real Apple SCIM treats externalId as immutable-after-creation
+                # and rejects a PUT body that includes it (see
+                # _build_update_request's replace_all mode) — it does not get
+                # cleared server-side just because a PUT omits it.
+                if "externalId" not in user and external_id is not None:
+                    user["externalId"] = external_id
+                return _FakeResponse(200, user)
         return _FakeResponse(404, {})
 
     async def patch(self, url, json, headers):
         self.requests.append(("PATCH", url, json))
+        ops = json.get("Operations", [])
+        is_external_id_repair = len(ops) == 1 and ops[0].get("path") == "externalId"
+        if is_external_id_repair and self.fail_external_id_patch:
+            return _FakeResponse(400, {"scimType": "invalidValue"})
         apple_id = url.rsplit("/", 1)[-1]
         for user in self.apple_users:
             if user.get("id") == apple_id:
-                for op in json.get("Operations", []):
+                for op in ops:
                     path = op.get("path")
                     if path:
                         user[path] = op.get("value")
@@ -272,7 +328,9 @@ class _FakeAppleClient:
         return _FakeResponse(404, {})
 
 
-def _install_fake_apple_client(monkeypatch, *, apple_users: list[dict] | None = None) -> dict:
+def _install_fake_apple_client(
+    monkeypatch, *, apple_users: list[dict] | None = None, fail_external_id_patch: bool = False
+) -> dict:
     """Monkeypatch Apple httpx.AsyncClient with an isolated fake instance."""
     from app.scim import apple
 
@@ -281,7 +339,9 @@ def _install_fake_apple_client(monkeypatch, *, apple_users: list[dict] | None = 
 
     class _BoundFakeAppleClient(_FakeAppleClient):
         def __init__(self, timeout: float):
-            super().__init__(timeout, apple_users=shared_users, holder=holder)
+            super().__init__(
+                timeout, apple_users=shared_users, holder=holder, fail_external_id_patch=fail_external_id_patch
+            )
 
     monkeypatch.setattr(apple.httpx, "AsyncClient", _BoundFakeAppleClient)
     return holder
@@ -391,3 +451,200 @@ def test_email_whitespace_and_case_do_not_diff():
     existing = _apple_user(email=" USER@example.com ")
     new = _authentik_user(email="user@example.com")
     assert _users_differ(existing, new) is False
+
+
+@pytest.mark.anyio
+async def test_sync_external_id_only_mode_does_not_loop_on_unfixable_email_diff(monkeypatch):
+    """Regression test for a real production bug: with update_mode=external_id_only,
+    an already-linked user whose email differs was detected as "changed" every
+    sync (since _field_diffs compares all fields), but _patch_user only ever
+    wrote externalId back — so the email diff was never actually resolved and
+    the same no-op PATCH fired again on every subsequent sync, forever.
+    """
+    from app.scim import apple
+
+    scoped_settings = dataclasses.replace(real_settings, apple_scim_update_mode="external_id_only")
+    monkeypatch.setattr(apple, "settings", scoped_settings)
+    holder = _install_fake_apple_client(monkeypatch, apple_users=[_apple_existing(email="stale@example.com")])
+
+    first = await apple.sync_users("token", [_authentik_scim(email="fresh@example.com")])
+    first_requests = list(holder["client"].requests)
+    second = await apple.sync_users("token", [_authentik_scim(email="fresh@example.com")])
+
+    # The email diff is outside external_id_only's scope and can never be
+    # fixed by this update_mode, so it must not be treated as "needs update"
+    # — no PATCH should ever fire for it, on either sync.
+    assert first.unchanged == 1
+    assert first.updated == 0
+    assert first.out_of_scope_diffs == 1
+    assert second.unchanged == 1
+    assert second.updated == 0
+    assert second.out_of_scope_diffs == 1
+    assert all(method == "GET" for method, _, _ in first_requests + holder["client"].requests)
+
+
+@pytest.mark.anyio
+async def test_handle_409_external_id_only_mode_does_not_loop_on_unfixable_email_diff(monkeypatch):
+    """Same regression as above, but through the 409-recovery path
+    (_handle_409), which has its own copy of the actionable-diffs decision
+    and was not exercised by the sync_users()-level test above.
+    """
+    from app.scim import apple
+
+    scoped_settings = dataclasses.replace(real_settings, apple_scim_update_mode="external_id_only")
+    monkeypatch.setattr(apple, "settings", scoped_settings)
+
+    found = _apple_existing(email="stale@example.com")
+    fake_client = _FakeAppleClient(30.0, apple_users=[found])
+    new_user = _authentik_scim(email="fresh@example.com")
+    result = apple.SyncResult()
+
+    await apple._handle_409(fake_client, {}, new_user, result)
+
+    assert result.unchanged == 1
+    assert result.updated == 0
+    assert result.out_of_scope_diffs == 1
+    assert result.conflicts == 0
+    assert all(method == "GET" for method, _, _ in fake_client.requests)
+
+
+@pytest.mark.anyio
+async def test_handle_409_patches_actionable_diff():
+    """The other side of the same branch: under the default patch_all mode
+    (no narrow update_mode scoping), a real diff found via 409-recovery
+    must still result in a PATCH, not be treated as out-of-scope."""
+    from app.scim import apple
+
+    found = _apple_existing(email="stale@example.com")
+    fake_client = _FakeAppleClient(30.0, apple_users=[found])
+    new_user = _authentik_scim(email="fresh@example.com")
+    result = apple.SyncResult()
+
+    await apple._handle_409(fake_client, {}, new_user, result)
+
+    assert result.updated == 1
+    assert result.unchanged == 0
+    assert result.out_of_scope_diffs == 0
+    assert any(method == "PATCH" for method, _, _ in fake_client.requests)
+
+
+@pytest.mark.anyio
+async def test_sync_recovered_by_username_repairs_external_id_even_with_other_diffs(monkeypatch):
+    """Regression test: externalId repair used to be gated on "no other
+    field differs" — under replace_all mode the PUT it falls through to
+    never includes externalId (Apple rejects it there), so a user missing
+    externalId AND with e.g. a changed email would have linkage stay
+    broken for a whole extra sync cycle even though the email got fixed.
+    """
+    from app.scim import apple
+
+    scoped_settings = dataclasses.replace(real_settings, apple_scim_update_mode="replace_all")
+    monkeypatch.setattr(apple, "settings", scoped_settings)
+    holder = _install_fake_apple_client(
+        monkeypatch, apple_users=[_apple_existing(external_id=None, email="stale@example.com")]
+    )
+
+    first = await apple.sync_users("token", [_authentik_scim(external_id="1", email="fresh@example.com")])
+    first_methods = [r[0] for r in holder["client"].requests]
+    second = await apple.sync_users("token", [_authentik_scim(external_id="1", email="fresh@example.com")])
+
+    # Two real writes happened — the dedicated externalId repair (PATCH) and
+    # the replace_all email update (PUT) — each counted independently.
+    assert first.updated == 2
+    assert "PATCH" in first_methods  # the dedicated externalId repair
+    assert "PUT" in first_methods  # the replace_all update for email
+    # Both repaired in one pass — the second sync must find nothing left to fix.
+    assert second.unchanged == 1
+    assert second.updated == 0
+    assert second.out_of_scope_diffs == 0
+
+
+@pytest.mark.anyio
+async def test_sync_reports_out_of_scope_diff_alongside_actionable_update(monkeypatch):
+    """Regression test: out_of_scope_diffs was only counted when there was
+    NO actionable diff at all. A user with BOTH an actionable diff (email,
+    in scope for emails_only) AND an out-of-scope one (name) had the name
+    diff silently dropped from the count — the response/warning reported
+    zero until a later sync saw the name diff alone.
+    """
+    from app.scim import apple
+
+    scoped_settings = dataclasses.replace(real_settings, apple_scim_update_mode="emails_only")
+    monkeypatch.setattr(apple, "settings", scoped_settings)
+    existing = _apple_user(given="OldName", email="stale@example.com")
+    existing["id"] = "apple-1"
+    existing["externalId"] = "1"
+    new_user = _authentik_user(given="NewName", email="fresh@example.com")
+    new_user["externalId"] = "1"
+    new_user["schemas"] = ["urn:ietf:params:scim:schemas:core:2.0:User"]
+    _install_fake_apple_client(monkeypatch, apple_users=[existing])
+
+    result = await apple.sync_users("token", [new_user])
+
+    assert result.updated == 1  # email patched (in scope for emails_only)
+    assert result.out_of_scope_diffs == 1  # name diff reported, not silently dropped
+    assert result.unchanged == 0
+
+
+@pytest.mark.anyio
+async def test_handle_409_reports_out_of_scope_diff_alongside_actionable_update():
+    """Same regression as above, through the 409-recovery path."""
+    from app.scim import apple
+
+    found = _apple_user(given="OldName", email="stale@example.com")
+    found["id"] = "apple-1"
+    found["externalId"] = "1"
+    new_user = _authentik_user(given="NewName", email="fresh@example.com")
+    new_user["externalId"] = "1"
+    fake_client = _FakeAppleClient(30.0, apple_users=[found])
+    result = apple.SyncResult()
+
+    with pytest.MonkeyPatch.context() as mp:
+        scoped_settings = dataclasses.replace(real_settings, apple_scim_update_mode="emails_only")
+        mp.setattr(apple, "settings", scoped_settings)
+        await apple._handle_409(fake_client, {}, new_user, result)
+
+    assert result.updated == 1
+    assert result.out_of_scope_diffs == 1
+    assert result.unchanged == 0
+
+
+@pytest.mark.anyio
+async def test_sync_failed_external_id_repair_is_not_also_counted_unchanged(monkeypatch):
+    """Regression test: a failed externalId repair PATCH is already counted
+    via result.errors (inside _patch_external_id) — the caller used to also
+    increment result.unchanged whenever external_id_patched was falsy,
+    which conflated "no repair needed" with "repair needed and failed",
+    double-counting the same user into two mutually-exclusive buckets.
+    """
+    from app.scim import apple
+
+    holder = _install_fake_apple_client(
+        monkeypatch,
+        apple_users=[_apple_existing(external_id=None)],  # linkage lost, everything else matches
+        fail_external_id_patch=True,
+    )
+
+    result = await apple.sync_users("token", [_authentik_scim(external_id="1")])
+
+    assert result.errors == 1
+    assert result.unchanged == 0
+    assert result.updated == 0
+    assert all(method != "PUT" for method, _, _ in holder["client"].requests)
+
+
+@pytest.mark.anyio
+async def test_handle_409_failed_external_id_repair_is_not_also_counted_unchanged():
+    """Same regression as above, through the 409-recovery path."""
+    from app.scim import apple
+
+    found = _apple_existing(external_id=None)
+    fake_client = _FakeAppleClient(30.0, apple_users=[found], fail_external_id_patch=True)
+    new_user = _authentik_scim(external_id="1")
+    result = apple.SyncResult()
+
+    await apple._handle_409(fake_client, {}, new_user, result)
+
+    assert result.errors == 1
+    assert result.unchanged == 0
+    assert result.updated == 0

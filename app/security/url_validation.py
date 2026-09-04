@@ -56,6 +56,14 @@ _BLOCKED_NETWORKS = [
     ipaddress.ip_network("ff00::/8"),  # Multicast
 ]
 
+# IPv6 forms that embed an IPv4 address directly in their low 32 bits, but
+# that Python's ipaddress module has no dedicated unwrap property for
+# (unlike ipv4_mapped/sixtofour/teredo, used in _is_blocked_ip below).
+_IPV4_EMBEDDING_NETWORKS = [
+    ipaddress.ip_network("::/96"),  # IPv4-compatible (deprecated, RFC4291 §2.5.5.1)
+    ipaddress.ip_network("64:ff9b::/96"),  # NAT64 well-known prefix (RFC 6052)
+]
+
 
 def _is_blocked_ip(ip_str: str) -> bool:
     """Return True if the IP address falls into a blocked network range."""
@@ -63,6 +71,20 @@ def _is_blocked_ip(ip_str: str) -> bool:
         addr = ipaddress.ip_address(ip_str)
     except ValueError:
         return True  # unparseable → treat as blocked
+    # An IPv4-mapped IPv6 literal (e.g. ::ffff:169.254.169.254) is a distinct
+    # IPv6Address object — `addr in net` against an IPv4Network silently
+    # returns False (no version mismatch exception), so a blocked address
+    # sails straight through unless unwrapped to its embedded IPv4 form
+    # first. 6to4 (2002::/16) and Teredo (2001::/32) embed an IPv4 address
+    # the same way; unwrap those too. IPv4-compatible and NAT64 addresses
+    # embed it in their low 32 bits directly with no dedicated ipaddress
+    # property, so extract it from the packed bytes instead.
+    if isinstance(addr, ipaddress.IPv6Address):
+        embedded = addr.ipv4_mapped or addr.sixtofour or (addr.teredo[1] if addr.teredo else None)
+        if embedded is None and any(addr in net for net in _IPV4_EMBEDDING_NETWORKS):
+            embedded = ipaddress.IPv4Address(addr.packed[-4:])
+        if embedded is not None:
+            addr = embedded
     return any(addr in net for net in _BLOCKED_NETWORKS)
 
 
