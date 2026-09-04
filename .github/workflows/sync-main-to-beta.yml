@@ -6,6 +6,12 @@ on:
   push:
     branches: [main]
 
+# Queue (never cancel) overlapping runs rather than letting two "merge main
+# into beta, then push" operations race on the same beta branch.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
 permissions:
   contents: write
 

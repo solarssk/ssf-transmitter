@@ -12,6 +12,15 @@ on:
     branches: [main, beta]
   pull_request:
 
+# Cancel a superseded run when new commits land on the same PR branch — this
+# job builds and boots the Docker image twice (native amd64 + QEMU-emulated
+# arm64), so a rapid push sequence otherwise queues up multiple full runs
+# instead of dropping the stale one. main/beta keep every run to completion
+# (post-merge history shouldn't have gaps from a cancelled run).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/beta' }}
+
 jobs:
   test:
     name: Test and lint
