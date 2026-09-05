@@ -25,7 +25,7 @@ _SENSITIVE_KEYS = {
     "secret",
     "id_token",
 }
-_EMAIL_RE = re.compile(r"([A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,})", re.IGNORECASE)
+_EMAIL_RE = re.compile(r"([A-Z0-9._%+\-]+@(?:[A-Z0-9\-]+\.)+[A-Z]{2,})", re.IGNORECASE)
 
 
 def response_metadata(response: httpx.Response) -> dict[str, int | str | None]:

@@ -16,7 +16,7 @@ SECURITY_HEADERS = {
 }
 
 
-@pytest.fixture()
+@pytest.fixture
 def client():
     with TestClient(app) as tc:
         yield tc

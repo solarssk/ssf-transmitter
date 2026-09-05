@@ -24,7 +24,7 @@ VALID_PAYLOAD = {
 }
 
 
-@pytest.fixture()
+@pytest.fixture
 def client():
     with TestClient(app) as test_client:
         yield test_client

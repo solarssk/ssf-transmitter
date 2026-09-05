@@ -31,7 +31,7 @@ def _signed_headers(body: bytes) -> dict[str, str]:
     return {"Content-Type": "application/json", "X-Authentik-Signature": f"sha256={sig}"}
 
 
-@pytest.fixture()
+@pytest.fixture
 def client():
     with TestClient(app) as tc:
         yield tc

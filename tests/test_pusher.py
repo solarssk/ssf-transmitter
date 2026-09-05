@@ -41,7 +41,7 @@ class FakeAsyncClient:
         return FakeResponse(self.status_code, self.response_text)
 
 
-@pytest.fixture()
+@pytest.fixture
 def stream():
     return Stream(
         stream_id="stream-1",
@@ -54,7 +54,7 @@ def stream():
     )
 
 
-@pytest.fixture()
+@pytest.fixture
 def event():
     return MappedEvent(uri=SESSION_REVOKED, payload={}, txn=None)
 

@@ -175,75 +175,75 @@ def quarantine_undecryptable_receiver_tokens() -> None:
     )
 
 
-def run_preflight_checks() -> None:
-    """Run all startup checks and exit with code 0 if any critical check fails."""
-    logger.info("── SSF Transmitter preflight  v%s ──", _VERSION)
-    failed = False
-
-    # ------------------------------------------------------------------ #
-    # Environment / config                                                 #
-    # ------------------------------------------------------------------ #
-
-    # SSF_ISSUER
-    if settings.ssf_issuer:
-        logger.info("%s SSF_ISSUER            %s", _OK, settings.ssf_issuer)
-        if not settings.ssf_allow_custom_issuer:
-            if settings.ssf_issuer.rstrip("/") != settings.ssf_base_url.rstrip("/"):
-                logger.warning(
-                    "%s SSF_ISSUER            differs from SSF_BASE_URL — receivers may fail "
-                    "to validate SETs; set SSF_ALLOW_CUSTOM_ISSUER=true to suppress this warning",
-                    _WARN,
-                )
-            if "/application/o/" in settings.ssf_issuer:
-                logger.warning(
-                    "%s SSF_ISSUER            looks like an Authentik OIDC application URL — "
-                    "SSF_ISSUER should be the transmitter's public base URL (usually SSF_BASE_URL)",
-                    _WARN,
-                )
-    else:
+def _check_ssf_issuer() -> bool:
+    """Check SSF_ISSUER is set and (unless allowed) matches SSF_BASE_URL. Returns True on failure."""
+    if not settings.ssf_issuer:
         logger.error("%s SSF_ISSUER            NOT SET", _FAIL)
-        failed = True
+        return True
 
-    # SSF_BASE_URL
+    logger.info("%s SSF_ISSUER            %s", _OK, settings.ssf_issuer)
+    if not settings.ssf_allow_custom_issuer:
+        if settings.ssf_issuer.rstrip("/") != settings.ssf_base_url.rstrip("/"):
+            logger.warning(
+                "%s SSF_ISSUER            differs from SSF_BASE_URL — receivers may fail "
+                "to validate SETs; set SSF_ALLOW_CUSTOM_ISSUER=true to suppress this warning",
+                _WARN,
+            )
+        if "/application/o/" in settings.ssf_issuer:
+            logger.warning(
+                "%s SSF_ISSUER            looks like an Authentik OIDC application URL — "
+                "SSF_ISSUER should be the transmitter's public base URL (usually SSF_BASE_URL)",
+                _WARN,
+            )
+    return False
+
+
+def _check_ssf_base_url() -> bool:
+    """Check SSF_BASE_URL is set. Returns True on failure."""
     if settings.ssf_base_url:
         logger.info("%s SSF_BASE_URL           %s", _OK, settings.ssf_base_url)
-    else:
-        logger.error("%s SSF_BASE_URL           NOT SET", _FAIL)
-        failed = True
+        return False
+    logger.error("%s SSF_BASE_URL           NOT SET", _FAIL)
+    return True
 
-    # SSF_MANAGEMENT_TOKEN
+
+def _check_management_token() -> bool:
+    """Check SSF_MANAGEMENT_TOKEN meets the minimum length. Returns True on failure."""
     token_len = len(settings.ssf_management_token) if settings.ssf_management_token else 0
     if token_len >= 32:
         logger.info("%s SSF_MANAGEMENT_TOKEN   configured (%d chars)", _OK, token_len)
-    else:
-        logger.error("%s SSF_MANAGEMENT_TOKEN   too short (%d chars, min 32)", _FAIL, token_len)
-        failed = True
+        return False
+    logger.error("%s SSF_MANAGEMENT_TOKEN   too short (%d chars, min 32)", _FAIL, token_len)
+    return True
 
-    # SSF_WEBHOOK_AUTH_MODE + token
+
+def _check_webhook_auth() -> bool:
+    """Check SSF_WEBHOOK_AUTH_MODE and its accompanying secret/token. Returns True on failure."""
     mode = settings.ssf_webhook_auth_mode
+
     if mode == "bearer":
+        logger.info("%s SSF_WEBHOOK_AUTH_MODE  bearer", _OK)
         wt_len = len(settings.ssf_webhook_token) if settings.ssf_webhook_token else 0
         if wt_len >= 32:
-            logger.info("%s SSF_WEBHOOK_AUTH_MODE  bearer", _OK)
             logger.info("%s SSF_WEBHOOK_TOKEN      configured (%d chars)", _OK, wt_len)
-        else:
-            logger.info("%s SSF_WEBHOOK_AUTH_MODE  bearer", _OK)
-            logger.error(
-                "%s SSF_WEBHOOK_TOKEN      %s", _FAIL, f"too short ({wt_len} chars, min 32)" if wt_len else "NOT SET"
-            )
-            failed = True
-    elif mode == "hmac":
+            return False
+        logger.error(
+            "%s SSF_WEBHOOK_TOKEN      %s", _FAIL, f"too short ({wt_len} chars, min 32)" if wt_len else "NOT SET"
+        )
+        return True
+
+    if mode == "hmac":
         # Config contract (_parse_webhook_secret) only requires non-empty in hmac mode.
         # Align preflight with that contract — don't add a stricter rule here.
+        logger.info("%s SSF_WEBHOOK_AUTH_MODE  hmac (legacy)", _OK)
         ws_len = len(settings.ssf_webhook_secret) if settings.ssf_webhook_secret else 0
         if ws_len > 0:
-            logger.info("%s SSF_WEBHOOK_AUTH_MODE  hmac (legacy)", _OK)
             logger.info("%s SSF_WEBHOOK_SECRET     configured (%d chars)", _OK, ws_len)
-        else:
-            logger.info("%s SSF_WEBHOOK_AUTH_MODE  hmac (legacy)", _OK)
-            logger.error("%s SSF_WEBHOOK_SECRET     NOT SET", _FAIL)
-            failed = True
-    elif mode == "unsigned":
+            return False
+        logger.error("%s SSF_WEBHOOK_SECRET     NOT SET", _FAIL)
+        return True
+
+    if mode == "unsigned":
         logger.warning(
             "%s SSF_WEBHOOK_AUTH_MODE  unsigned — NO authentication on webhook (dev/lab only, never use in production)",
             _WARN,
@@ -254,49 +254,54 @@ def run_preflight_checks() -> None:
                 "explicitly instead; this alias will be removed in a future release",
                 _WARN,
             )
-    else:
-        logger.error("%s SSF_WEBHOOK_AUTH_MODE  unknown value %r", _FAIL, mode)
-        failed = True
+        return False
 
-    # ------------------------------------------------------------------ #
-    # Local resources                                                      #
-    # ------------------------------------------------------------------ #
+    logger.error("%s SSF_WEBHOOK_AUTH_MODE  unknown value %r", _FAIL, mode)
+    return True
 
-    # Signing key
+
+def _check_signing_key() -> None:
+    """Log signing key presence. Missing key is not fatal — ensure_keys() will generate it."""
     private_pem = Path(settings.keys_dir) / "private.pem"
     if private_pem.exists():
         logger.info("%s Signing key            %s (exists)", _OK, private_pem)
     else:
-        # Missing key is not fatal at preflight — ensure_keys() will generate it.
         # Only warn; if generation is also broken it will surface as an exception.
         logger.warning("%s Signing key            %s not found — will be generated on first start", _WARN, private_pem)
 
-    # JWKS
+
+def _check_jwks() -> None:
+    """Log JWKS file presence. Missing file is not fatal — it will be generated on first start."""
     jwks_path = Path(settings.keys_dir) / "jwks.json"
     if jwks_path.exists():
         logger.info("%s JWKS                   %s (exists)", _OK, jwks_path)
     else:
         logger.warning("%s JWKS                   %s not found — will be generated on first start", _WARN, jwks_path)
 
-    # Database directory
+
+def _check_database() -> bool:
+    """Check the database directory/file exist and are writable. Returns True on failure."""
     db_path = Path(settings.database_path)
     db_dir = db_path.parent
     if not db_dir.exists():
         # Directory will be created by init_db(); warn but don't fail.
         logger.warning("%s Database dir           %s does not exist yet — will be created on start", _WARN, db_dir)
-    elif not os.access(db_dir, os.W_OK):
+        return False
+    if not os.access(db_dir, os.W_OK):
         logger.error("%s Database dir           %s is not writable — check volume permissions", _FAIL, db_dir)
-        failed = True
-    elif db_path.exists() and not os.access(db_path, os.W_OK):
+        return True
+    if db_path.exists() and not os.access(db_path, os.W_OK):
         logger.error(
             "%s Database               %s is not writable — run: chown -R 10001:10001 %s", _FAIL, db_path, db_dir
         )
-        failed = True
-    else:
-        status = "exists" if db_path.exists() else "will be created"
-        logger.info("%s Database               %s (%s)", _OK, db_path, status)
+        return True
+    status = "exists" if db_path.exists() else "will be created"
+    logger.info("%s Database               %s (%s)", _OK, db_path, status)
+    return False
 
-    # SSF_PII_PEPPER
+
+def _check_pii_pepper() -> None:
+    """Log whether a dedicated SSF_PII_PEPPER is configured."""
     if settings.pii_pepper:
         logger.info("%s SSF_PII_PEPPER         configured (%d chars)", _OK, len(settings.pii_pepper))
     else:
@@ -306,27 +311,29 @@ def run_preflight_checks() -> None:
             _WARN,
         )
 
-    # ------------------------------------------------------------------ #
-    # Optional features                                                    #
-    # ------------------------------------------------------------------ #
 
+def _check_receiver_allowlist() -> bool:
+    """Check SSF_ALLOWED_RECEIVER_HOSTS and any stored streams outside it. Returns True on failure."""
     allowed_hosts = settings.ssf_allowed_receiver_hosts
-    if allowed_hosts:
-        logger.info(
-            "%s Receiver allowlist     %d host(s): %s",
-            _OK,
-            len(allowed_hosts),
-            ", ".join(allowed_hosts),
-        )
-        if not _check_stored_streams_allowlist():
-            failed = True
-    else:
+    if not allowed_hosts:
         logger.warning(
             "%s Receiver allowlist     SSF_ALLOWED_RECEIVER_HOSTS not set "
             "— any public host is accepted as receiver endpoint",
             _WARN,
         )
+        return False
 
+    logger.info(
+        "%s Receiver allowlist     %d host(s): %s",
+        _OK,
+        len(allowed_hosts),
+        ", ".join(allowed_hosts),
+    )
+    return not _check_stored_streams_allowlist()
+
+
+def _check_forwarded_ips() -> None:
+    """Log the configured SSF_FORWARDED_ALLOW_IPS, warning when it trusts everything."""
     forwarded_ips = os.getenv("SSF_FORWARDED_ALLOW_IPS", "127.0.0.1")
     if forwarded_ips == "*":
         logger.warning(
@@ -337,58 +344,103 @@ def run_preflight_checks() -> None:
     else:
         logger.info("%s SSF_FORWARDED_ALLOW_IPS  %s", _OK, forwarded_ips)
 
-    if settings.apple_scim_enabled:
-        logger.info("%s Apple SCIM             enabled (sync every %ds)", _OK, settings.apple_scim_sync_interval)
-        if settings.apple_scim_group_id:
-            logger.info(
-                "%s Apple SCIM group filter enabled (APPLE_SCIM_GROUP_ID=%s)",
-                _OK,
-                settings.apple_scim_group_id,
-            )
-        else:
-            logger.warning(
-                "%s Apple SCIM group filter disabled — all active Authentik users will be considered",
-                _WARN,
-            )
-        if settings.apple_scim_alert_webhook_url:
-            logger.info("%s Apple SCIM alerts      webhook configured", _OK)
-        else:
-            logger.warning(
-                "%s Apple SCIM alerts      APPLE_SCIM_ALERT_WEBHOOK_URL not set"
-                " — set it to receive alerts when re-authorization is needed",
-                _WARN,
-            )
-        for url_name, url_val in [
-            ("APPLE_SCIM_AUTHORIZE_URL", settings.apple_scim_authorize_url),
-            ("APPLE_SCIM_TOKEN_URL", settings.apple_scim_token_url),
-        ]:
-            host = (urlparse(url_val).hostname or "").lower()
-            if host == "appleaccount.apple.com":
-                logger.warning(
-                    "%s %s uses appleaccount.apple.com — "
-                    "Apple Business UI currently shows appleid.apple.com; verify before use",
-                    _WARN,
-                    url_name,
-                )
-        _check_scim_authorized()
-        _check_authentik_connectivity()
+
+def _warn_if_apple_scim_url_uses_appleaccount(url_name: str, url_val: str) -> None:
+    """Warn when an Apple SCIM OAuth URL points at appleaccount.apple.com."""
+    host = (urlparse(url_val).hostname or "").lower()
+    if host == "appleaccount.apple.com":
+        logger.warning(
+            "%s %s uses appleaccount.apple.com — "
+            "Apple Business UI currently shows appleid.apple.com; verify before use",
+            _WARN,
+            url_name,
+        )
+
+
+def _check_apple_scim_enabled() -> None:
+    """Log Apple SCIM configuration details when the feature is enabled."""
+    logger.info("%s Apple SCIM             enabled (sync every %ds)", _OK, settings.apple_scim_sync_interval)
+    if settings.apple_scim_group_id:
+        logger.info(
+            "%s Apple SCIM group filter enabled (APPLE_SCIM_GROUP_ID=%s)",
+            _OK,
+            settings.apple_scim_group_id,
+        )
     else:
-        missing = [
-            name
-            for name, val in [
-                ("APPLE_SCIM_CLIENT_ID", settings.apple_scim_client_id),
-                ("APPLE_SCIM_CLIENT_SECRET", settings.apple_scim_client_secret),
-                ("AUTHENTIK_URL", settings.authentik_url),
-                ("AUTHENTIK_TOKEN", settings.authentik_token),
-            ]
-            if not val
+        logger.warning(
+            "%s Apple SCIM group filter disabled — all active Authentik users will be considered",
+            _WARN,
+        )
+    if settings.apple_scim_alert_webhook_url:
+        logger.info("%s Apple SCIM alerts      webhook configured", _OK)
+    else:
+        logger.warning(
+            "%s Apple SCIM alerts      APPLE_SCIM_ALERT_WEBHOOK_URL not set"
+            " — set it to receive alerts when re-authorization is needed",
+            _WARN,
+        )
+    for url_name, url_val in [
+        ("APPLE_SCIM_AUTHORIZE_URL", settings.apple_scim_authorize_url),
+        ("APPLE_SCIM_TOKEN_URL", settings.apple_scim_token_url),
+    ]:
+        _warn_if_apple_scim_url_uses_appleaccount(url_name, url_val)
+    _check_scim_authorized()
+    _check_authentik_connectivity()
+
+
+def _check_apple_scim_disabled() -> None:
+    """Log which required Apple SCIM env vars are missing when the feature is disabled."""
+    missing = [
+        name
+        for name, val in [
+            ("APPLE_SCIM_CLIENT_ID", settings.apple_scim_client_id),
+            ("APPLE_SCIM_CLIENT_SECRET", settings.apple_scim_client_secret),
+            ("AUTHENTIK_URL", settings.authentik_url),
+            ("AUTHENTIK_TOKEN", settings.authentik_token),
         ]
-        logger.warning("%s Apple SCIM             disabled — missing: %s", _WARN, ", ".join(missing))
+        if not val
+    ]
+    logger.warning("%s Apple SCIM             disabled — missing: %s", _WARN, ", ".join(missing))
+
+
+def _check_apple_scim() -> None:
+    """Log Apple SCIM status — never fatal at preflight."""
+    if settings.apple_scim_enabled:
+        _check_apple_scim_enabled()
+    else:
+        _check_apple_scim_disabled()
+
+
+def run_preflight_checks() -> None:
+    """Run all startup checks and exit with code 0 if any critical check fails."""
+    logger.info("── SSF Transmitter preflight  v%s ──", _VERSION)
+
+    # ------------------------------------------------------------------ #
+    # Environment / config                                                 #
+    # ------------------------------------------------------------------ #
+    failed = _check_ssf_issuer()
+    failed |= _check_ssf_base_url()
+    failed |= _check_management_token()
+    failed |= _check_webhook_auth()
+
+    # ------------------------------------------------------------------ #
+    # Local resources                                                      #
+    # ------------------------------------------------------------------ #
+    _check_signing_key()
+    _check_jwks()
+    failed |= _check_database()
+    _check_pii_pepper()
+
+    # ------------------------------------------------------------------ #
+    # Optional features                                                    #
+    # ------------------------------------------------------------------ #
+    failed |= _check_receiver_allowlist()
+    _check_forwarded_ips()
+    _check_apple_scim()
 
     # ------------------------------------------------------------------ #
     # Result                                                               #
     # ------------------------------------------------------------------ #
-
     if failed:
         logger.critical(
             "Preflight failed — fix the errors above and restart the container. "

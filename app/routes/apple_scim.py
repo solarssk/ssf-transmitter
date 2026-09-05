@@ -270,7 +270,7 @@ async def status() -> dict:
     dependencies=[Depends(require_management_auth)],
     responses={
         401: {"description": "No valid Apple access token — visit /apple-scim/authorize"},
-        502: {"description": "Could not fetch users from Authentik"},
+        502: {"description": "Could not fetch users from Authentik, or a network error listing existing Apple users"},
         503: {"description": "Apple SCIM sync is not configured"},
     },
 )
@@ -293,7 +293,15 @@ async def sync() -> dict:
     if users is None:
         raise HTTPException(status_code=502, detail="Could not fetch users from Authentik")
 
-    result = await sync_users(access_token, users)
+    try:
+        result = await sync_users(access_token, users)
+    except httpx.HTTPError:
+        # Only the initial "list existing Apple users" call can raise uncaught here —
+        # every per-user create/update inside sync_users() already catches
+        # httpx.HTTPError and counts it as result.errors instead of propagating.
+        logger.exception("Apple SCIM: sync failed — could not list existing Apple users")
+        raise HTTPException(status_code=502, detail="Could not reach Apple Business Manager") from None
+
     return {
         "status": "ok",
         "created": result.created,

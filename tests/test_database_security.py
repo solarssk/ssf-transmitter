@@ -19,7 +19,7 @@ from app.main import app
 MGMT_HEADERS = {"Authorization": "Bearer test_management_token_min_32_chars_1234"}
 
 
-@pytest.fixture()
+@pytest.fixture
 def client():
     with TestClient(app) as tc:
         yield tc

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hmac
 import logging
+import threading
 import time
 from collections import defaultdict, deque
 
@@ -30,6 +31,12 @@ _MANAGEMENT_AUTH_FAILURE_WINDOW_SECONDS = 60.0
 _management_auth_failures: dict[str, deque[float]] = defaultdict(
     lambda: deque(maxlen=_MANAGEMENT_AUTH_FAILURE_LIMIT + 1)
 )
+# Guards _management_auth_failures: a plain threading.Lock (not asyncio.Lock)
+# because require_management_auth being `async def` keeps this on the single
+# event-loop thread in production, but the lock also makes this function
+# safe to call from any real OS thread — defense in depth, not a substitute
+# for staying async (see the comment on require_management_auth below).
+_management_auth_failures_lock = threading.Lock()
 
 
 def _client_key(request: Request) -> str:
@@ -46,15 +53,17 @@ def _record_management_auth_failure(request: Request) -> None:
 
     now = time.monotonic()
     client_key = _client_key(request)
-    attempts = _management_auth_failures[client_key]
-    while attempts and now - attempts[0] >= _MANAGEMENT_AUTH_FAILURE_WINDOW_SECONDS:
-        attempts.popleft()
-    if not attempts:
-        _management_auth_failures.pop(client_key, None)
+    with _management_auth_failures_lock:
         attempts = _management_auth_failures[client_key]
-    attempts.append(now)
+        while attempts and now - attempts[0] >= _MANAGEMENT_AUTH_FAILURE_WINDOW_SECONDS:
+            attempts.popleft()
+        if not attempts:
+            _management_auth_failures.pop(client_key, None)
+            attempts = _management_auth_failures[client_key]
+        attempts.append(now)
+        exceeded = len(attempts) > _MANAGEMENT_AUTH_FAILURE_LIMIT
 
-    if len(attempts) > _MANAGEMENT_AUTH_FAILURE_LIMIT:
+    if exceeded:
         raise HTTPException(status_code=429, detail="Rate limit exceeded")
 
 
@@ -67,6 +76,16 @@ async def require_management_auth(
     Returns None on success.
     Raises 401 when Authorization header is absent or malformed.
     Raises 403 when the token is present but incorrect.
+
+    Deliberately `async def` despite having no internal `await`: FastAPI
+    dispatches a plain sync dependency to a worker thread via
+    `run_in_threadpool`, so concurrent failed-auth requests from the same
+    client would run this function — and mutate the shared
+    `_management_auth_failures` state — on different OS threads at once.
+    Staying `async def` keeps every invocation on the single event-loop
+    thread instead, which is the real fix; the lock in
+    `_record_management_auth_failure` is defense in depth on top of that,
+    not a substitute for it. Do not "clean up" this async keyword.
     """
     if not authorization or not authorization.startswith("Bearer "):
         _record_management_auth_failure(request)
