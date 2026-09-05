@@ -12,6 +12,22 @@ Events are signed as RS256 JWTs (Security Event Tokens) and pushed over HTTPS. N
 
 **Current release:** [v0.5.11 — Security audit fixes & release automation](https://github.com/solarssk/ssf-transmitter/releases/tag/v0.5.11)
 
+<details>
+<summary><strong>Table of contents</strong></summary>
+
+- [Features](#features)
+- [Quick start](#quick-start)
+- [Upgrading](#upgrading)
+- [Public endpoints](#public-endpoints)
+- [Security at a glance](#security-at-a-glance)
+- [Documentation](#documentation)
+- [Apple SCIM group filtering](#apple-scim-group-filtering)
+- [Development](#development)
+- [Contributing](#contributing)
+- [License](#license)
+
+</details>
+
 ## Features
 
 - SSF discovery and JWKS endpoints
@@ -60,6 +76,16 @@ A **stream** is the receiver configuration stored in SQLite: receiver URL, beare
 
 Replace `idp.example.com` with your IdP hostname and `/shared-signals` with your `SSF_ROOT_PATH`.
 
+## Security at a glance
+
+- SSRF protection on receiver URLs: HTTPS-only, private-IP blocklist, DNS re-resolved before every push (catches rebinding)
+- Receiver tokens encrypted at rest (Fernet); management and webhook tokens live in environment variables only, never written to disk or logged
+- Constant-time comparison on every bearer-token check; per-route rate limiting
+- Email addresses pseudonymised in logs by default (`SSF_LOG_PII=false`)
+- No persistent store of personal data — see [docs/DATA-PROTECTION.md](docs/DATA-PROTECTION.md)
+
+See [SECURITY.md](SECURITY.md) for the full trust model and how to report a vulnerability.
+
 ## Documentation
 
 | Topic | Location |
@@ -73,6 +99,7 @@ Replace `idp.example.com` with your IdP hostname and `/shared-signals` with your
 | Keys and rotation | [docs/Key-Management.md](docs/Key-Management.md) |
 | Apple SCIM sync | [docs/Apple-SCIM-Sync.md](docs/Apple-SCIM-Sync.md) |
 | Security checklist | [docs/Security-Notes.md](docs/Security-Notes.md) |
+| Data protection (GDPR) | [docs/DATA-PROTECTION.md](docs/DATA-PROTECTION.md) |
 | Troubleshooting | [docs/Troubleshooting.md](docs/Troubleshooting.md) |
 | API reference | [docs/API.md](docs/API.md) |
 | Threat model | [SECURITY.md](SECURITY.md) |
@@ -96,3 +123,11 @@ pytest  # runs the suite and prints branch coverage for app/
 ```
 
 GitHub Actions runs linting, tests with branch coverage, dependency checks, and a Docker image build on every push and pull request. Coverage is published to [Codecov](https://codecov.io/gh/solarssk/ssf-transmitter) for review on pull requests.
+
+## Contributing
+
+See [.github/CONTRIBUTING.md](.github/CONTRIBUTING.md) for the branch/PR conventions and AI-tool usage guidelines.
+
+## License
+
+MIT. See [LICENSE](LICENSE).

@@ -12,6 +12,7 @@ These files are the **source of truth** for operator documentation. Copy or sync
 | Keys, tokens, rotation | [Key-Management.md](Key-Management.md) |
 | Apple SCIM directory sync | [Apple-SCIM-Sync.md](Apple-SCIM-Sync.md) |
 | Production security checklist | [Security-Notes.md](Security-Notes.md) |
+| Data protection (GDPR) | [DATA-PROTECTION.md](DATA-PROTECTION.md) |
 | Common errors | [Troubleshooting.md](Troubleshooting.md) |
 | HTTP API reference | [API.md](API.md) |
 | Threat model | [../SECURITY.md](../SECURITY.md) |

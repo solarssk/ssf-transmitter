@@ -165,3 +165,9 @@ Please include:
 - Suggested fix (optional but appreciated)
 
 There is no formal SLA, but I aim to respond within a week and ship a fix within 30 days for critical issues.
+
+---
+
+## Data protection
+
+See [docs/DATA-PROTECTION.md](docs/DATA-PROTECTION.md) for data-handling and privacy design notes (what personal data this service processes, retention, and subject-rights guidance).

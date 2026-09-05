@@ -7,6 +7,13 @@ This file helps Cursor, Codex, Claude Code, and similar tools work effectively i
 
 ---
 
+## Repository standard
+
+This repository follows the solarssk engineering standard: https://github.com/solarssk/playbook
+Tier: 2 (see playbook/docs/tiers.md)
+
+---
+
 ## What this project is
 
 A **single-container FastAPI service** that:
