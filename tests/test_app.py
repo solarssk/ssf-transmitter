@@ -177,6 +177,29 @@ def test_webhook_ignores_login_failed_event(client: TestClient):
     assert response.json() == {"status": "ignored", "reason": "unmapped_event"}
 
 
+def test_webhook_ignores_event_with_no_email(client: TestClient):
+    """A mapped event with no user email is ignored — cannot build a SET without a subject email."""
+    body = json.dumps({"body": {"action": "authentik.core.auth.logout"}}).encode()
+
+    response = client.post("/webhook/authentik", content=body, headers=signed_headers(body))
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ignored", "reason": "missing_email"}
+
+
+def test_webhook_ignores_event_when_no_stream_configured(client: TestClient):
+    """A mapped event with an email but no SSF stream configured is ignored, not delivered."""
+    client.delete("/ssf/streams", headers=MGMT_HEADERS)
+    body = json.dumps(
+        {"body": {"action": "authentik.core.auth.logout", "user": {"email": "user@example.com"}}}
+    ).encode()
+
+    response = client.post("/webhook/authentik", content=body, headers=signed_headers(body))
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ignored", "reason": "no_enabled_stream"}
+
+
 def test_webhook_delivers_mapped_event_without_logging_or_posting_real_token(client: TestClient, monkeypatch):
     """Mapped Authentik events are pushed as SETs; receiver token is never logged."""
     create_stream(client)  # uses MGMT_HEADERS internally
@@ -208,6 +231,67 @@ def test_webhook_delivers_mapped_event_without_logging_or_posting_real_token(cli
             "receiver-secret-token",
         )
     ]
+
+
+def test_webhook_counts_failed_deliveries_separately_from_delivered(client: TestClient, monkeypatch):
+    """A push_set() failure is counted in `failed`, not silently dropped or counted as delivered."""
+    create_stream(client)
+
+    async def failing_push_set(stream, event, email):
+        return False
+
+    monkeypatch.setattr("app.routes.webhook.push_set", failing_push_set)
+    body = json.dumps(
+        {"body": {"action": "authentik.core.auth.logout", "user": {"email": "user@example.com"}}}
+    ).encode()
+
+    response = client.post("/webhook/authentik", content=body, headers=signed_headers(body))
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok", "delivered": 0, "failed": 1}
+
+
+@pytest.mark.anyio
+async def test_dispatch_events_counts_delivered_and_failed_across_multiple_events(monkeypatch):
+    """_dispatch_events() sums delivered/failed correctly across more than one event for a stream.
+
+    Every real Authentik action maps to at most one SSF event, and this app
+    supports only a single active stream, so the nested stream x event loop
+    never iterates more than once via the HTTP-level tests above — exercise
+    it directly here instead.
+    """
+    from app.database import Stream
+    from app.events.mapper import CREDENTIAL_CHANGE, SESSION_REVOKED, MappedEvent
+    from app.routes.webhook import _dispatch_events
+
+    stream = Stream(
+        stream_id="s1",
+        aud="apple-business-manager",
+        endpoint_url="https://receiver.example.test/events",
+        endpoint_token="token",
+        events_requested=[SESSION_REVOKED, CREDENTIAL_CHANGE],
+        status="enabled",
+        created_at=0,
+    )
+    events = [
+        MappedEvent(uri=SESSION_REVOKED, payload={}),
+        MappedEvent(uri=CREDENTIAL_CHANGE, payload={}),
+        MappedEvent(uri=SESSION_REVOKED, payload={}),
+    ]
+    # None (skipped) first so the loop must continue past a non-matching
+    # branch to a later event, then False, then True — each branch (skip,
+    # fail, deliver) gets to loop back for a subsequent event, not just fire
+    # on the final iteration.
+    results = iter([None, False, True])
+
+    async def fake_push_set(stream, event, email):
+        return next(results)
+
+    monkeypatch.setattr("app.routes.webhook.push_set", fake_push_set)
+
+    delivered, failed = await _dispatch_events([stream], events, "user@example.com")
+
+    assert (delivered, failed) == (1, 1)
 
 
 def test_service_root_returns_json_discovery(client: TestClient):

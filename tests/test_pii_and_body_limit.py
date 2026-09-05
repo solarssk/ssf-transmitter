@@ -131,6 +131,42 @@ def test_webhook_content_length_header_triggers_fast_rejection(client: TestClien
     assert resp.status_code == 413
 
 
+def test_webhook_malformed_content_length_header_falls_through_to_streaming_check(client: TestClient):
+    """A non-numeric Content-Length header must not crash — falls through to the streaming size check."""
+    body = json.dumps(
+        {"body": {"action": "authentik.core.auth.login_failed", "user": {"email": "u@example.com"}}}
+    ).encode()
+    headers = {**_signed_headers(body), "Content-Length": "not-a-number"}
+    resp = client.post("/webhook/authentik", content=body, headers=headers)
+    assert resp.status_code == 200
+
+
+def test_webhook_missing_content_length_header_falls_through_to_streaming_check(client: TestClient):
+    """A chunked-transfer request (no Content-Length header) skips the header check and streams normally."""
+    body = json.dumps(
+        {"body": {"action": "authentik.core.auth.login_failed", "user": {"email": "u@example.com"}}}
+    ).encode()
+
+    def _stream():
+        yield body
+
+    resp = client.post("/webhook/authentik", content=_stream(), headers=_signed_headers(body))
+    assert resp.status_code == 200
+
+
+def test_webhook_streamed_body_over_limit_without_content_length_rejected(client: TestClient):
+    """A chunked-transfer body exceeding the limit is rejected during streaming, not via Content-Length."""
+    oversized = json.dumps({"body": {"action": "x", "padding": "A" * (64 * 1024)}}).encode()
+
+    def _stream():
+        chunk_size = 4096
+        for i in range(0, len(oversized), chunk_size):
+            yield oversized[i : i + chunk_size]
+
+    resp = client.post("/webhook/authentik", content=_stream(), headers=_signed_headers(oversized))
+    assert resp.status_code == 413
+
+
 def test_webhook_malformed_json_rejected(client: TestClient):
     """A signed request with invalid JSON body returns 400."""
     body = b"this is not json"

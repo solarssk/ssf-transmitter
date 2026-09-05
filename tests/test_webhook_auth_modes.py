@@ -135,6 +135,34 @@ def test_bearer_hmac_signature_not_accepted(client: TestClient, monkeypatch):
     assert resp.status_code == 401
 
 
+def test_bearer_mode_with_no_token_configured_rejected(client: TestClient, monkeypatch):
+    """bearer mode with an empty SSF_WEBHOOK_TOKEN (bypassing config-level validation) must reject, not crash."""
+    monkeypatch.setattr(
+        "app.routes.webhook.settings",
+        dataclasses.replace(real_settings, ssf_webhook_auth_mode="bearer", ssf_webhook_token=""),
+    )
+    resp = client.post(
+        "/webhook/authentik",
+        content=_LOGOUT_BODY,
+        headers=_bearer_headers(),
+    )
+    assert resp.status_code == 401
+
+
+def test_unknown_auth_mode_returns_500(client: TestClient, monkeypatch):
+    """An unrecognized SSF_WEBHOOK_AUTH_MODE (bypassing config-level validation) is a hard 500, not accepted."""
+    monkeypatch.setattr(
+        "app.routes.webhook.settings",
+        dataclasses.replace(real_settings, ssf_webhook_auth_mode="carrier-pigeon"),
+    )
+    resp = client.post(
+        "/webhook/authentik",
+        content=_LOGOUT_BODY,
+        headers={"Content-Type": "application/json"},
+    )
+    assert resp.status_code == 500
+
+
 def test_bearer_token_never_in_logs(client: TestClient, monkeypatch, caplog):
     """The bearer token must never appear in any log record."""
     monkeypatch.setattr("app.routes.webhook.settings", _bearer_settings())
@@ -171,6 +199,17 @@ def test_hmac_invalid_signature_rejected(client: TestClient, monkeypatch):
         "/webhook/authentik",
         content=_LOGOUT_BODY,
         headers={"Content-Type": "application/json", "X-Authentik-Signature": "sha256=badhash"},
+    )
+    assert resp.status_code == 401
+
+
+def test_hmac_signature_without_sha256_prefix_rejected(client: TestClient, monkeypatch):
+    """A signature header missing the 'sha256=' prefix is rejected without ever computing a HMAC."""
+    monkeypatch.setattr("app.routes.webhook.settings", _hmac_settings())
+    resp = client.post(
+        "/webhook/authentik",
+        content=_LOGOUT_BODY,
+        headers={"Content-Type": "application/json", "X-Authentik-Signature": "deadbeef"},
     )
     assert resp.status_code == 401
 
