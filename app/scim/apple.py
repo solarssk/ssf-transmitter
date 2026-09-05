@@ -569,8 +569,7 @@ def _match_apple_user(user: dict, by_ext_id: dict[str, dict], by_username: dict[
 
     if username_match:
         logger.warning(
-            "Apple SCIM: email match skipped for %s — Apple record externalId=%s"
-            " belongs to a different Authentik user",
+            "Apple SCIM: email match skipped for %s — Apple record externalId=%s belongs to a different Authentik user",
             _log_user_ref(user),
             username_match.get("externalId"),
         )
