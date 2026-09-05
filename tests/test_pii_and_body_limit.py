@@ -80,7 +80,7 @@ def _signed_headers(body: bytes) -> dict[str, str]:
     }
 
 
-@pytest.fixture()
+@pytest.fixture
 def client():
     with TestClient(app) as tc:
         yield tc

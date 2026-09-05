@@ -18,7 +18,7 @@ VALID_TOKEN = "test_management_token_min_32_chars_1234"
 VALID_HEADERS = {"Authorization": f"Bearer {VALID_TOKEN}"}
 
 
-@pytest.fixture()
+@pytest.fixture
 def client():
     with TestClient(app) as test_client:
         yield test_client

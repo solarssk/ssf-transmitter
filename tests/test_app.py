@@ -10,7 +10,7 @@ import app.config as config
 from app.main import app, create_app
 
 
-@pytest.fixture()
+@pytest.fixture
 def client():
     with TestClient(app) as test_client:
         yield test_client

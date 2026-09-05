@@ -11,7 +11,7 @@ from app.config import Settings, _parse_allowed_receiver_hosts, _parse_log_level
 from app.main import app
 
 
-@pytest.fixture()
+@pytest.fixture
 def client():
     with TestClient(app) as tc:
         yield tc

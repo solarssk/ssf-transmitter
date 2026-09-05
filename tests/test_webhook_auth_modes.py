@@ -66,7 +66,7 @@ def _unsigned_settings(**overrides):
     return dataclasses.replace(real_settings, ssf_webhook_auth_mode="unsigned", **overrides)
 
 
-@pytest.fixture()
+@pytest.fixture
 def client():
     with TestClient(app) as tc:
         yield tc
