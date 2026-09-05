@@ -63,12 +63,18 @@ def patterns_for(version: str, title: str) -> tuple[tuple[str, str, str], ...]:
     return (
         (
             "README.md",
-            r"\*\*Current release:\*\* \[v[\d.]+ — [^\]]+\]\([^)]+\)",
+            # The embedded title can itself contain "]" (e.g. a title quoting a
+            # CVE ID or a code identifier), so `[^\]]+` would stop at the
+            # title's own first "]" and never match the line again once such a
+            # title is written. `.+?` is non-greedy but `.` doesn't match
+            # newlines, so it's forced to expand only up to this line's real
+            # `](url)` closer.
+            r"\*\*Current release:\*\* \[v[\d.]+ — .+?\]\([^)]+\)",
             f"**Current release:** [v{version} — {title}]({release_url})",
         ),
         (
             "docs/README.md",
-            r"\*\*Current stable release:\*\* `v[\d.]+` — \[[^\]]+\]\([^)]+\)",
+            r"\*\*Current stable release:\*\* `v[\d.]+` — \[.+?\]\([^)]+\)",
             f"**Current stable release:** `v{version}` — [{title}]({release_url})",
         ),
         (
