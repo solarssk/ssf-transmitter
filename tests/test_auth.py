@@ -10,6 +10,7 @@ Covers:
 """
 
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -76,6 +77,85 @@ def test_failed_management_auth_attempts_are_rate_limited(client: TestClient):
         headers={"Authorization": "Bearer wrong_token_value_that_is_long_enough_1234"},
     )
     assert resp.status_code == 429
+
+
+def test_concurrent_failed_management_auth_attempts_are_not_lost():
+    """Concurrent calls for the same client must not race the shared attempt counter.
+
+    Regression test for require_management_auth briefly being a plain `def`:
+    FastAPI dispatches a sync dependency to its worker thread pool, so
+    concurrent requests can run _record_management_auth_failure's
+    check-then-act sequence on real OS threads at once. The race is on the
+    "bucket is empty/expired -> pop and recreate" branch specifically (hit
+    by every thread on a brand-new client_key, as here) and is too narrow
+    to reproduce via brute-force thread hammering alone — individual dict/
+    deque operations execute far faster than a GIL switch interval, so
+    threads essentially never get preempted mid-critical-section in
+    practice. A `_SlowPopDict.pop()` sleep deterministically widens that
+    exact window instead, without touching app.auth's real logic.
+
+    With the bug present (no lock, or a non-async dependency dispatched to
+    a thread pool), this reliably observed all N concurrent first-time
+    attempts landing in *different* recreated deques and none of them
+    ever seeing the shared count exceed the limit — i.e. `blocked == 0`
+    instead of the correct `N - LIMIT`.
+    """
+    import threading
+    import time
+    from collections import defaultdict, deque
+    from types import SimpleNamespace
+
+    import app.auth as auth_module
+    from app.rate_limit import limiter
+
+    class _SlowPopDict(defaultdict):
+        """Sleeps inside pop() to force concurrent threads to interleave there."""
+
+        def pop(self, *args, **kwargs):
+            time.sleep(0.005)
+            return super().pop(*args, **kwargs)
+
+    limiter.reset()
+    original_failures = auth_module._management_auth_failures
+    n_threads = 2 * auth_module._MANAGEMENT_AUTH_FAILURE_LIMIT
+    auth_module._management_auth_failures = _SlowPopDict(
+        lambda: deque(maxlen=auth_module._MANAGEMENT_AUTH_FAILURE_LIMIT + 1)
+    )
+    was_enabled = limiter.enabled
+    limiter.enabled = True
+    try:
+        fake_request = SimpleNamespace(client=SimpleNamespace(host="race-test-client"))
+        allowed = 0
+        blocked = 0
+        counts_lock = threading.Lock()
+        barrier = threading.Barrier(n_threads)
+
+        def _hammer() -> None:
+            nonlocal allowed, blocked
+            barrier.wait()
+            try:
+                auth_module._record_management_auth_failure(fake_request)
+            except HTTPException:
+                with counts_lock:
+                    blocked += 1
+            else:
+                with counts_lock:
+                    allowed += 1
+
+        threads = [threading.Thread(target=_hammer) for _ in range(n_threads)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+    finally:
+        limiter.enabled = was_enabled
+        auth_module._management_auth_failures = original_failures
+
+    # Exactly the first LIMIT concurrent attempts should be let through;
+    # every attempt past that must be rejected. A lost count under
+    # concurrency would shift this split (in the extreme, all N allowed).
+    assert allowed == auth_module._MANAGEMENT_AUTH_FAILURE_LIMIT
+    assert blocked == n_threads - auth_module._MANAGEMENT_AUTH_FAILURE_LIMIT
 
 
 def test_get_streams_requires_auth(client: TestClient):
