@@ -11,8 +11,12 @@ jobs:
   dependency-review:
     name: Dependency review
     runs-on: ubuntu-latest
+    # contents: write is required by the dependency-snapshot submission step
+    # below (the GitHub Dependency Submission API treats a snapshot POST as
+    # a repository write) — see
+    # https://docs.github.com/en/code-security/how-tos/secure-your-supply-chain/secure-your-dependencies/use-dependency-submission-api
     permissions:
-      contents: read
+      contents: write
       pull-requests: write
 
     steps:
@@ -21,13 +25,35 @@ jobs:
         with:
           persist-credentials: false
 
+      # Without this, dependency-review-action below falls back to a plain
+      # manifest diff (requirements*.txt / pyproject.toml as checked in),
+      # which misses resolved transitive versions. Submitting a resolved
+      # snapshot for this commit lets it compare precise dependency data
+      # instead. Fork PRs get a read-only GITHUB_TOKEN regardless of the
+      # `contents: write` above, so this only runs for same-repo PRs — same
+      # guard as the PR-comment step below.
+      - name: Submit dependency snapshot
+        if: github.event.pull_request.head.repo.full_name == github.repository
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: github
+          output: dependency-results.sbom.json
+          github-pat: ${{ secrets.GITHUB_TOKEN }}
+
       # For a fork PR, GITHUB_TOKEN is downgraded to read-only regardless of
       # the `pull-requests: write` above — posting/updating the PR comment
       # would fail with a permission error and take the whole check down
       # with it, even on a clean scan. The scan itself still always runs;
       # only the comment is conditional on same-repo (non-fork) PRs.
+      #
+      # retry-on-snapshot-warnings: the snapshot submitted just above can
+      # take a few seconds to become queryable — without this, a fast run
+      # could still hit the "no snapshot found" warning it was added to fix.
       - name: Scan dependency changes
         uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294  # v5.0.0
         with:
           fail-on-severity: high
           comment-summary-in-pr: ${{ github.event.pull_request.head.repo.full_name == github.repository && 'always' || 'never' }}
+          retry-on-snapshot-warnings: true
