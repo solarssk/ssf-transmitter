@@ -25,7 +25,18 @@ _SENSITIVE_KEYS = {
     "secret",
     "id_token",
 }
-_EMAIL_RE = re.compile(r"([A-Z0-9._%+\-]+@(?:[A-Z0-9\-]+\.)+[A-Z]{2,})", re.IGNORECASE)
+# Every quantifier is bounded (RFC 5321 caps the local part at 64 octets,
+# RFC 1035 caps a domain label at 63 and a full name at ~10 realistic
+# labels) rather than open-ended (`+`). An unbounded repeated group here
+# is a genuine super-linear-runtime hazard under re.search(): on
+# non-matching text, each of the O(n) positions re.search() tries can
+# still greedily consume an O(n)-length suffix before failing, making the
+# whole scan O(n^2) — confirmed empirically (SonarCloud python:S5852), and
+# NOT fixed by possessive quantifiers alone (those only remove wasted
+# backtracking *within* one attempt, not the O(n) cost repeated *across*
+# attempts). Bounding every quantifier caps each attempt's cost at a
+# constant, restoring linear-time scanning regardless of input size.
+_EMAIL_RE = re.compile(r"([A-Z0-9._%+\-]{1,64}@(?:[A-Z0-9\-]{1,63}\.){1,10}[A-Z]{2,24})", re.IGNORECASE)
 
 
 def response_metadata(response: httpx.Response) -> dict[str, int | str | None]:

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import time
+
 import httpx
 
-from app.security.http_logging import json_key_summary, response_metadata, safe_response_body_text
+from app.security.http_logging import json_key_summary, redact_text, response_metadata, safe_response_body_text
 
 
 class TestResponseMetadata:
@@ -88,3 +90,50 @@ class TestSafeResponseBodyText:
         safe = safe_response_body_text(resp, log_pii=False, pii_key="pepper")
         assert "bob@example.com" not in safe
         assert "[pii:" in safe
+
+
+class TestRedactText:
+    """_EMAIL_RE's quantifiers are all bounded (RFC 5321/1035 limits) rather
+    than open-ended, to avoid the super-linear-runtime hazard flagged by
+    SonarCloud (python:S5852) — an unbounded repeated group lets each of the
+    O(n) positions re.search() tries on non-matching text still greedily
+    consume an O(n) suffix before failing, which is O(n^2) overall and is
+    NOT fixed by possessive quantifiers alone (they only remove backtracking
+    *within* one attempt, not the cost repeated *across* attempts)."""
+
+    def test_redacts_multi_label_domain(self):
+        text = "contact alice.bob+tag@sub.example.co.uk please"
+        result = redact_text(text, log_pii=False, pii_key="pepper")
+        assert "alice.bob+tag@sub.example.co.uk" not in result
+        assert "[pii:" in result
+
+    def test_redacts_multiple_emails(self):
+        text = "a@b.com and c@d.org"
+        result = redact_text(text, log_pii=False, pii_key="pepper")
+        assert "a@b.com" not in result
+        assert "c@d.org" not in result
+
+    def test_non_email_text_is_unaffected(self):
+        text = "no email content here, just plain diagnostics"
+        assert redact_text(text, log_pii=False, pii_key="pepper") == text
+
+    def test_adversarial_dotted_text_completes_quickly(self):
+        """Regression test: this exact shape (many dots, no valid TLD) took
+        several seconds with the unbounded regex once input reached ~16k
+        repetitions; bounded quantifiers keep it linear."""
+        adversarial = "a." * 200_000 + "!"
+        start = time.monotonic()
+        result = redact_text(adversarial, log_pii=False, pii_key="pepper")
+        elapsed = time.monotonic() - start
+        assert result == adversarial  # no email-shaped match in this input
+        assert elapsed < 2.0, f"redact_text took {elapsed:.2f}s on adversarial input — possible ReDoS regression"
+
+    def test_adversarial_long_local_part_completes_quickly(self):
+        """Regression test for the other adversarial shape: a long run of
+        local-part-compatible characters (letters) with no '@' anywhere
+        nearby, repeated across many candidate '@' positions."""
+        adversarial = ("a" * 5000 + "@") * 200
+        start = time.monotonic()
+        redact_text(adversarial, log_pii=False, pii_key="pepper")
+        elapsed = time.monotonic() - start
+        assert elapsed < 2.0, f"redact_text took {elapsed:.2f}s on adversarial input — possible ReDoS regression"
