@@ -5,6 +5,7 @@ from __future__ import annotations
 import dataclasses
 from typing import ClassVar
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
@@ -469,6 +470,29 @@ def test_sync_502_when_authentik_users_unavailable(client, monkeypatch):
     resp = client.post("/apple-scim/sync", headers=MGMT_HEADERS)
 
     assert resp.status_code == 502
+
+
+def test_sync_502_when_apple_users_list_fails_with_network_error(client, monkeypatch):
+    """A network error listing existing Apple users must surface as a clean 502, not an unhandled 500."""
+    monkeypatch.setattr(scim_routes, "settings", _configured_settings())
+
+    async def _has_token():
+        return "valid-token"
+
+    async def _users():
+        return [{"userName": "a@example.com"}]
+
+    async def _sync_network_error(access_token, scim_users):
+        raise httpx.ConnectError("connection refused")
+
+    monkeypatch.setattr(scim_routes, "get_valid_access_token", _has_token)
+    monkeypatch.setattr(scim_routes, "get_users", _users)
+    monkeypatch.setattr(scim_routes, "sync_users", _sync_network_error)
+
+    resp = client.post("/apple-scim/sync", headers=MGMT_HEADERS)
+
+    assert resp.status_code == 502
+    assert "Could not reach Apple Business Manager" in resp.json()["detail"]
 
 
 def test_sync_success_returns_result_summary(client, monkeypatch):
