@@ -11,8 +11,8 @@ These files are the **source of truth** for operator documentation. Copy or sync
 | Authentik → SSF event mapping | [Event-Mapping.md](Event-Mapping.md) |
 | Keys, tokens, rotation | [Key-Management.md](Key-Management.md) |
 | Apple SCIM directory sync | [Apple-SCIM-Sync.md](Apple-SCIM-Sync.md) |
-| Production security checklist | [Security-Notes.md](Security-Notes.md) |
-| Data protection (GDPR) | [DATA-PROTECTION.md](DATA-PROTECTION.md) |
+| Production security checklist | [security/Security-Notes.md](security/Security-Notes.md) |
+| Data protection (GDPR) | [security/DATA-PROTECTION.md](security/DATA-PROTECTION.md) |
 | Common errors | [Troubleshooting.md](Troubleshooting.md) |
 | HTTP API reference | [API.md](API.md) |
 | Threat model | [../SECURITY.md](../SECURITY.md) |

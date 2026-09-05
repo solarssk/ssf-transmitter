@@ -2,7 +2,7 @@
 
 ## Scope
 
-This document covers the threat model, trust boundaries, and security properties of **SSF Transmitter** — a self-hosted FastAPI service that bridges Authentik webhooks to OpenID Shared Signals Framework (SSF) push receivers.
+This document covers the threat model, trust boundaries, and security properties of **SSF Transmitter**: a self-hosted FastAPI service that bridges Authentik webhooks to OpenID Shared Signals Framework (SSF) push receivers.
 
 ---
 
@@ -12,7 +12,7 @@ This document covers the threat model, trust boundaries, and security properties
 [Internet / Receiver]
         │ HTTPS only, RS256-signed JWT
         ▼
-[Reverse proxy — TLS termination, rate limiting, IP filtering]
+[Reverse proxy: TLS termination, rate limiting, IP filtering]
         │
         ▼
 [SSF Transmitter container]
@@ -34,10 +34,10 @@ This document covers the threat model, trust boundaries, and security properties
 
 ### Public endpoints (no authentication required)
 
-- `GET /` — minimal service discovery (service name, version, link to SSF well-known)
+- `GET /`: minimal service discovery (service name, version, link to SSF well-known)
 - `GET /.well-known/ssf-configuration`
 - `GET /jwks.json`
-- `GET /apple-scim/authorize` (initiates OAuth flow — admin browser)
+- `GET /apple-scim/authorize` (initiates OAuth flow, admin browser)
 - `GET /apple-scim/callback` (OAuth redirect from Apple; CSRF-protected via `state` parameter)
 
 ### OpenAPI / Swagger (disabled by default)
@@ -47,11 +47,11 @@ This document covers the threat model, trust boundaries, and security properties
 
 ### Webhook endpoint
 
-- `POST /webhook/authentik` — authentication mode controlled by `SSF_WEBHOOK_AUTH_MODE`:
+- `POST /webhook/authentik`: authentication mode controlled by `SSF_WEBHOOK_AUTH_MODE`:
   - **`bearer` (default/recommended):** Authentik sends `Authorization: Bearer <SSF_WEBHOOK_TOKEN>` via a Generic Webhook Header Mapping. Simplest to configure and rotate.
   - **`hmac` (legacy):** Authentik sends `X-Authentik-Signature: sha256=<hmac>`. Still supported but new deployments should use `bearer`.
   - **`unsigned` (dev/lab only):** No authentication. Only use if the webhook endpoint is reachable exclusively from the Authentik container on an isolated internal Docker network.
-  - `SSF_ALLOW_UNSIGNED_WEBHOOK=true` is a deprecated alias for `unsigned` — it logs a startup warning and will be removed in a future release.
+  - `SSF_ALLOW_UNSIGNED_WEBHOOK=true` is a deprecated alias for `unsigned`; it logs a startup warning and will be removed in a future release.
 
 ---
 
@@ -90,7 +90,7 @@ This document covers the threat model, trust boundaries, and security properties
 **Mitigation:**
 - In `bearer` mode (default): missing or invalid `Authorization: Bearer <SSF_WEBHOOK_TOKEN>` returns 401. Token comparison uses `hmac.compare_digest` (constant-time).
 - In `hmac` mode (legacy): missing or invalid `X-Authentik-Signature` returns 401. Signature verification uses `hmac.compare_digest` (constant-time).
-- `unsigned` mode disables authentication entirely — only for isolated dev/lab environments.
+- `unsigned` mode disables authentication entirely; only for isolated dev/lab environments.
 - Body size limited to 64 KiB before authentication is checked.
 
 ### Management API abuse
@@ -141,7 +141,7 @@ To run this service securely in production:
 
 1. **TLS:** Place behind nginx or Caddy with a valid certificate. Never expose the service directly on port 8000.
 2. **Network isolation:** The webhook endpoint (`/webhook/authentik`) should be reachable only from the Authentik container. Use Docker networks or nginx `allow`/`deny` rules.
-3. **Strong secrets:** Generate `SSF_MANAGEMENT_TOKEN` and `SSF_WEBHOOK_TOKEN` (bearer mode) or `SSF_WEBHOOK_SECRET` (hmac mode) with at least 32 random characters (`openssl rand -hex 24`). Do not reuse the same value for both tokens — they protect different trust boundaries.
+3. **Strong secrets:** Generate `SSF_MANAGEMENT_TOKEN` and `SSF_WEBHOOK_TOKEN` (bearer mode) or `SSF_WEBHOOK_SECRET` (hmac mode) with at least 32 random characters (`openssl rand -hex 24`). Do not reuse the same value for both tokens; they protect different trust boundaries.
    Existing HMAC deployments must keep `SSF_WEBHOOK_AUTH_MODE=hmac` explicitly set during upgrades until the Authentik transport is migrated to bearer auth.
 4. **Volume permissions:** Mount `/app/keys` and `/app/data` to host paths owned by root (mode 700). Do not share these volumes with other containers.
 5. **Log pipeline:** Logs go to stdout/stderr only. Route them to a private log aggregator; do not ship logs to untrusted third parties (they may contain pseudonymous user identifiers).
@@ -170,4 +170,4 @@ There is no formal SLA, but I aim to respond within a week and ship a fix within
 
 ## Data protection
 
-See [docs/DATA-PROTECTION.md](docs/DATA-PROTECTION.md) for data-handling and privacy design notes (what personal data this service processes, retention, and subject-rights guidance).
+See [docs/security/DATA-PROTECTION.md](docs/security/DATA-PROTECTION.md) for data-handling and privacy design notes (what personal data this service processes, retention, and subject-rights guidance).
