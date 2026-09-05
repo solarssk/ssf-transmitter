@@ -133,7 +133,7 @@ def _parse_webhook_json(raw_body: bytes) -> dict:
     return payload
 
 
-async def _dispatch_events(streams: list[Stream], events: list[MappedEvent], email: str | None) -> tuple[int, int]:
+async def _dispatch_events(streams: list[Stream], events: list[MappedEvent], email: str) -> tuple[int, int]:
     """Push every event to every enabled stream; return (delivered, failed) counts."""
     delivered = 0
     failed = 0
