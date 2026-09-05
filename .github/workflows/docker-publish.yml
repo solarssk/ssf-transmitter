@@ -244,27 +244,59 @@ jobs:
           subject-digest: ${{ steps.ghcr-manifest.outputs.digest }}
           push-to-registry: true
 
-      - name: Generate SBOM (CycloneDX)
+      # The manifest-list digest above has no platform of its own — Trivy
+      # resolves a multi-arch ref with no --platform to the scanning host's
+      # architecture (amd64 here) silently, with no warning or error, so an
+      # SBOM generated from steps.ghcr-manifest.outputs.digest would only
+      # ever cover amd64 packages. Scanning each platform's own
+      # single-platform digest instead — the same ones build-and-scan
+      # already pushed by digest and scanned natively — covers both.
+      - name: Download digests (per platform)
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        with:
+          path: /tmp/digests-by-arch
+          pattern: digests-*
+
+      - name: Read per-platform digests
+        id: platform-digests
+        run: |
+          set -euo pipefail
+          for dir in /tmp/digests-by-arch/digests-*; do
+            arch="${dir##*/digests-}"
+            digest="$(ls "$dir")"
+            echo "${arch}=sha256:${digest}" >> "$GITHUB_OUTPUT"
+          done
+
+      - name: Generate SBOM (CycloneDX) — amd64
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
-          image-ref: ${{ env.GHCR_IMAGE }}@${{ steps.ghcr-manifest.outputs.digest }}
+          image-ref: ${{ env.GHCR_IMAGE }}@${{ steps.platform-digests.outputs.amd64 }}
           format: cyclonedx
-          output: sbom-cyclonedx.json
+          output: sbom-cyclonedx-amd64.json
         env:
           TRIVY_CACHE_DIR: /tmp/trivy-cache
 
-      - name: Upload SBOM artifact
+      - name: Generate SBOM (CycloneDX) — arm64
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
+        with:
+          image-ref: ${{ env.GHCR_IMAGE }}@${{ steps.platform-digests.outputs.arm64 }}
+          format: cyclonedx
+          output: sbom-cyclonedx-arm64.json
+        env:
+          TRIVY_CACHE_DIR: /tmp/trivy-cache
+
+      - name: Upload SBOM artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: sbom-cyclonedx
-          path: sbom-cyclonedx.json
+          path: sbom-cyclonedx-*.json
           retention-days: 90
 
       # Everything below is release-only: a real "v0.5.11"-style tag,
       # whether from release.yml's workflow_dispatch (github.ref_type is
       # 'tag' there too, since the tag already exists by the time it
       # dispatches this) or scripts/release-tag.sh's own tag push.
-      - name: Attach SBOM to GitHub Release
+      - name: Attach SBOMs to GitHub Release
         if: github.ref_type == 'tag'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -276,7 +308,7 @@ jobs:
           # so create it here if it's still missing — otherwise the upload
           # below fails and the smoke-test dispatch after it never runs.
           gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "$TAG" --generate-notes --latest
-          gh release upload "$TAG" sbom-cyclonedx.json --clobber
+          gh release upload "$TAG" sbom-cyclonedx-amd64.json sbom-cyclonedx-arm64.json --clobber
 
       # The published image is only really pullable once this job's imagetools
       # calls above have completed — dispatching the smoke test from here,
