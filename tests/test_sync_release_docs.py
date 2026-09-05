@@ -1,12 +1,21 @@
 """Regression tests for scripts/sync-release-docs.py.
 
-Covers a CHANGELOG.md release title containing "]" (e.g. quoting a CVE ID
-or a code identifier) — see AGENTS.md's "Cutting a release" checklist.
-Before the fix, `patterns_for()`'s README.md/docs/README.md "Current
-release" regexes used `[^\\]]+` for the embedded title, which stopped at
-the title's own first "]" and could never match the line again once such a
-title was written — so `sync-release-docs.py` then `--check` would fail
-with "pattern not found" on the very release that introduced it.
+Covers CHANGELOG.md release titles containing punctuation that used to
+confuse `patterns_for()`'s README.md/docs/README.md "Current release"
+regexes — see AGENTS.md's "Cutting a release" checklist:
+
+- A title containing "]" (e.g. quoting a CVE ID). The original `[^\\]]+`
+  stopped at the title's own first "]" and could never match the line
+  again once such a title was written — so `sync-release-docs.py` then
+  `--check` would fail with "pattern not found" on the very release that
+  introduced it.
+- A title containing its own `[x](y)` markdown link. A generic
+  `.+?\\]\\([^)]+\\)` closer (the first fix's approach) is non-greedy and
+  stops at the title's own inner `](...)`, not the line's real closing
+  link — so the first sync leaves the real `](url)` dangling unreplaced,
+  and a later run's `--check` matches only the truncated prefix, missing
+  the leftover fragment entirely. Fixed by anchoring the closer to this
+  repo's specific github.com release URL shape instead of "any non-)".
 """
 
 from __future__ import annotations
@@ -22,6 +31,7 @@ import pytest
 SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "sync-release-docs.py"
 
 BRACKET_TITLE = "Fix [CVE-2026-1234] token disclosure"
+MARKDOWN_LINK_TITLE = "Fix [CVE-2026-1234](https://example.com/advisory) token disclosure"
 
 
 def _load_module() -> ModuleType:
@@ -49,6 +59,7 @@ def test_read_title_for_preserves_brackets_in_title(tmp_path, sync_release_docs,
     assert sync_release_docs.read_title_for("0.5.12") == BRACKET_TITLE
 
 
+@pytest.mark.parametrize("title", [BRACKET_TITLE, MARKDOWN_LINK_TITLE])
 @pytest.mark.parametrize(
     ("rel", "old_line"),
     [
@@ -64,31 +75,34 @@ def test_read_title_for_preserves_brackets_in_title(tmp_path, sync_release_docs,
         ),
     ],
 )
-def test_current_release_pattern_matches_and_replaces_bracket_title(sync_release_docs, rel, old_line):
+def test_current_release_pattern_matches_and_replaces_punctuated_title(sync_release_docs, rel, old_line, title):
     version = "0.5.12"
-    patterns = {
-        r: (pattern, replacement) for r, pattern, replacement in sync_release_docs.patterns_for(version, BRACKET_TITLE)
-    }
+    patterns = {r: (pattern, replacement) for r, pattern, replacement in sync_release_docs.patterns_for(version, title)}
     pattern, replacement = patterns[rel]
 
     assert re.search(pattern, old_line), f"pattern for {rel} should match the pre-existing line"
     updated = re.sub(pattern, lambda _m, r=replacement: r, old_line, count=1)
-    assert updated == replacement
+    assert updated == replacement, "sync must replace the *whole* old line, leaving no leftover fragment"
 
     # The critical regression: re-running the *same* pattern against the
-    # freshly-written line (now itself containing a title with "]") must
-    # still match, exactly as `--check` does on a subsequent run.
-    assert re.search(pattern, updated), f"pattern for {rel} must still match its own bracket-title output"
+    # freshly-written line (now itself containing a punctuated title) must
+    # still match the *entire* line, exactly as `--check` does on a
+    # subsequent run — a partial match here means a corrupted doc.
+    rerun = re.search(pattern, updated)
+    assert rerun, f"pattern for {rel} must still match its own {title!r} output"
+    assert rerun.group(0) == updated, f"pattern for {rel} must match the full line, not a truncated prefix"
 
 
-def test_main_end_to_end_survives_bracket_title(tmp_path, sync_release_docs, monkeypatch):
+@pytest.mark.parametrize("title", [BRACKET_TITLE, MARKDOWN_LINK_TITLE])
+def test_main_end_to_end_survives_punctuated_title(tmp_path, sync_release_docs, monkeypatch, title):
     """Full main() round-trip: sync then --check must both succeed once a
-    CHANGELOG title containing "]" has actually been written into the docs.
+    CHANGELOG title containing "]" or its own markdown link has actually
+    been written into the docs.
     """
     version = "0.5.12"
     (tmp_path / "pyproject.toml").write_text(f'[project]\nversion = "{version}"\n', encoding="utf-8")
     (tmp_path / "CHANGELOG.md").write_text(
-        f"## [Unreleased]\n\n## [{version}] — 2026-10-01 — {BRACKET_TITLE}\n\n- did stuff\n",
+        f"## [Unreleased]\n\n## [{version}] — 2026-10-01 — {title}\n\n- did stuff\n",
         encoding="utf-8",
     )
     (tmp_path / "README.md").write_text(
@@ -121,7 +135,7 @@ def test_main_end_to_end_survives_bracket_title(tmp_path, sync_release_docs, mon
     assert sync_release_docs.main() == 0
 
     readme_text = (tmp_path / "README.md").read_text(encoding="utf-8")
-    assert f"[v{version} — {BRACKET_TITLE}]" in readme_text
+    assert f"[v{version} — {title}]" in readme_text
 
     monkeypatch.setattr(sys, "argv", ["sync-release-docs.py", "--check"])
     assert sync_release_docs.main() == 0

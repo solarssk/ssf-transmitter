@@ -63,18 +63,24 @@ def patterns_for(version: str, title: str) -> tuple[tuple[str, str, str], ...]:
     return (
         (
             "README.md",
-            # The embedded title can itself contain "]" (e.g. a title quoting a
-            # CVE ID or a code identifier), so `[^\]]+` would stop at the
-            # title's own first "]" and never match the line again once such a
-            # title is written. `.+?` is non-greedy but `.` doesn't match
-            # newlines, so it's forced to expand only up to this line's real
-            # `](url)` closer.
-            r"\*\*Current release:\*\* \[v[\d.]+ — .+?\]\([^)]+\)",
+            # The embedded title can itself contain "]" — or even a full
+            # `[x](y)` markdown link, e.g. a title quoting a CVE ID or a code
+            # identifier — so `[^\]]+` would stop at the title's own first
+            # "]", and a generic `.+?\]\([^)]+\)` would stop at the title's
+            # own inner `](...)` instead of the line's real closing link.
+            # Anchor the closing `](...)` to the release URL's known,
+            # specific shape instead of a generic "any non-)" match, so only
+            # this repo's actual github.com release link can end the match —
+            # a title would have to literally contain that exact URL to
+            # collide, which isn't a realistic release title.
+            r"\*\*Current release:\*\* \[v[\d.]+ — .+?\]"
+            r"\(https://github\.com/solarssk/ssf-transmitter/releases/tag/v[\d.]+\)",
             f"**Current release:** [v{version} — {title}]({release_url})",
         ),
         (
             "docs/README.md",
-            r"\*\*Current stable release:\*\* `v[\d.]+` — \[.+?\]\([^)]+\)",
+            r"\*\*Current stable release:\*\* `v[\d.]+` — \[.+?\]"
+            r"\(https://github\.com/solarssk/ssf-transmitter/releases/tag/v[\d.]+\)",
             f"**Current stable release:** `v{version}` — [{title}]({release_url})",
         ),
         (
