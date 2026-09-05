@@ -79,6 +79,48 @@ def test_failed_management_auth_attempts_are_rate_limited(client: TestClient):
     assert resp.status_code == 429
 
 
+def test_client_key_falls_back_when_no_client_info():
+    """A request with no ASGI client info (e.g. a raw ASGI test transport) uses a fixed key."""
+    from types import SimpleNamespace
+
+    from app.auth import _client_key
+
+    assert _client_key(SimpleNamespace(client=None)) == "unknown-client"
+    assert _client_key(SimpleNamespace(client=SimpleNamespace(host=""))) == "unknown-client"
+
+
+def test_management_auth_failure_window_expires_old_attempts(monkeypatch):
+    """Attempts older than the window are pruned, so the limit doesn't stick forever."""
+    import time
+    from types import SimpleNamespace
+
+    from app.auth import (
+        _MANAGEMENT_AUTH_FAILURE_WINDOW_SECONDS,
+        _management_auth_failures,
+        _record_management_auth_failure,
+    )
+    from app.rate_limit import limiter
+
+    limiter.reset()
+    _management_auth_failures.clear()
+    was_enabled = limiter.enabled
+    limiter.enabled = True
+    fake_request = SimpleNamespace(client=SimpleNamespace(host="window-test-client"))
+
+    fake_now = [1_000.0]
+    monkeypatch.setattr(time, "monotonic", lambda: fake_now[0])
+    try:
+        _record_management_auth_failure(fake_request)
+        # Advance past the window — the old attempt must be pruned, not
+        # accumulated, so a single later attempt does not trip the limit.
+        fake_now[0] += _MANAGEMENT_AUTH_FAILURE_WINDOW_SECONDS + 1
+        _record_management_auth_failure(fake_request)
+        assert len(_management_auth_failures["window-test-client"]) == 1
+    finally:
+        limiter.enabled = was_enabled
+        _management_auth_failures.clear()
+
+
 def test_concurrent_failed_management_auth_attempts_are_not_lost():
     """Concurrent calls for the same client must not race the shared attempt counter.
 
