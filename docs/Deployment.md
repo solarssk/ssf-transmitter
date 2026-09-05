@@ -7,10 +7,10 @@ SSF Transmitter runs as a single Docker container next to Authentik. TLS termina
 Published to two registries, built for both `linux/amd64` and `linux/arm64` (e.g. Synology DS220+/DS920+ vs. Apple Silicon/ARM NAS):
 
 ```text
-ghcr.io/solarssk/ssf-transmitter:0.5.11     # pinned release
+ghcr.io/solarssk/ssf-transmitter:0.5.12     # pinned release
 ghcr.io/solarssk/ssf-transmitter:latest      # tracks main
 
-docker.io/solarssk/ssf-transmitter:0.5.11   # same image, Docker Hub
+docker.io/solarssk/ssf-transmitter:0.5.12   # same image, Docker Hub
 docker.io/solarssk/ssf-transmitter:latest
 ```
 
@@ -22,7 +22,7 @@ See [docker-compose.snippet.yml](../docker-compose.snippet.yml) in the repositor
 
 ```yaml
 ssf-transmitter:
-  image: ghcr.io/solarssk/ssf-transmitter:0.5.11
+  image: ghcr.io/solarssk/ssf-transmitter:0.5.12
   container_name: authentik-ssf
   restart: unless-stopped
   env_file:
@@ -46,7 +46,7 @@ ssf-transmitter:
     - authentik_network
 ```
 
-Swap `image:` to `docker.io/solarssk/ssf-transmitter:0.5.11` to pull from Docker Hub instead — skips the `docker login` GHCR needs.
+Swap `image:` to `docker.io/solarssk/ssf-transmitter:0.5.12` to pull from Docker Hub instead — skips the `docker login` GHCR needs.
 
 Set `SSF_FORWARDED_ALLOW_IPS` to your **reverse proxy Docker subnet** when using Nginx Proxy Manager or similar. See [Configuration](Configuration.md).
 

@@ -1,5 +1,17 @@
 # Upgrading
 
+## v0.5.12 — Release pipeline hardening (from 0.5.11)
+
+Release notes: [v0.5.12](https://github.com/solarssk/ssf-transmitter/releases/tag/v0.5.12)
+
+No `app/` changes at all — this release only touches CI/release tooling (fixes to `release.yml` and `docker-publish.yml` found while cutting v0.5.11, the first release actually run through the new automation). Nothing to act on; the image content is identical to v0.5.11's except for a corrected SBOM (now covers both `linux/amd64` and `linux/arm64` instead of amd64 only). Upgrading is optional — bump the tag whenever convenient:
+
+```bash
+docker compose pull ssf-transmitter
+docker compose up -d ssf-transmitter
+docker compose logs ssf-transmitter --tail 50
+```
+
 ## v0.5.11 — Security audit fixes & release automation (from 0.5.10)
 
 Release notes: [v0.5.11](https://github.com/solarssk/ssf-transmitter/releases/tag/v0.5.11)

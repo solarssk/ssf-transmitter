@@ -5,7 +5,7 @@ name = "ssf-transmitter"
 # a release PR's "release: vX.Y.Z" commit. Not otherwise read at runtime; the running
 # app's own reported version comes from the APP_VERSION build-arg (Dockerfile), set
 # from the git tag at image build time.
-version = "0.5.11"
+version = "0.5.12"
 requires-python = ">=3.14"
 
 [tool.pytest.ini_options]
