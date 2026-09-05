@@ -59,51 +59,38 @@ def _map_to_scim(user: dict) -> dict:
     }
 
 
-async def get_users() -> list[dict] | None:
-    """Return all eligible Authentik users mapped to SCIM format.
-
-    If APPLE_SCIM_GROUP_ID is set only members of that group are returned.
-    Only internal accounts (type=internal) are included; service accounts are
-    excluded regardless of the group filter.
-
-    Returns:
-        list[dict]: SCIM-mapped users — may be an empty list if there are none.
-        None:       An upstream error occurred (misconfiguration, network, auth).
-    """
-    if not settings.authentik_url or not settings.authentik_token:
-        logger.error("Authentik URL or token not configured")
-        return None
-
-    headers = {"Authorization": f"Bearer {settings.authentik_token}"}
-    base = settings.authentik_url.rstrip("/")
-
-    group_id = (settings.apple_scim_group_id or "").strip()
+def _build_initial_users_url(base: str, group_id: str) -> str:
+    """Return the first-page Authentik users URL, filtered by group if configured."""
     if group_id:
-        url = f"{base}/api/v3/core/users/?groups_by_pk={group_id}&type=internal&page_size=500"
         logger.info("Apple SCIM: Authentik group filtering enabled group_id=%s", group_id)
-    else:
-        url = f"{base}/api/v3/core/users/?type=internal&page_size=500"
-        logger.info("Apple SCIM: Authentik group filtering disabled — syncing all active users")
+        return f"{base}/api/v3/core/users/?groups_by_pk={group_id}&type=internal&page_size=500"
+    logger.info("Apple SCIM: Authentik group filtering disabled — syncing all active users")
+    return f"{base}/api/v3/core/users/?type=internal&page_size=500"
 
+
+def _log_page_error(resp: httpx.Response, group_id: str) -> None:
+    """Log an appropriate error for a non-200 Authentik users-list response."""
+    if group_id and resp.status_code == 403:
+        logger.error(
+            "Apple SCIM: configured APPLE_SCIM_GROUP_ID=%s could not be read "
+            "(Authentik status=%s). Verify AUTHENTIK_TOKEN has permission to list users "
+            "filtered by group membership.",
+            group_id,
+            resp.status_code,
+        )
+    else:
+        logger.error("Authentik API error response=%s", response_metadata(resp))
+
+
+async def _fetch_all_users(url: str, headers: dict, group_id: str) -> list[dict] | None:
+    """Page through the Authentik users-list endpoint, returning None on any upstream error."""
     all_users: list[dict] = []
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             while url:
                 resp = await client.get(url, headers=headers)
                 if resp.status_code != 200:
-                    if group_id and resp.status_code == 403:
-                        logger.error(
-                            "Apple SCIM: configured APPLE_SCIM_GROUP_ID=%s could not be read "
-                            "(Authentik status=%s). Verify AUTHENTIK_TOKEN has permission to list users "
-                            "filtered by group membership.",
-                            group_id,
-                            resp.status_code,
-                        )
-                    else:
-                        logger.error(
-                            "Authentik API error response=%s",
-                            response_metadata(resp),
-                        )
+                    _log_page_error(resp, group_id)
                     return None
                 try:
                     data = resp.json()
@@ -115,12 +102,11 @@ async def get_users() -> list[dict] | None:
     except httpx.HTTPError:
         logger.exception("Failed to fetch users from Authentik")
         return None
+    return all_users
 
-    if group_id:
-        logger.info("Fetched %d Authentik users from Apple SCIM group %s", len(all_users), group_id)
-    else:
-        logger.info("Fetched %d active Authentik users", len(all_users))
 
+def _filter_and_map_users(all_users: list[dict]) -> list[dict]:
+    """Drop users that cannot be represented in SCIM and map the rest."""
     mapped = []
     for u in all_users:
         pk = u.get("pk")
@@ -149,3 +135,35 @@ async def get_users() -> list[dict] | None:
             )
         mapped.append(_map_to_scim(u))
     return mapped
+
+
+async def get_users() -> list[dict] | None:
+    """Return all eligible Authentik users mapped to SCIM format.
+
+    If APPLE_SCIM_GROUP_ID is set only members of that group are returned.
+    Only internal accounts (type=internal) are included; service accounts are
+    excluded regardless of the group filter.
+
+    Returns:
+        list[dict]: SCIM-mapped users — may be an empty list if there are none.
+        None:       An upstream error occurred (misconfiguration, network, auth).
+    """
+    if not settings.authentik_url or not settings.authentik_token:
+        logger.error("Authentik URL or token not configured")
+        return None
+
+    headers = {"Authorization": f"Bearer {settings.authentik_token}"}
+    base = settings.authentik_url.rstrip("/")
+    group_id = (settings.apple_scim_group_id or "").strip()
+    url = _build_initial_users_url(base, group_id)
+
+    all_users = await _fetch_all_users(url, headers, group_id)
+    if all_users is None:
+        return None
+
+    if group_id:
+        logger.info("Fetched %d Authentik users from Apple SCIM group %s", len(all_users), group_id)
+    else:
+        logger.info("Fetched %d active Authentik users", len(all_users))
+
+    return _filter_and_map_users(all_users)
