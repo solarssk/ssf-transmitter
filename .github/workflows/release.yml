@@ -106,8 +106,15 @@ jobs:
         run: |
           set -euo pipefail
           VERSION='${{ steps.bump.outputs.version }}'
-          line="$(grep -m1 "^## \[${VERSION}\]" CHANGELOG.md)"
-          subtitle="$(printf '%s\n' "$line" | sed -n 's/^## \[.*\] — [0-9-]* — \(.*\)$/\1/p')"
+          # A plain `sed 's/^## \[.*\] — [0-9-]* — \(.*\)$/\1/p'` is unsafe
+          # here: `\[.*\]` is greedy and unanchored, so a title that itself
+          # contains a bracketed token (e.g. "Cutover [x] — 07 — trimmed")
+          # makes the regex resolve against that later bracket instead of the
+          # version's, silently truncating the title. Anchor on the already-
+          # known VERSION instead — same approach as sync-release-docs.py's
+          # HEADER_RE/read_title_for — so everything after " — DATE — " is
+          # taken verbatim as the title regardless of its own punctuation.
+          subtitle="$(python3 -c 'import re, sys; from pathlib import Path; version = sys.argv[1]; text = Path("CHANGELOG.md").read_text(encoding="utf-8"); pattern = re.compile(r"^## \[" + re.escape(version) + r"\] — \d{4}-\d{2}-\d{2} — (.+?)\s*$", re.M); match = pattern.search(text); print(match.group(1) if match else "")' "$VERSION")"
           if [ -n "$subtitle" ]; then
             echo "name=v${VERSION} — ${subtitle}" >> "$GITHUB_OUTPUT"
           else
