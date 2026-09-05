@@ -21,7 +21,7 @@ from __future__ import annotations
 import ipaddress
 import logging
 import socket
-from urllib.parse import urlparse
+from urllib.parse import ParseResult, urlparse
 
 logger = logging.getLogger(__name__)
 
@@ -114,6 +114,43 @@ def receiver_host_allowed(url: str, allowed_hosts: list[str]) -> bool:
     return host in allowed_hosts
 
 
+def _reject_unsafe_scheme_or_parts(parsed: ParseResult) -> None:
+    """Raise if *parsed* uses a non-HTTPS scheme, carries credentials, or has a fragment."""
+    if parsed.scheme != "https":
+        raise ValueError(f"endpoint_url scheme must be 'https', got '{parsed.scheme}'")
+    if parsed.username or parsed.password:
+        raise ValueError("endpoint_url must not contain credentials (user:pass@host)")
+    if parsed.fragment:
+        raise ValueError("endpoint_url must not contain a fragment (#)")
+
+
+def _reject_blocked_host_literal(host: str) -> None:
+    """Raise if *host* is a blocked hostname or a bare IP literal in a blocked range."""
+    if host.lower() in _BLOCKED_HOSTNAMES:
+        raise ValueError(f"endpoint_url host {host!r} is not allowed")
+
+    try:
+        ip_literal = ipaddress.ip_address(host)
+    except ValueError:
+        return  # Not a bare IP literal — fine, fall through to the DNS check
+
+    if _is_blocked_ip(str(ip_literal)):
+        raise ValueError(f"endpoint_url host {host!r} resolves to a blocked IP address")
+
+
+def _reject_blocked_resolved_ips(host: str) -> list[str]:
+    """Resolve *host* and raise if it has no A/AAAA records or any resolve to a blocked IP."""
+    resolved_ips = _resolve_host(host)
+    if not resolved_ips:
+        raise ValueError(f"endpoint_url host {host!r} did not resolve to any IP address")
+
+    for ip in resolved_ips:
+        if _is_blocked_ip(ip):
+            raise ValueError(f"endpoint_url host {host!r} resolves to blocked IP {ip!r}")
+
+    return resolved_ips
+
+
 def validate_receiver_endpoint_url(url: str, allowed_hosts: list[str] | None = None) -> str:
     """Validate that *url* is a safe public HTTPS endpoint.
 
@@ -137,48 +174,18 @@ def validate_receiver_endpoint_url(url: str, allowed_hosts: list[str] | None = N
     except Exception as exc:
         raise ValueError(f"endpoint_url is not a valid URL: {exc}") from exc
 
-    # --- scheme ---
-    if parsed.scheme != "https":
-        raise ValueError(f"endpoint_url scheme must be 'https', got '{parsed.scheme}'")
+    _reject_unsafe_scheme_or_parts(parsed)
 
-    # --- credentials in URL ---
-    if parsed.username or parsed.password:
-        raise ValueError("endpoint_url must not contain credentials (user:pass@host)")
-
-    # --- fragment ---
-    if parsed.fragment:
-        raise ValueError("endpoint_url must not contain a fragment (#)")
-
-    # --- host ---
     host = parsed.hostname
     if not host:
         raise ValueError("endpoint_url has no host")
 
-    if host.lower() in _BLOCKED_HOSTNAMES:
-        raise ValueError(f"endpoint_url host {host!r} is not allowed")
+    _reject_blocked_host_literal(host)
 
-    # Reject bare IP literals that are in blocked ranges
-    try:
-        ip_literal = ipaddress.ip_address(host)
-        if _is_blocked_ip(str(ip_literal)):
-            raise ValueError(f"endpoint_url host {host!r} resolves to a blocked IP address")
-    except ValueError as exc:
-        # Not a bare IP literal — that's fine, fall through to DNS check
-        if "blocked" in str(exc):
-            raise
-
-    # --- allowlist check (if configured) ---
     if allowed_hosts and not receiver_host_allowed(url, allowed_hosts):
         raise ValueError(f"endpoint_url host {host!r} is not in SSF_ALLOWED_RECEIVER_HOSTS allowlist")
 
-    # --- DNS resolution + IP block check ---
-    resolved_ips = _resolve_host(host)
-    if not resolved_ips:
-        raise ValueError(f"endpoint_url host {host!r} did not resolve to any IP address")
-
-    for ip in resolved_ips:
-        if _is_blocked_ip(ip):
-            raise ValueError(f"endpoint_url host {host!r} resolves to blocked IP {ip!r}")
+    resolved_ips = _reject_blocked_resolved_ips(host)
 
     logger.debug("endpoint_url validated host=%s resolved_ips=%s", host, resolved_ips)
     return url
