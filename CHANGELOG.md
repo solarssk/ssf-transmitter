@@ -9,6 +9,9 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Fixed
+- **Release SBOM only covered amd64 packages** — `docker-publish.yml`'s "Generate SBOM (CycloneDX)" step scanned the multi-arch manifest-list digest; with no `--platform` flag, Trivy silently resolves that to the scanning host's architecture (amd64 on the runner), so any arm64-only package or version difference was invisible in the SBOM attached to GitHub Releases. Now generates and attaches one SBOM per platform, each scanning that platform's own single-platform digest
+
 ---
 
 ## [0.5.11] — 2026-09-04 — Security audit fixes & release automation
