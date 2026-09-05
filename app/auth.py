@@ -58,7 +58,7 @@ def _record_management_auth_failure(request: Request) -> None:
         raise HTTPException(status_code=429, detail="Rate limit exceeded")
 
 
-async def require_management_auth(
+def require_management_auth(
     request: Request,
     authorization: str | None = Header(default=None),
 ) -> None:
