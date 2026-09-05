@@ -1,0 +1,75 @@
+name: Docs reminder
+
+# Advisory only: never fails the check, never blocks merge. If a PR touches
+# app/ but none of docs/, README.md, SECURITY.md, or CHANGELOG.md, post a
+# single reminder comment (updated in place on later pushes, not
+# re-posted) asking the author to consider whether docs need updating too.
+# A soft reminder rather than a hard gate on purpose: a blocking version of
+# this check is exactly the kind of CI friction that trips up unrelated
+# PRs (a one-line app fix that genuinely needs no doc change) far more
+# often than it catches a real missed update.
+#
+# Uses the PR-files API rather than a local `git diff` against the base
+# branch — no checkout needed, and no dependency on the base ref actually
+# being fetched into this job's working copy.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  pull-requests: write
+
+jobs:
+  remind:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check whether docs kept pace with app changes
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          FILES="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR}/files" --paginate --jq '.[].filename')"
+          if ! grep -q '^app/' <<<"$FILES"; then
+            echo "needs_reminder=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if grep -qE '^(docs/|README\.md$|SECURITY\.md$|CHANGELOG\.md$)' <<<"$FILES"; then
+            echo "needs_reminder=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "needs_reminder=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Post or update reminder comment
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+          NEEDS_REMINDER: ${{ steps.check.outputs.needs_reminder }}
+        run: |
+          set -euo pipefail
+          MARKER="<!-- docs-reminder -->"
+          EXISTING="$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR}/comments" \
+            --jq ".[] | select(.body | startswith(\"$MARKER\")) | .id" | head -n1)"
+
+          if [ "$NEEDS_REMINDER" != "true" ]; then
+            if [ -n "$EXISTING" ]; then
+              gh api -X DELETE "repos/${GITHUB_REPOSITORY}/issues/comments/${EXISTING}"
+            fi
+            exit 0
+          fi
+
+          BODY="$MARKER
+          This PR changes \`app/\` but none of \`docs/\`, \`README.md\`, \`SECURITY.md\`, or \`CHANGELOG.md\`. If this change is user- or operator-visible, consider whether docs need an update too. This is advisory only and does not block merge."
+
+          if [ -n "$EXISTING" ]; then
+            gh api -X PATCH "repos/${GITHUB_REPOSITORY}/issues/comments/${EXISTING}" -f body="$BODY"
+          else
+            gh api -X POST "repos/${GITHUB_REPOSITORY}/issues/${PR}/comments" -f body="$BODY"
+          fi

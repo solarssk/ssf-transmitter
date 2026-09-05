@@ -1,0 +1,71 @@
+name: Sync Wiki
+
+# After docs/ or SECURITY.md changes land on main, mirror the relevant
+# docs/*.md pages into the GitHub Wiki (a separate git repo:
+# <repo>.wiki.git) via scripts/sync-wiki.py. See that script's own header
+# comment for the exact file-to-page mapping and why docs/README.md is
+# deliberately excluded (it would clobber Home.md's hand-curated content).
+#
+# The wiki repo is a second remote the checkout above knows nothing about,
+# so GITHUB_TOKEN is attached to it explicitly via the same extraheader
+# technique sync-main-to-beta.yml uses for its own second push, rather than
+# relying on actions/checkout's credential helper (which only covers the
+# repo it checked out).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - "SECURITY.md"
+      - "scripts/sync-wiki.py"
+      - ".github/workflows/sync-wiki.yml"
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  sync-wiki:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check out wiki
+        run: |
+          set -euo pipefail
+          git -c http.https://github.com/.extraheader="Authorization: Basic $(printf 'x-access-token:%s' "${GITHUB_TOKEN}" | base64 -w0)" \
+            clone --depth 1 "https://github.com/${GITHUB_REPOSITORY}.wiki.git" wiki
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.14"
+
+      - name: Sync docs into wiki checkout
+        run: python3 scripts/sync-wiki.py wiki
+
+      - name: Commit and push wiki changes
+        working-directory: wiki
+        run: |
+          set -euo pipefail
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No wiki changes to push."
+            exit 0
+          fi
+          git commit -m "docs: sync wiki from ${GITHUB_SHA}"
+          git -c http.https://github.com/.extraheader="Authorization: Basic $(printf 'x-access-token:%s' "${GITHUB_TOKEN}" | base64 -w0)" \
+            push origin master
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
