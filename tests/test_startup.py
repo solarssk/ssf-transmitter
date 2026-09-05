@@ -48,7 +48,8 @@ class TestPreflightConfigValidation:
             run_preflight_checks()
 
         assert exc_info.value.code == 0
-        assert "SSF_ISSUER" in caplog.text and "NOT SET" in caplog.text
+        assert "SSF_ISSUER" in caplog.text
+        assert "NOT SET" in caplog.text
 
     def test_ssf_base_url_missing(self, monkeypatch, caplog):
         monkeypatch.setattr("app.startup.settings", _good_settings(ssf_base_url=""))
@@ -57,7 +58,8 @@ class TestPreflightConfigValidation:
             run_preflight_checks()
 
         assert exc_info.value.code == 0
-        assert "SSF_BASE_URL" in caplog.text and "NOT SET" in caplog.text
+        assert "SSF_BASE_URL" in caplog.text
+        assert "NOT SET" in caplog.text
 
     def test_management_token_too_short(self, monkeypatch, caplog):
         monkeypatch.setattr("app.startup.settings", _good_settings(ssf_management_token="short"))
@@ -66,7 +68,8 @@ class TestPreflightConfigValidation:
             run_preflight_checks()
 
         assert exc_info.value.code == 0
-        assert "SSF_MANAGEMENT_TOKEN" in caplog.text and "too short" in caplog.text
+        assert "SSF_MANAGEMENT_TOKEN" in caplog.text
+        assert "too short" in caplog.text
 
 
 class TestPreflightWebhookAuth:
@@ -80,7 +83,8 @@ class TestPreflightWebhookAuth:
             run_preflight_checks()
 
         assert exc_info.value.code == 0
-        assert "SSF_WEBHOOK_TOKEN" in caplog.text and "too short" in caplog.text
+        assert "SSF_WEBHOOK_TOKEN" in caplog.text
+        assert "too short" in caplog.text
 
     def test_bearer_mode_token_missing(self, monkeypatch, caplog):
         monkeypatch.setattr(
@@ -92,7 +96,8 @@ class TestPreflightWebhookAuth:
             run_preflight_checks()
 
         assert exc_info.value.code == 0
-        assert "SSF_WEBHOOK_TOKEN" in caplog.text and "NOT SET" in caplog.text
+        assert "SSF_WEBHOOK_TOKEN" in caplog.text
+        assert "NOT SET" in caplog.text
 
     def test_hmac_mode_secret_missing(self, monkeypatch, caplog):
         monkeypatch.setattr(
@@ -104,7 +109,8 @@ class TestPreflightWebhookAuth:
             run_preflight_checks()
 
         assert exc_info.value.code == 0
-        assert "SSF_WEBHOOK_SECRET" in caplog.text and "NOT SET" in caplog.text
+        assert "SSF_WEBHOOK_SECRET" in caplog.text
+        assert "NOT SET" in caplog.text
 
     def test_unsigned_mode_emits_warning(self, monkeypatch, caplog, tmp_path):
         keys_dir = tmp_path / "keys"
@@ -157,7 +163,8 @@ class TestPreflightLocalResources:
         with patch("app.startup.os.access", return_value=True):
             run_preflight_checks()
 
-        assert "not found" in caplog.text and "will be generated" in caplog.text
+        assert "not found" in caplog.text
+        assert "will be generated" in caplog.text
 
     def test_database_dir_missing_warns(self, monkeypatch, caplog, tmp_path):
         """DB parent directory doesn't exist yet — non-fatal, warns only."""
