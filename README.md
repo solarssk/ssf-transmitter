@@ -10,8 +10,6 @@ Standalone service that sits next to Authentik and forwards user security events
 
 Events are signed as RS256 JWTs (Security Event Tokens) and pushed over HTTPS. No admin panel: all configuration is environment variables.
 
-**Current release:** [v0.5.12 — Release pipeline hardening](https://github.com/solarssk/ssf-transmitter/releases/tag/v0.5.12)
-
 <details>
 <summary><strong>Table of contents</strong></summary>
 
