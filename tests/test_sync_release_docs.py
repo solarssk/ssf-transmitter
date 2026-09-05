@@ -40,9 +40,7 @@ def sync_release_docs() -> ModuleType:
 def test_read_title_for_preserves_brackets_in_title(tmp_path, sync_release_docs, monkeypatch):
     changelog = tmp_path / "CHANGELOG.md"
     changelog.write_text(
-        "## [Unreleased]\n\n"
-        f"## [0.5.12] — 2026-10-01 — {BRACKET_TITLE}\n\n"
-        "- did stuff\n",
+        f"## [Unreleased]\n\n## [0.5.12] — 2026-10-01 — {BRACKET_TITLE}\n\n- did stuff\n",
         encoding="utf-8",
     )
     monkeypatch.setattr(sync_release_docs, "CHANGELOG", changelog)
@@ -65,13 +63,10 @@ def test_read_title_for_preserves_brackets_in_title(tmp_path, sync_release_docs,
         ),
     ],
 )
-def test_current_release_pattern_matches_and_replaces_bracket_title(
-    sync_release_docs, rel, old_line
-):
+def test_current_release_pattern_matches_and_replaces_bracket_title(sync_release_docs, rel, old_line):
     version = "0.5.12"
     patterns = {
-        r: (pattern, replacement)
-        for r, pattern, replacement in sync_release_docs.patterns_for(version, BRACKET_TITLE)
+        r: (pattern, replacement) for r, pattern, replacement in sync_release_docs.patterns_for(version, BRACKET_TITLE)
     }
     pattern, replacement = patterns[rel]
 
@@ -90,13 +85,9 @@ def test_main_end_to_end_survives_bracket_title(tmp_path, sync_release_docs, mon
     CHANGELOG title containing "]" has actually been written into the docs.
     """
     version = "0.5.12"
-    (tmp_path / "pyproject.toml").write_text(
-        f'[project]\nversion = "{version}"\n', encoding="utf-8"
-    )
+    (tmp_path / "pyproject.toml").write_text(f'[project]\nversion = "{version}"\n', encoding="utf-8")
     (tmp_path / "CHANGELOG.md").write_text(
-        "## [Unreleased]\n\n"
-        f"## [{version}] — 2026-10-01 — {BRACKET_TITLE}\n\n"
-        "- did stuff\n",
+        f"## [Unreleased]\n\n## [{version}] — 2026-10-01 — {BRACKET_TITLE}\n\n- did stuff\n",
         encoding="utf-8",
     )
     (tmp_path / "README.md").write_text(

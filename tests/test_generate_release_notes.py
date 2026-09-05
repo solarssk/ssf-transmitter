@@ -61,9 +61,7 @@ def test_parse_sections_preserves_bracket_title_and_body(generate_release_notes)
 def test_main_writes_notes_file_for_bracket_title(tmp_path, generate_release_notes, monkeypatch):
     changelog = tmp_path / "CHANGELOG.md"
     changelog.write_text(
-        "## [Unreleased]\n\n"
-        f"## [0.5.12] — 2026-10-01 — {BRACKET_TITLE}\n\n"
-        "- did stuff\n",
+        f"## [Unreleased]\n\n## [0.5.12] — 2026-10-01 — {BRACKET_TITLE}\n\n- did stuff\n",
         encoding="utf-8",
     )
     out_dir = tmp_path / ".github" / "release-notes"
