@@ -46,8 +46,15 @@ jobs:
             echo "needs_reminder=true" >> "$GITHUB_OUTPUT"
           fi
 
+      # Fork PRs get a read-only GITHUB_TOKEN regardless of the
+      # `pull-requests: write` declared above (GitHub's own fork-PR
+      # safeguard) — the POST/PATCH/DELETE calls below would 403 and fail
+      # this step under set -euo pipefail, turning an advisory-only check
+      # red for exactly the external-contributor case it matters most not
+      # to block. Skip commenting entirely for a fork PR instead, matching
+      # dependency-review.yml's own same-repo guard for the same reason.
       - name: Post or update reminder comment
-        if: always()
+        if: always() && github.event.pull_request.head.repo.full_name == github.repository
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR: ${{ github.event.pull_request.number }}
@@ -55,7 +62,7 @@ jobs:
         run: |
           set -euo pipefail
           MARKER="<!-- docs-reminder -->"
-          EXISTING="$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR}/comments" \
+          EXISTING="$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR}/comments" --paginate \
             --jq ".[] | select(.body | startswith(\"$MARKER\")) | .id" | head -n1)"
 
           if [ "$NEEDS_REMINDER" != "true" ]; then
