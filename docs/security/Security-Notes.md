@@ -1,6 +1,6 @@
 # Security Notes
 
-Operator checklist for production. Full threat model: [SECURITY.md](../SECURITY.md).
+Operator checklist for production. Full threat model: [SECURITY.md](../../SECURITY.md).
 
 ## Before go-live
 
@@ -12,7 +12,7 @@ Operator checklist for production. Full threat model: [SECURITY.md](../SECURITY.
 - [ ] `/app/keys` and `/app/data` on root-owned volumes, backed up
 - [ ] `SSF_ENABLE_OPENAPI=false` on internet-facing deployments
 - [ ] Webhook URL uses internal Docker DNS (`authentik-ssf:8000`), not public URL
-- [ ] Secrets in `stack.env` only — never in compose YAML or git
+- [ ] Secrets in `stack.env` only, never in compose YAML or git
 
 ## v0.5.9 hardening
 
@@ -33,7 +33,7 @@ Operator checklist for production. Full threat model: [SECURITY.md](../SECURITY.
 | `SSF_WEBHOOK_TOKEN` | Update Authentik Header Mapping only |
 | RSA key in `/app/keys` | Receivers refresh JWKS; no stream re-register |
 
-See [Key-Management.md](Key-Management.md).
+See [Key-Management.md](../Key-Management.md).
 
 ## Reporting vulnerabilities
 

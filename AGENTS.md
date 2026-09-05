@@ -1,9 +1,16 @@
-# AGENTS.md — guide for AI coding assistants
+# AGENTS.md: guide for AI coding assistants
 
 This file helps Cursor, Codex, Claude Code, and similar tools work effectively in **ssf-transmitter**.
 
 **Operator docs**: [`README.md`](README.md), [`docs/API.md`](docs/API.md), [`docs/synology-authentik-compose.md`](docs/synology-authentik-compose.md)  
 **Threat model**: [`SECURITY.md`](SECURITY.md)
+
+---
+
+## Repository standard
+
+This repository follows the solarssk engineering standard: https://github.com/solarssk/playbook
+Tier: 2 (see playbook/docs/tiers.md)
 
 ---
 
@@ -32,7 +39,7 @@ There is **no admin UI**. Configuration is environment variables only. One activ
 | Auth | Bearer tokens (`SSF_MANAGEMENT_TOKEN`, `SSF_WEBHOOK_TOKEN`) |
 | Rate limits | `slowapi` |
 | Lint / test | `ruff`, `pytest` |
-| CI | GitHub Actions — lint, test, deptry, pip-audit, Docker build, Trivy |
+| CI | GitHub Actions: lint, test, deptry, pip-audit, Docker build, Trivy |
 
 ---
 
@@ -73,7 +80,7 @@ Discovery: /.well-known/ssf-configuration, /jwks.json (public)
 
 ---
 
-## Security invariants — do not break
+## Security invariants: do not break
 
 These are product/security requirements, not style preferences.
 
@@ -82,8 +89,8 @@ These are product/security requirements, not style preferences.
 3. **Cannot enable** a stream (`status: enabled`) when the stored receiver token is undecryptable without supplying a replacement token.
 4. **SSRF protection**: `app/security/url_validation.py` validates receiver URLs at create/patch; `app/events/pusher.py` re-validates DNS before every push.
 5. **Constant-time** secret comparison (`hmac.compare_digest`) for management and webhook tokens.
-6. **Rate limits** are per-route decorators on `app/rate_limit.limiter`. Do not call one decorated route handler from another — each endpoint needs its own decorator (see `app/routes/streams.py`).
-7. **`SSF_MANAGEMENT_TOKEN` ≠ `SSF_WEBHOOK_TOKEN`** — different trust boundaries.
+6. **Rate limits** are per-route decorators on `app/rate_limit.limiter`. Do not call one decorated route handler from another; each endpoint needs its own decorator (see `app/routes/streams.py`).
+7. **`SSF_MANAGEMENT_TOKEN` ≠ `SSF_WEBHOOK_TOKEN`**: different trust boundaries.
 8. **Middleware order** in `app/main.py` is LIFO; `RequestIDMiddleware` must wrap `SlowAPIMiddleware` so 429 responses get `X-Request-ID`.
 9. **OpenAPI** (`/docs`) is off unless `SSF_ENABLE_OPENAPI=true`.
 
@@ -103,7 +110,7 @@ deptry .
 
 Copy [`.env.example`](.env.example) for local env vars. Tests use defaults from `tests/conftest.py` (`.testdata/` for keys + DB).
 
-CI and the Dockerfile install from hash-locked `requirements.lock.txt` / `requirements-dev.lock.txt` instead (fixed target platforms — see `scripts/lock_requirements.py`); local dev stays on the loose ranges above since it isn't tied to one platform.
+CI and the Dockerfile install from hash-locked `requirements.lock.txt` / `requirements-dev.lock.txt` instead (fixed target platforms; see `scripts/lock_requirements.py`); local dev stays on the loose ranges above since it isn't tied to one platform.
 
 ---
 
@@ -113,7 +120,7 @@ Read `tests/conftest.py` before writing tests.
 
 | Fixture / marker | Purpose |
 |---|---|
-| `mock_preflight` (autouse) | Skips `run_preflight_checks()` — avoids `sys.exit` in lifespan |
+| `mock_preflight` (autouse) | Skips `run_preflight_checks()`; avoids `sys.exit` in lifespan |
 | `mock_push_verification_set` (autouse) | Blocks real outbound HTTP on stream create |
 | `mock_dns_resolve` (autouse) | Returns public IP for SSRF checks; opt out with `@pytest.mark.no_dns_mock` |
 | `disable_rate_limits` (autouse) | Disables slowapi; opt in with `@pytest.mark.enable_rate_limit` |
@@ -122,14 +129,14 @@ Default test webhook mode is **hmac** (legacy tests). Bearer/unsigned tests patc
 
 Prefer **focused regression tests** over broad mocks. Security fixes should include a test that fails without the fix.
 
-`tests_e2e/` is a separate top-level directory, not under `tests/`, and not picked up by `pyproject.toml`'s `testpaths = ["tests"]` — plain `pytest` never runs it. It hits a *real* running instance of the built Docker image over HTTP (discovery, JWKS, management API CRUD, webhook auth) rather than the in-process `TestClient`, so it needs a container already up and listening — CI's amd64 smoke-test step starts one and runs it against that; to run locally, build+run the image the same way (see `tests_e2e/conftest.py`) then `E2E_BASE_URL=http://localhost:<port> pytest tests_e2e/`.
+`tests_e2e/` is a separate top-level directory, not under `tests/`, and not picked up by `pyproject.toml`'s `testpaths = ["tests"]`: plain `pytest` never runs it. It hits a *real* running instance of the built Docker image over HTTP (discovery, JWKS, management API CRUD, webhook auth) rather than the in-process `TestClient`, so it needs a container already up and listening; CI's amd64 smoke-test step starts one and runs it against that; to run locally, build+run the image the same way (see `tests_e2e/conftest.py`) then `E2E_BASE_URL=http://localhost:<port> pytest tests_e2e/`.
 
 ---
 
 ## Coding style
 
 - Match existing module style: `from __future__ import annotations`, type hints, module docstrings.
-- Use `logging.getLogger(__name__)` — never `print`.
+- Use `logging.getLogger(__name__)`, never `print`.
 - Pydantic models in `app/models.py` for API inputs; reject extra fields.
 - Keep diffs minimal; do not refactor unrelated code in the same change.
 - Comments only for non-obvious security or protocol behaviour.
@@ -147,7 +154,7 @@ Prefer **focused regression tests** over broad mocks. Security fixes should incl
 | Calling `push_verification_set` without mocking in tests | Flaky CI / real network calls |
 | Returning `endpoint_url_token` in stream GET responses | Token leak |
 | Using `logger.error` for quarantine/warning paths | Startup uses ✅/⚠️/❌ semantics; warnings should be `logger.warning` |
-| Bumping `requirements.txt` or `requirements-dev.txt` without regenerating the matching `.lock.txt` | The Dockerfile and CI's own dependency install both use the hash-locked files (`pip install --require-hashes`), not the loose-range ones directly. If the previously-locked version still satisfies the new range, the install **succeeds silently on the stale pin** — no error. Regenerate both with `python scripts/lock_requirements.py` (CI's "Verify lock files are up to date" step catches drift either way) |
+| Bumping `requirements.txt` or `requirements-dev.txt` without regenerating the matching `.lock.txt` | The Dockerfile and CI's own dependency install both use the hash-locked files (`pip install --require-hashes`), not the loose-range ones directly. If the previously-locked version still satisfies the new range, the install **succeeds silently on the stale pin**: no error. Regenerate both with `python scripts/lock_requirements.py` (CI's "Verify lock files are up to date" step catches drift either way) |
 
 ---
 
@@ -155,7 +162,7 @@ Prefer **focused regression tests** over broad mocks. Security fixes should incl
 
 - Semver tags: `v0.5.x`
 - Changelog: [`CHANGELOG.md`](CHANGELOG.md) (Keep a Changelog format)
-- Docker image: `ghcr.io/solarssk/ssf-transmitter:<version>` (private) and `docker.io/solarssk/ssf-transmitter:<version>` (public) — same build, both platforms, published by `.github/workflows/docker-publish.yml`
+- Docker image: `ghcr.io/solarssk/ssf-transmitter:<version>` (private) and `docker.io/solarssk/ssf-transmitter:<version>` (public); same build, both platforms, published by `.github/workflows/docker-publish.yml`
 - `APP_VERSION` is set at image build time; local dev shows `dev`
 
 ### Cutting a release
@@ -171,16 +178,16 @@ published image; closes the matching milestone).
 
 1. Bump `version` in [`pyproject.toml`](pyproject.toml).
 2. Add a `## [X.Y.Z] — YYYY-MM-DD — Title` entry to `CHANGELOG.md` describing the release.
-3. Rewrite the release's narrative upgrade content by hand — none of it is auto-synced, since it's prose about a *specific* version transition, not a bare pointer: `docs/Upgrading.md` (a live walkthrough, not a log), README.md's "## Upgrading" summary, and `docs/synology-authentik-compose.md`'s "## Upgrading from X.Y.Z" section (rename its heading too).
+3. Rewrite the release's narrative upgrade content by hand: none of it is auto-synced, since it's prose about a *specific* version transition, not a bare pointer: `docs/Upgrading.md` (a live walkthrough, not a log), README.md's "## Upgrading" summary, and `docs/synology-authentik-compose.md`'s "## Upgrading from X.Y.Z" section (rename its heading too).
 4. Run, from repo root:
    ```bash
    python3 scripts/generate-release-notes.py X.Y.Z   # writes .github/release-notes/vX.Y.Z.md
    python3 scripts/sync-release-docs.py               # updates "current release" pointers in README.md/docs/
    ```
-5. Commit everything above — including the generated `.github/release-notes/vX.Y.Z.md` — as `release: vX.Y.Z`, and open the PR (milestone `X.Y.Z` if one exists).
+5. Commit everything above (including the generated `.github/release-notes/vX.Y.Z.md`) as `release: vX.Y.Z`, and open the PR (milestone `X.Y.Z` if one exists).
 6. Merging to `main` fires the automation described above.
 
-`scripts/release-tag.sh` is an emergency-only fallback (signed manual tag) for when `release.yml` itself is broken — see the script's own header comment.
+`scripts/release-tag.sh` is an emergency-only fallback (signed manual tag) for when `release.yml` itself is broken; see the script's own header comment.
 
 ---
 

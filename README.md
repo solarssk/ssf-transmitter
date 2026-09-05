@@ -6,11 +6,27 @@
 [![Latest release](https://img.shields.io/github/v/release/solarssk/ssf-transmitter)](https://github.com/solarssk/ssf-transmitter/releases/latest)
 [![Platforms](https://img.shields.io/badge/platforms-amd64%20%7C%20arm64-blue)](https://hub.docker.com/r/solarssk/ssf-transmitter)
 
-Standalone service that sits next to Authentik and forwards user security events (logout, password change) to receivers implementing the [OpenID Shared Signals Framework](https://openid.net/specs/openid-sharedsignals-framework-1_0.html). One container supports one active SSF stream — registering a new stream replaces the existing one. Multi-stream support (fan-out to multiple receivers) is planned for v1.1. Primary receiver: Apple Business Manager CAEP.
+Standalone service that sits next to Authentik and forwards user security events (logout, password change) to receivers implementing the [OpenID Shared Signals Framework](https://openid.net/specs/openid-sharedsignals-framework-1_0.html). One container supports one active SSF stream; registering a new stream replaces the existing one. Multi-stream support (fan-out to multiple receivers) is planned for v1.1. Primary receiver: Apple Business Manager CAEP.
 
-Events are signed as RS256 JWTs (Security Event Tokens) and pushed over HTTPS. No admin panel — all configuration is environment variables.
+Events are signed as RS256 JWTs (Security Event Tokens) and pushed over HTTPS. No admin panel: all configuration is environment variables.
 
 **Current release:** [v0.5.12 — Release pipeline hardening](https://github.com/solarssk/ssf-transmitter/releases/tag/v0.5.12)
+
+<details>
+<summary><strong>Table of contents</strong></summary>
+
+- [Features](#features)
+- [Quick start](#quick-start)
+- [Upgrading](#upgrading)
+- [Public endpoints](#public-endpoints)
+- [Security at a glance](#security-at-a-glance)
+- [Documentation](#documentation)
+- [Apple SCIM group filtering](#apple-scim-group-filtering)
+- [Development](#development)
+- [Contributing](#contributing)
+- [License](#license)
+
+</details>
 
 ## Features
 
@@ -32,7 +48,7 @@ Events are signed as RS256 JWTs (Security Event Tokens) and pushed over HTTPS. N
    - `SSF_ISSUER`, `SSF_BASE_URL` (`SSF_ISSUER` should normally be the same URL as `SSF_BASE_URL`)
    - `SSF_MANAGEMENT_TOKEN`, `SSF_WEBHOOK_TOKEN`
    - `SSF_FORWARDED_ALLOW_IPS` (your reverse proxy subnet if behind NPM/Caddy)
-2. Add the service to Docker Compose — see [docs/Deployment.md](docs/Deployment.md) or [Synology guide](docs/synology-authentik-compose.md)
+2. Add the service to Docker Compose. See [docs/Deployment.md](docs/Deployment.md) or [Synology guide](docs/synology-authentik-compose.md)
 3. Register the stream with your receiver using the SSF Config URL below
 
 A **stream** is the receiver configuration stored in SQLite: receiver URL, bearer token, requested events, and current status. If Apple Business Manager is already connected, you already have a stream.
@@ -41,7 +57,7 @@ A **stream** is the receiver configuration stored in SQLite: receiver URL, beare
 
 **Already running with Apple Business Manager?** See [docs/Upgrading.md](docs/Upgrading.md#v0512--release-pipeline-hardening-from-0511):
 
-- v0.5.12 is optional — CI/tooling only, no `app/` changes, just a corrected multi-platform SBOM
+- v0.5.12 is optional: CI/tooling only, no `app/` changes, just a corrected multi-platform SBOM
 - Do **not** add `SSF_TOKEN_ENCRYPTION_KEY` unless re-registering the stream
 
 ## Public endpoints
@@ -54,9 +70,19 @@ A **stream** is the receiver configuration stored in SQLite: receiver URL, beare
 | Stream management | `https://idp.example.com/shared-signals/ssf/streams` |
 | Status | `https://idp.example.com/shared-signals/ssf/status` |
 
-`/docs` and `/openapi.json` are off by default — set `SSF_ENABLE_OPENAPI=true` only in dev or a trusted LAN.
+`/docs` and `/openapi.json` are off by default. Set `SSF_ENABLE_OPENAPI=true` only in dev or a trusted LAN.
 
 Replace `idp.example.com` with your IdP hostname and `/shared-signals` with your `SSF_ROOT_PATH`.
+
+## Security at a glance
+
+- SSRF protection on receiver URLs: HTTPS-only, private-IP blocklist, DNS re-resolved before every push (catches rebinding)
+- Receiver tokens encrypted at rest (Fernet); management and webhook tokens live in environment variables only, never written to disk or logged
+- Constant-time comparison on every bearer-token check; per-route rate limiting
+- Email addresses pseudonymised in logs by default (`SSF_LOG_PII=false`)
+- No persistent store of personal data: see [docs/security/DATA-PROTECTION.md](docs/security/DATA-PROTECTION.md)
+
+See [SECURITY.md](SECURITY.md) for the full trust model and how to report a vulnerability.
 
 ## Documentation
 
@@ -70,13 +96,14 @@ Replace `idp.example.com` with your IdP hostname and `/shared-signals` with your
 | Event mapping | [docs/Event-Mapping.md](docs/Event-Mapping.md) |
 | Keys and rotation | [docs/Key-Management.md](docs/Key-Management.md) |
 | Apple SCIM sync | [docs/Apple-SCIM-Sync.md](docs/Apple-SCIM-Sync.md) |
-| Security checklist | [docs/Security-Notes.md](docs/Security-Notes.md) |
+| Security checklist | [docs/security/Security-Notes.md](docs/security/Security-Notes.md) |
+| Data protection (GDPR) | [docs/security/DATA-PROTECTION.md](docs/security/DATA-PROTECTION.md) |
 | Troubleshooting | [docs/Troubleshooting.md](docs/Troubleshooting.md) |
 | API reference | [docs/API.md](docs/API.md) |
 | Threat model | [SECURITY.md](SECURITY.md) |
 | Changelog | [CHANGELOG.md](CHANGELOG.md) |
 
-Wiki pages mirror `docs/` — sync from the repo when updating [GitHub Wiki](https://github.com/solarssk/ssf-transmitter/wiki).
+Wiki pages mirror `docs/`; sync from the repo when updating [GitHub Wiki](https://github.com/solarssk/ssf-transmitter/wiki).
 
 ## Apple SCIM group filtering
 
@@ -94,3 +121,11 @@ pytest  # runs the suite and prints branch coverage for app/
 ```
 
 GitHub Actions runs linting, tests with branch coverage, dependency checks, and a Docker image build on every push and pull request. Coverage is published to [Codecov](https://codecov.io/gh/solarssk/ssf-transmitter) for review on pull requests.
+
+## Contributing
+
+See [.github/CONTRIBUTING.md](.github/CONTRIBUTING.md) for the branch/PR conventions and AI-tool usage guidelines.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
