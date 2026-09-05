@@ -1,8 +1,8 @@
 """Regression tests for scripts/sync-release-docs.py.
 
 Covers CHANGELOG.md release titles containing punctuation that used to
-confuse `patterns_for()`'s README.md/docs/README.md "Current release"
-regexes — see AGENTS.md's "Cutting a release" checklist:
+confuse `patterns_for()`'s docs/README.md "Current stable release" regex —
+see AGENTS.md's "Cutting a release" checklist:
 
 - A title containing "]" (e.g. quoting a CVE ID). The original `[^\\]]+`
   stopped at the title's own first "]" and could never match the line
@@ -64,11 +64,6 @@ def test_read_title_for_preserves_brackets_in_title(tmp_path, sync_release_docs,
     ("rel", "old_line"),
     [
         (
-            "README.md",
-            "**Current release:** [v0.5.11 — Old title]"
-            "(https://github.com/solarssk/ssf-transmitter/releases/tag/v0.5.11)",
-        ),
-        (
             "docs/README.md",
             "**Current stable release:** `v0.5.11` — [Old title]"
             "(https://github.com/solarssk/ssf-transmitter/releases/tag/v0.5.11)",
@@ -105,13 +100,6 @@ def test_main_end_to_end_survives_punctuated_title(tmp_path, sync_release_docs, 
         f"## [Unreleased]\n\n## [{version}] — 2026-10-01 — {title}\n\n- did stuff\n",
         encoding="utf-8",
     )
-    (tmp_path / "README.md").write_text(
-        "Intro.\n\n"
-        "**Current release:** [v0.5.11 — Old title]"
-        "(https://github.com/solarssk/ssf-transmitter/releases/tag/v0.5.11)\n\n"
-        "More.\n",
-        encoding="utf-8",
-    )
     (tmp_path / "docs").mkdir()
     (tmp_path / "docs" / "README.md").write_text(
         "**Current stable release:** `v0.5.11` — [Old title]"
@@ -124,18 +112,18 @@ def test_main_end_to_end_survives_punctuated_title(tmp_path, sync_release_docs, 
     monkeypatch.setattr(sync_release_docs, "CHANGELOG", tmp_path / "CHANGELOG.md")
 
     original_patterns_for = sync_release_docs.patterns_for
-    only_readmes = {"README.md", "docs/README.md"}
+    only_docs_readme = {"docs/README.md"}
     monkeypatch.setattr(
         sync_release_docs,
         "patterns_for",
-        lambda v, t: tuple(p for p in original_patterns_for(v, t) if p[0] in only_readmes),
+        lambda v, t: tuple(p for p in original_patterns_for(v, t) if p[0] in only_docs_readme),
     )
 
     monkeypatch.setattr(sys, "argv", ["sync-release-docs.py"])
     assert sync_release_docs.main() == 0
 
-    readme_text = (tmp_path / "README.md").read_text(encoding="utf-8")
-    assert f"[v{version} — {title}]" in readme_text
+    docs_readme_text = (tmp_path / "docs" / "README.md").read_text(encoding="utf-8")
+    assert f"`v{version}` — [{title}]" in docs_readme_text
 
     monkeypatch.setattr(sys, "argv", ["sync-release-docs.py", "--check"])
     assert sync_release_docs.main() == 0

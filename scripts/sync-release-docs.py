@@ -16,6 +16,13 @@ release checklist (see AGENTS.md) instead. Only add a pattern below for a
 genuine "this is the current version" spot, where swapping the number is the
 whole story.
 
+README.md deliberately has no such pattern: its "Latest release" badge
+already shows the current version and links to it, so a separate
+"**Current release:** vX.Y.Z" line would just be the same fact restated in
+prose, one more thing to keep in sync for no reader benefit. docs/README.md
+is a plain documentation index with no badge row, so its own "Current stable
+release" line still earns its place.
+
 Run after bumping pyproject.toml's version and adding the new CHANGELOG.md
 entry during a release cut (before generate-release-notes.py, which needs
 the same CHANGELOG.md entry to already exist). Use --check in CI/release.yml.
@@ -62,7 +69,7 @@ def patterns_for(version: str, title: str) -> tuple[tuple[str, str, str], ...]:
     release_url = f"https://github.com/solarssk/ssf-transmitter/releases/tag/v{version}"
     return (
         (
-            "README.md",
+            "docs/README.md",
             # The embedded title can itself contain "]" — or even a full
             # `[x](y)` markdown link, e.g. a title quoting a CVE ID or a code
             # identifier — so `[^\]]+` would stop at the title's own first
@@ -73,12 +80,6 @@ def patterns_for(version: str, title: str) -> tuple[tuple[str, str, str], ...]:
             # this repo's actual github.com release link can end the match —
             # a title would have to literally contain that exact URL to
             # collide, which isn't a realistic release title.
-            r"\*\*Current release:\*\* \[v[\d.]+ — .+?\]"
-            r"\(https://github\.com/solarssk/ssf-transmitter/releases/tag/v[\d.]+\)",
-            f"**Current release:** [v{version} — {title}]({release_url})",
-        ),
-        (
-            "docs/README.md",
             r"\*\*Current stable release:\*\* `v[\d.]+` — \[.+?\]"
             r"\(https://github\.com/solarssk/ssf-transmitter/releases/tag/v[\d.]+\)",
             f"**Current stable release:** `v{version}` — [{title}]({release_url})",

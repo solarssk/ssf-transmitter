@@ -182,7 +182,7 @@ published image; closes the matching milestone).
 4. Run, from repo root:
    ```bash
    python3 scripts/generate-release-notes.py X.Y.Z   # writes .github/release-notes/vX.Y.Z.md
-   python3 scripts/sync-release-docs.py               # updates "current release" pointers in README.md/docs/
+   python3 scripts/sync-release-docs.py               # updates "current release" pointers in docs/
    ```
 5. Commit everything above (including the generated `.github/release-notes/vX.Y.Z.md`) as `release: vX.Y.Z`, and open the PR (milestone `X.Y.Z` if one exists).
 6. Merging to `main` fires the automation described above.
