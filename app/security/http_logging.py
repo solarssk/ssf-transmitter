@@ -25,7 +25,39 @@ _SENSITIVE_KEYS = {
     "secret",
     "id_token",
 }
-_EMAIL_RE = re.compile(r"([A-Z0-9._%+\-]+@(?:[A-Z0-9\-]+\.)+[A-Z]{2,})", re.IGNORECASE)
+# Every quantifier is bounded rather than open-ended (`+`): an unbounded
+# repeated group here is a genuine super-linear-runtime hazard under
+# re.search() (on non-matching text, each of the O(n) positions
+# re.search() tries can still greedily consume an O(n)-length suffix
+# before failing, making the whole scan O(n^2) — confirmed empirically,
+# SonarCloud python:S5852) and NOT fixed by possessive quantifiers alone
+# (those only remove wasted backtracking *within* one attempt, not the
+# O(n) cost repeated *across* attempts). Bounding every quantifier caps
+# each attempt's cost at a constant, restoring linear-time scanning
+# regardless of input size.
+#
+# The bounds are NOT RFC limits (an earlier version used RFC 5321/1035's
+# 64-octet local part / 63-octet label — wrong: this regex redacts PII
+# from *upstream error responses*, which are exactly where a malformed,
+# over-RFC-limit value is likely to show up, e.g. an upstream echoing
+# back invalid input it's complaining about. A too-small bound doesn't
+# just fail to match cleanly — for a local part exceeding the bound, the
+# match can still succeed by sliding the window over only the *last* N
+# characters, leaving the leading, over-limit characters completely
+# unredacted before the masked suffix; for a domain label exceeding the
+# bound, the whole address fails to match anywhere and passes through
+# entirely unredacted. Either way, SSF_LOG_PII=false is silently
+# defeated for exactly the malformed input most likely to appear).
+#
+# Every quantifier here is instead sized to the largest value each
+# component could possibly reach within safe_response_body_text()'s own
+# 512-byte truncation (its only caller, always at the default `limit`) —
+# so no component can *ever* legitimately need more than this bound,
+# regardless of RFC validity, and the redaction is always the full
+# email-shaped span. It remains a fixed bound (not proportional to input
+# length), so the linear-time guarantee from bounding still holds —
+# re-verified empirically on adversarial inputs up to 1MB.
+_EMAIL_RE = re.compile(r"([A-Z0-9._%+\-]{1,512}@(?:[A-Z0-9\-]{1,512}\.){1,256}[A-Z]{2,512})", re.IGNORECASE)
 
 
 def response_metadata(response: httpx.Response) -> dict[str, int | str | None]:
