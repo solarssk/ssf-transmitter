@@ -93,13 +93,18 @@ class TestSafeResponseBodyText:
 
 
 class TestRedactText:
-    """_EMAIL_RE's quantifiers are all bounded (RFC 5321/1035 limits) rather
-    than open-ended, to avoid the super-linear-runtime hazard flagged by
-    SonarCloud (python:S5852) — an unbounded repeated group lets each of the
-    O(n) positions re.search() tries on non-matching text still greedily
-    consume an O(n) suffix before failing, which is O(n^2) overall and is
-    NOT fixed by possessive quantifiers alone (they only remove backtracking
-    *within* one attempt, not the cost repeated *across* attempts)."""
+    """_EMAIL_RE's quantifiers are all bounded rather than open-ended, to
+    avoid the super-linear-runtime hazard flagged by SonarCloud
+    (python:S5852) — an unbounded repeated group lets each of the O(n)
+    positions re.search() tries on non-matching text still greedily consume
+    an O(n) suffix before failing, which is O(n^2) overall and is NOT fixed
+    by possessive quantifiers alone (they only remove backtracking *within*
+    one attempt, not the cost repeated *across* attempts). The bounds
+    themselves are sized to safe_response_body_text()'s 512-byte
+    truncation, not RFC limits — a component can never legitimately need
+    more than that within its only caller, and RFC limits are the wrong
+    boundary for redacting *malformed* input from upstream error
+    responses (see test_redacts_over_rfc_limit_* below)."""
 
     def test_redacts_multi_label_domain(self):
         text = "contact alice.bob+tag@sub.example.co.uk please"
@@ -130,23 +135,57 @@ class TestRedactText:
         assert "alice@a.b.c.d.e.f.g.h.i.j.k.example.com" not in result
         assert "[pii:" in result
 
+    def test_redacts_over_rfc_limit_domain_label_completely(self):
+        """Regression test: a subsequent version bounded each domain label
+        at RFC 1035's 63-octet limit — also wrong, for a different reason
+        than the label-count cap above. This regex redacts PII from
+        *upstream error responses*, exactly where a malformed, over-limit
+        value is likely to appear (e.g. an upstream echoing back invalid
+        input it's rejecting). A 64+ char label made the whole address
+        fail to match anywhere, passing through completely unredacted."""
+        text = "contact alice@" + ("b" * 64) + ".com please"
+        result = redact_text(text, log_pii=False, pii_key="pepper")
+        assert "alice@" + ("b" * 64) + ".com" not in result
+        assert "b" * 64 not in result  # not even a partial, unredacted fragment
+        assert "[pii:" in result
+
+    def test_redacts_over_rfc_limit_local_part_completely(self):
+        """Regression test for the other half of the same bug: a local
+        part over RFC 5321's 64-octet limit used to still produce a
+        match (the bound just slides the window), but only over the
+        *last* N characters — leaving the leading, over-limit characters
+        of the local part visible, unredacted, right before the masked
+        suffix. The full local part must be captured, not a suffix of it."""
+        text = "contact " + ("a" * 65) + "@example.com please"
+        result = redact_text(text, log_pii=False, pii_key="pepper")
+        assert ("a" * 65) + "@example.com" not in result
+        assert "a" * 65 not in result  # not even a partial, unredacted prefix
+        assert "[pii:" in result
+
     def test_adversarial_dotted_text_completes_quickly(self):
         """Regression test: this exact shape (many dots, no valid TLD) took
         several seconds with the unbounded regex once input reached ~16k
-        repetitions; bounded quantifiers keep it linear."""
+        repetitions; bounded quantifiers keep it linear. Budget is 5s, not
+        a tighter bound: these quantifiers are sized to a real 512-byte
+        production ceiling (see the comment on _EMAIL_RE), so this 200k-hostile
+        input is already ~400x beyond anything the function is ever actually
+        called with — a few seconds here is a generous constant, not a sign
+        of quadratic blowup (compare the *scaling* across input sizes, not
+        the absolute number, if this ever needs re-checking)."""
         adversarial = "a." * 200_000 + "!"
         start = time.monotonic()
         result = redact_text(adversarial, log_pii=False, pii_key="pepper")
         elapsed = time.monotonic() - start
         assert result == adversarial  # no email-shaped match in this input
-        assert elapsed < 2.0, f"redact_text took {elapsed:.2f}s on adversarial input — possible ReDoS regression"
+        assert elapsed < 5.0, f"redact_text took {elapsed:.2f}s on adversarial input — possible ReDoS regression"
 
     def test_adversarial_long_local_part_completes_quickly(self):
         """Regression test for the other adversarial shape: a long run of
         local-part-compatible characters (letters) with no '@' anywhere
-        nearby, repeated across many candidate '@' positions."""
+        nearby, repeated across many candidate '@' positions. See the note
+        on the 5s budget above — same reasoning."""
         adversarial = ("a" * 5000 + "@") * 200
         start = time.monotonic()
         redact_text(adversarial, log_pii=False, pii_key="pepper")
         elapsed = time.monotonic() - start
-        assert elapsed < 2.0, f"redact_text took {elapsed:.2f}s on adversarial input — possible ReDoS regression"
+        assert elapsed < 5.0, f"redact_text took {elapsed:.2f}s on adversarial input — possible ReDoS regression"

@@ -34,25 +34,30 @@ _SENSITIVE_KEYS = {
 # (those only remove wasted backtracking *within* one attempt, not the
 # O(n) cost repeated *across* attempts). Bounding every quantifier caps
 # each attempt's cost at a constant, restoring linear-time scanning
-# regardless of input size — but the bound must be generous enough that
-# it never rejects a real address, or this silently stops redacting
-# instead of just running slower. Bounds:
-#   - local part: 64 octets (RFC 5321's hard limit)
-#   - each domain label: 63 octets (RFC 1035's hard limit)
-#   - number of domain labels: 127 (an earlier version used 10 — "generous
-#     for any real domain" turned out to be wrong: a domain with 11+
-#     labels, e.g. deeply-nested internal subdomains, made the *entire*
-#     address fail to match and pass through completely unredacted,
-#     silently defeating SSF_LOG_PII=false. 127 * (63-octet label + 1 dot)
-#     comfortably covers RFC 1035's 253-octet total-length limit, so it
-#     can't under-match a spec-valid domain no matter how many labels it
-#     has, while still being a fixed bound, not proportional to input
-#     length — re-verified empirically: same runtime on the same
-#     adversarial inputs as the 10-label version)
-#   - TLD: 63 octets (a TLD is just the final label, so it shares RFC
-#     1035's per-label limit — 24 was arbitrary and wrong for the same
-#     reason as the label count)
-_EMAIL_RE = re.compile(r"([A-Z0-9._%+\-]{1,64}@(?:[A-Z0-9\-]{1,63}\.){1,127}[A-Z]{2,63})", re.IGNORECASE)
+# regardless of input size.
+#
+# The bounds are NOT RFC limits (an earlier version used RFC 5321/1035's
+# 64-octet local part / 63-octet label — wrong: this regex redacts PII
+# from *upstream error responses*, which are exactly where a malformed,
+# over-RFC-limit value is likely to show up, e.g. an upstream echoing
+# back invalid input it's complaining about. A too-small bound doesn't
+# just fail to match cleanly — for a local part exceeding the bound, the
+# match can still succeed by sliding the window over only the *last* N
+# characters, leaving the leading, over-limit characters completely
+# unredacted before the masked suffix; for a domain label exceeding the
+# bound, the whole address fails to match anywhere and passes through
+# entirely unredacted. Either way, SSF_LOG_PII=false is silently
+# defeated for exactly the malformed input most likely to appear).
+#
+# Every quantifier here is instead sized to the largest value each
+# component could possibly reach within safe_response_body_text()'s own
+# 512-byte truncation (its only caller, always at the default `limit`) —
+# so no component can *ever* legitimately need more than this bound,
+# regardless of RFC validity, and the redaction is always the full
+# email-shaped span. It remains a fixed bound (not proportional to input
+# length), so the linear-time guarantee from bounding still holds —
+# re-verified empirically on adversarial inputs up to 1MB.
+_EMAIL_RE = re.compile(r"([A-Z0-9._%+\-]{1,512}@(?:[A-Z0-9\-]{1,512}\.){1,256}[A-Z]{2,512})", re.IGNORECASE)
 
 
 def response_metadata(response: httpx.Response) -> dict[str, int | str | None]:
