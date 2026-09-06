@@ -1,0 +1,63 @@
+name: Dependency Snapshot
+
+# Deliberately push-only (not pull_request): the Dependency Submission API
+# accepts a snapshot submitted for a PR feature-branch commit, but silently
+# discards it ("not for the default branch") and dependency-review-action's
+# per-SHA lookup never finds it — confirmed against several real PR runs,
+# including with GITHUB_SHA/GITHUB_REF explicitly corrected to the PR's real
+# head commit and branch (see dependency-review.yml for that action's own,
+# working manifest-diff analysis on PRs). Submitting only on push to an
+# actual default/release branch is the pattern GitHub's own docs demonstrate,
+# and keeps the repo's persistent Dependency Graph (Insights -> Dependency
+# graph, and what Dependabot alerts are computed against) populated with
+# fully resolved package data over time.
+on:
+  push:
+    branches: [main, beta]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  submit-snapshot:
+    name: Submit dependency snapshot
+    runs-on: ubuntu-latest
+    # contents: write is required by the Dependency Submission API (a
+    # snapshot POST is treated as a repository write) — see
+    # https://docs.github.com/en/code-security/how-tos/secure-your-supply-chain/secure-your-dependencies/use-dependency-submission-api
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Trivy's pip analyzer only recognizes a file literally named
+      # requirements.txt, and only entries with an exact `==` pin — our
+      # actual requirements.txt uses `>=`/`<` ranges (for humans and the
+      # Docker build) and requirements-dev.lock.txt has the pins but the
+      # wrong filename, so Trivy silently finds zero language-specific
+      # files against either as checked in (verified locally with a real
+      # trivy binary — confirmed "Number of language-specific files num=0"
+      # against both). requirements-dev.lock.txt is a strict superset of
+      # requirements.lock.txt at identical resolved versions (every
+      # runtime pin also appears, unchanged, in the 67-package dev lock —
+      # verified, zero conflicts), so copying just that one file under the
+      # name Trivy expects covers both runtime and dev/test dependencies
+      # in a single scan.
+      - name: Prepare resolved dependency manifest
+        run: |
+          mkdir -p /tmp/dependency-snapshot-src
+          cp requirements-dev.lock.txt /tmp/dependency-snapshot-src/requirements.txt
+
+      - name: Submit dependency snapshot
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: /tmp/dependency-snapshot-src
+          format: github
+          output: dependency-results.sbom.json
+          github-pat: ${{ secrets.GITHUB_TOKEN }}
