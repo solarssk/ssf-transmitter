@@ -25,6 +25,26 @@ jobs:
         with:
           persist-credentials: false
 
+      # Trivy's pip analyzer only recognizes a file literally named
+      # requirements.txt, and only entries with an exact `==` pin — our
+      # actual requirements.txt uses `>=`/`<` ranges (for humans and the
+      # Docker build) and requirements-dev.lock.txt has the pins but the
+      # wrong filename, so Trivy silently finds zero language files against
+      # either as checked in (verified locally). requirements-dev.lock.txt
+      # is a strict superset of requirements.lock.txt at identical resolved
+      # versions (every runtime pin also appears, unchanged, in the dev
+      # lock — verified, zero conflicts), so copying just that one file
+      # under the name Trivy expects covers both runtime and dev/test
+      # dependencies without needing two scans (which would otherwise
+      # collide: Trivy assigns the manifest key from the scanned file's
+      # basename, so two differently-scoped requirements.txt files
+      # submitted separately can't be told apart in the snapshot history).
+      - name: Prepare resolved dependency manifest for snapshot submission
+        if: github.event.pull_request.head.repo.full_name == github.repository
+        run: |
+          mkdir -p /tmp/dependency-snapshot-src
+          cp requirements-dev.lock.txt /tmp/dependency-snapshot-src/requirements.txt
+
       # Without this, dependency-review-action below falls back to a plain
       # manifest diff (requirements*.txt / pyproject.toml as checked in),
       # which misses resolved transitive versions. Submitting a resolved
@@ -37,7 +57,7 @@ jobs:
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
           scan-type: fs
-          scan-ref: .
+          scan-ref: /tmp/dependency-snapshot-src
           format: github
           output: dependency-results.sbom.json
           github-pat: ${{ secrets.GITHUB_TOKEN }}
