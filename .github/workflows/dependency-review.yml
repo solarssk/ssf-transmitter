@@ -11,12 +11,8 @@ jobs:
   dependency-review:
     name: Dependency review
     runs-on: ubuntu-latest
-    # contents: write is required by the dependency-snapshot submission step
-    # below (the GitHub Dependency Submission API treats a snapshot POST as
-    # a repository write) — see
-    # https://docs.github.com/en/code-security/how-tos/secure-your-supply-chain/secure-your-dependencies/use-dependency-submission-api
     permissions:
-      contents: write
+      contents: read
       pull-requests: write
 
     steps:
@@ -25,71 +21,25 @@ jobs:
         with:
           persist-credentials: false
 
-      # Trivy's pip analyzer only recognizes a file literally named
-      # requirements.txt, and only entries with an exact `==` pin — our
-      # actual requirements.txt uses `>=`/`<` ranges (for humans and the
-      # Docker build) and requirements-dev.lock.txt has the pins but the
-      # wrong filename, so Trivy silently finds zero language files against
-      # either as checked in (verified locally). requirements-dev.lock.txt
-      # is a strict superset of requirements.lock.txt at identical resolved
-      # versions (every runtime pin also appears, unchanged, in the dev
-      # lock — verified, zero conflicts), so copying just that one file
-      # under the name Trivy expects covers both runtime and dev/test
-      # dependencies without needing two scans (which would otherwise
-      # collide: Trivy assigns the manifest key from the scanned file's
-      # basename, so two differently-scoped requirements.txt files
-      # submitted separately can't be told apart in the snapshot history).
-      - name: Prepare resolved dependency manifest for snapshot submission
-        if: github.event.pull_request.head.repo.full_name == github.repository
-        run: |
-          mkdir -p /tmp/dependency-snapshot-src
-          cp requirements-dev.lock.txt /tmp/dependency-snapshot-src/requirements.txt
-
-      # Without this, dependency-review-action below falls back to a plain
-      # manifest diff (requirements*.txt / pyproject.toml as checked in),
-      # which misses resolved transitive versions. Submitting a resolved
-      # snapshot for this commit lets it compare precise dependency data
-      # instead. Fork PRs get a read-only GITHUB_TOKEN regardless of the
-      # `contents: write` above, so this only runs for same-repo PRs — same
-      # guard as the PR-comment step below.
-      #
-      # GITHUB_SHA/GITHUB_REF overridden: Trivy's github-format reporter
-      # submits os.Getenv("GITHUB_SHA")/os.Getenv("GITHUB_REF") verbatim
-      # (pkg/report/github/github.go) rather than resolving them from the
-      # checked-out git state. On a pull_request event those ambient env
-      # vars point at the ephemeral base+head merge commit GitHub
-      # synthesizes for the run (refs/pull/N/merge), not the PR's actual
-      # head commit — so the submitted snapshot was for a SHA
-      # dependency-review-action never queries, and it kept reporting "No
-      # snapshots were found for the head SHA" no matter how long
-      # retry-on-snapshot-warnings waited (confirmed against a real PR
-      # run: submission returned "ACCEPTED" every time, just for the wrong
-      # commit). Pointing both at the real PR head fixes the mismatch.
-      - name: Submit dependency snapshot
-        if: github.event.pull_request.head.repo.full_name == github.repository
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
-        env:
-          GITHUB_SHA: ${{ github.event.pull_request.head.sha }}
-          GITHUB_REF: refs/heads/${{ github.event.pull_request.head.ref }}
-        with:
-          scan-type: fs
-          scan-ref: /tmp/dependency-snapshot-src
-          format: github
-          output: dependency-results.sbom.json
-          github-pat: ${{ secrets.GITHUB_TOKEN }}
-
       # For a fork PR, GITHUB_TOKEN is downgraded to read-only regardless of
       # the `pull-requests: write` above — posting/updating the PR comment
       # would fail with a permission error and take the whole check down
       # with it, even on a clean scan. The scan itself still always runs;
       # only the comment is conditional on same-repo (non-fork) PRs.
       #
-      # retry-on-snapshot-warnings: the snapshot submitted just above can
-      # take a few seconds to become queryable — without this, a fast run
-      # could still hit the "no snapshot found" warning it was added to fix.
+      # No dependency-snapshot submission here: the Dependency Submission
+      # API accepts a snapshot submitted for a PR feature-branch commit,
+      # but silently discards it ("not for the default branch") and this
+      # action's own per-SHA lookup never finds it — confirmed against
+      # several real PR runs, including with GITHUB_SHA/GITHUB_REF
+      # explicitly corrected to the PR's real head commit and branch. This
+      # action's manifest-diff fallback (requirements*.txt/pyproject.toml
+      # as checked in) is what actually drives the analysis on every PR.
+      # See dependency-snapshot.yml for the supported pattern: submitting
+      # a resolved snapshot on push to main/beta, which keeps the repo's
+      # persistent Dependency Graph baseline accurate over time.
       - name: Scan dependency changes
         uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294  # v5.0.0
         with:
           fail-on-severity: high
           comment-summary-in-pr: ${{ github.event.pull_request.head.repo.full_name == github.repository && 'always' || 'never' }}
-          retry-on-snapshot-warnings: true
