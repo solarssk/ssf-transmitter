@@ -26,6 +26,18 @@ jobs:
       # would fail with a permission error and take the whole check down
       # with it, even on a clean scan. The scan itself still always runs;
       # only the comment is conditional on same-repo (non-fork) PRs.
+      #
+      # No dependency-snapshot submission here: the Dependency Submission
+      # API accepts a snapshot submitted for a PR feature-branch commit,
+      # but silently discards it ("not for the default branch") and this
+      # action's own per-SHA lookup never finds it — confirmed against
+      # several real PR runs, including with GITHUB_SHA/GITHUB_REF
+      # explicitly corrected to the PR's real head commit and branch. This
+      # action's manifest-diff fallback (requirements*.txt/pyproject.toml
+      # as checked in) is what actually drives the analysis on every PR.
+      # See dependency-snapshot.yml for the supported pattern: submitting
+      # a resolved snapshot on push to main/beta, which keeps the repo's
+      # persistent Dependency Graph baseline accurate over time.
       - name: Scan dependency changes
         uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294  # v5.0.0
         with:
