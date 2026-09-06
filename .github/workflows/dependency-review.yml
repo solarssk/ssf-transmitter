@@ -52,9 +52,25 @@ jobs:
       # instead. Fork PRs get a read-only GITHUB_TOKEN regardless of the
       # `contents: write` above, so this only runs for same-repo PRs — same
       # guard as the PR-comment step below.
+      #
+      # GITHUB_SHA/GITHUB_REF overridden: Trivy's github-format reporter
+      # submits os.Getenv("GITHUB_SHA")/os.Getenv("GITHUB_REF") verbatim
+      # (pkg/report/github/github.go) rather than resolving them from the
+      # checked-out git state. On a pull_request event those ambient env
+      # vars point at the ephemeral base+head merge commit GitHub
+      # synthesizes for the run (refs/pull/N/merge), not the PR's actual
+      # head commit — so the submitted snapshot was for a SHA
+      # dependency-review-action never queries, and it kept reporting "No
+      # snapshots were found for the head SHA" no matter how long
+      # retry-on-snapshot-warnings waited (confirmed against a real PR
+      # run: submission returned "ACCEPTED" every time, just for the wrong
+      # commit). Pointing both at the real PR head fixes the mismatch.
       - name: Submit dependency snapshot
         if: github.event.pull_request.head.repo.full_name == github.repository
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
+        env:
+          GITHUB_SHA: ${{ github.event.pull_request.head.sha }}
+          GITHUB_REF: refs/heads/${{ github.event.pull_request.head.ref }}
         with:
           scan-type: fs
           scan-ref: /tmp/dependency-snapshot-src
