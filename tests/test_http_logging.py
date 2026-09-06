@@ -117,6 +117,19 @@ class TestRedactText:
         text = "no email content here, just plain diagnostics"
         assert redact_text(text, log_pii=False, pii_key="pepper") == text
 
+    def test_redacts_domain_with_more_than_ten_labels(self):
+        """Regression test: an earlier version capped the domain at 10
+        labels ("generous for any real domain"), which was wrong — a
+        domain with 11+ labels (e.g. deeply-nested internal subdomains)
+        made the *entire* address fail to match and pass through
+        completely unredacted, silently leaking PII even with
+        SSF_LOG_PII=false. RFC 1035 doesn't cap the label count, only
+        per-label (63) and total (253 octet) length."""
+        text = "contact alice@a.b.c.d.e.f.g.h.i.j.k.example.com please"
+        result = redact_text(text, log_pii=False, pii_key="pepper")
+        assert "alice@a.b.c.d.e.f.g.h.i.j.k.example.com" not in result
+        assert "[pii:" in result
+
     def test_adversarial_dotted_text_completes_quickly(self):
         """Regression test: this exact shape (many dots, no valid TLD) took
         several seconds with the unbounded regex once input reached ~16k

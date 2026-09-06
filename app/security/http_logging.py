@@ -25,18 +25,34 @@ _SENSITIVE_KEYS = {
     "secret",
     "id_token",
 }
-# Every quantifier is bounded (RFC 5321 caps the local part at 64 octets,
-# RFC 1035 caps a domain label at 63 and a full name at ~10 realistic
-# labels) rather than open-ended (`+`). An unbounded repeated group here
-# is a genuine super-linear-runtime hazard under re.search(): on
-# non-matching text, each of the O(n) positions re.search() tries can
-# still greedily consume an O(n)-length suffix before failing, making the
-# whole scan O(n^2) — confirmed empirically (SonarCloud python:S5852), and
-# NOT fixed by possessive quantifiers alone (those only remove wasted
-# backtracking *within* one attempt, not the O(n) cost repeated *across*
-# attempts). Bounding every quantifier caps each attempt's cost at a
-# constant, restoring linear-time scanning regardless of input size.
-_EMAIL_RE = re.compile(r"([A-Z0-9._%+\-]{1,64}@(?:[A-Z0-9\-]{1,63}\.){1,10}[A-Z]{2,24})", re.IGNORECASE)
+# Every quantifier is bounded rather than open-ended (`+`): an unbounded
+# repeated group here is a genuine super-linear-runtime hazard under
+# re.search() (on non-matching text, each of the O(n) positions
+# re.search() tries can still greedily consume an O(n)-length suffix
+# before failing, making the whole scan O(n^2) — confirmed empirically,
+# SonarCloud python:S5852) and NOT fixed by possessive quantifiers alone
+# (those only remove wasted backtracking *within* one attempt, not the
+# O(n) cost repeated *across* attempts). Bounding every quantifier caps
+# each attempt's cost at a constant, restoring linear-time scanning
+# regardless of input size — but the bound must be generous enough that
+# it never rejects a real address, or this silently stops redacting
+# instead of just running slower. Bounds:
+#   - local part: 64 octets (RFC 5321's hard limit)
+#   - each domain label: 63 octets (RFC 1035's hard limit)
+#   - number of domain labels: 127 (an earlier version used 10 — "generous
+#     for any real domain" turned out to be wrong: a domain with 11+
+#     labels, e.g. deeply-nested internal subdomains, made the *entire*
+#     address fail to match and pass through completely unredacted,
+#     silently defeating SSF_LOG_PII=false. 127 * (63-octet label + 1 dot)
+#     comfortably covers RFC 1035's 253-octet total-length limit, so it
+#     can't under-match a spec-valid domain no matter how many labels it
+#     has, while still being a fixed bound, not proportional to input
+#     length — re-verified empirically: same runtime on the same
+#     adversarial inputs as the 10-label version)
+#   - TLD: 63 octets (a TLD is just the final label, so it shares RFC
+#     1035's per-label limit — 24 was arbitrary and wrong for the same
+#     reason as the label count)
+_EMAIL_RE = re.compile(r"([A-Z0-9._%+\-]{1,64}@(?:[A-Z0-9\-]{1,63}\.){1,127}[A-Z]{2,63})", re.IGNORECASE)
 
 
 def response_metadata(response: httpx.Response) -> dict[str, int | str | None]:
