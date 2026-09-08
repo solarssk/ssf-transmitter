@@ -1,0 +1,10 @@
+name: Verify standard
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  verify:
+    uses: solarssk/playbook/.github/workflows/verify-tier.yml@v0.1.0
