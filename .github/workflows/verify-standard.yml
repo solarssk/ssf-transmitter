@@ -1,0 +1,13 @@
+name: Verify standard
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    uses: solarssk/playbook/.github/workflows/verify-tier.yml@05abd97b57a86b1279885da39247e0b9ddb49107  # v0.1.1
