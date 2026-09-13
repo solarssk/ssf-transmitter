@@ -9,6 +9,10 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+---
+
+## [0.5.13] — 2026-09-13 — Apple SCIM sync error handling
+
 ### Fixed
 - **`POST /apple-scim/sync` could return an unhandled `500`** — a network error while listing existing Apple users (e.g. a transient Apple API blip) propagated uncaught out of `sync_users()`, instead of the clean `502` already returned when Authentik is unreachable. Now returns `502 Could not reach Apple Business Manager`
 
