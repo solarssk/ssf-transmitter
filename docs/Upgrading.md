@@ -1,5 +1,17 @@
 # Upgrading
 
+## v0.5.13 — Apple SCIM sync error handling (from 0.5.12)
+
+Release notes: [v0.5.13](https://github.com/solarssk/ssf-transmitter/releases/tag/v0.5.13)
+
+One bug fix: `POST /apple-scim/sync` no longer 500s on a transient Apple API error while listing existing users — it now returns the same `502 Could not reach Apple Business Manager` that an unreachable Authentik already produced. Nothing to configure, no migration. Bump the tag whenever convenient:
+
+```bash
+docker compose pull ssf-transmitter
+docker compose up -d ssf-transmitter
+docker compose logs ssf-transmitter --tail 50
+```
+
 ## v0.5.12 — Release pipeline hardening (from 0.5.11)
 
 Release notes: [v0.5.12](https://github.com/solarssk/ssf-transmitter/releases/tag/v0.5.12)

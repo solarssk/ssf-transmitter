@@ -103,9 +103,9 @@ A **stream** is the receiver configuration stored in SQLite: receiver URL, beare
 
 ## Upgrading
 
-**Already running with Apple Business Manager?** See [docs/Upgrading.md](docs/Upgrading.md#v0512--release-pipeline-hardening-from-0511):
+**Already running with Apple Business Manager?** See [docs/Upgrading.md](docs/Upgrading.md#v0513--apple-scim-sync-error-handling-from-0512):
 
-- v0.5.12 is optional: CI/tooling only, no `app/` changes, just a corrected multi-platform SBOM
+- v0.5.13 fixes one bug: `POST /apple-scim/sync` returns a clean `502` instead of a `500` on a transient Apple API error — nothing to configure
 - Do **not** add `SSF_TOKEN_ENCRYPTION_KEY` unless re-registering the stream
 
 ## Public endpoints
