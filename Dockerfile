@@ -8,6 +8,17 @@ ENV APP_VERSION=${APP_VERSION}
 
 WORKDIR /app
 
+# Apply Debian's own security-repo updates on top of the pinned base image.
+# The upstream python:3.14-slim-bookworm digest above is rebuilt on its own
+# cadence, so a Debian security fix (e.g. a libpcre2-8-0 patch) can land in
+# the bookworm-security repo days before the next upstream image rebuild
+# picks it up — this closes that gap without waiting on Dependabot's next
+# digest bump.
+RUN apt-get update && \
+    apt-get upgrade -y && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
 # Create non-root user before installing deps
 RUN groupadd --system --gid 10001 appuser && \
     useradd --system --uid 10001 --gid 10001 --no-create-home appuser
