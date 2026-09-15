@@ -88,7 +88,7 @@ A logout or password change in Authentik fires a webhook; the payload is mapped 
 | 🗄️ | **Storage** | SQLite via `aiosqlite` |
 | 🔐 | **Crypto** | `cryptography` (RS256 JWT signing, Fernet token encryption) |
 | 🚦 | **Rate limiting** | `slowapi` |
-| 🛡️ | **CI/CD security** | CodeQL (every PR + weekly), Trivy (image scan, blocks on HIGH/CRITICAL), SonarCloud, `pip-audit` on both loose and hash-locked dependencies, CycloneDX SBOM per platform |
+| 🛡️ | **CI/CD security** | CodeQL (every PR + weekly), Trivy (image scan, blocks on HIGH/CRITICAL), SonarCloud, `pip-audit` on both loose and hash-locked dependencies, CycloneDX SBOM per platform, OpenSSF Scorecard (report-only, weekly + on push to `main`) |
 
 ## Quick start
 
