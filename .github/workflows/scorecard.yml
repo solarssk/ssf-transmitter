@@ -13,11 +13,11 @@ on:
   push:
     branches: [main]
 
-# `read-all` at the workflow level, narrowed per-job below - the same
-# least-privilege pattern as this repo's other security workflows, and also
-# what Scorecard's own Token-Permissions check looks for.
-permissions: read-all
-
+# No workflow-level `permissions:` block - the single job below declares its
+# own, more specific set, which is the least-privilege pattern SonarCloud's
+# githubactions:S8234 (and Scorecard's own Token-Permissions check) expect;
+# a workflow-level `read-all` was flagged as too broad even though the job
+# already narrows it further.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
