@@ -9,6 +9,9 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Fixed
+- **Docker Hub published `sha-<short>` tags alongside release tags** — `docker-publish.yml`'s "Copy manifest to Docker Hub" step reused GHCR's full tag list verbatim, including the commit-sha tag meant for CI/provenance use. Docker Hub now only receives `latest`/`beta`/semver tags; GHCR is unaffected
+
 ---
 
 ## [0.5.13] — 2026-09-13 — Apple SCIM sync error handling
