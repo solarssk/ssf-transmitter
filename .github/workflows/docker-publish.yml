@@ -218,6 +218,10 @@ jobs:
           [ -n "$digest" ] || { echo "::error::could not resolve merged manifest digest from metadata file"; exit 1; }
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
 
+      # Docker Hub is the public-facing distribution point, so it only gets
+      # clean, human-meaningful tags (latest/beta/semver) — sha-<short> tags
+      # stay GHCR-only, where they're actually consumed (CI, provenance,
+      # pinning a workflow run to an exact build).
       - name: Copy manifest to Docker Hub
         env:
           TAGS: ${{ needs.prepare.outputs.tags }}
@@ -226,8 +230,14 @@ jobs:
           set -euo pipefail
           args=()
           while IFS= read -r tag; do
-            [ -n "$tag" ] && args+=(-t "${tag/ghcr.io/docker.io}")
+            [ -n "$tag" ] || continue
+            case "$tag" in *:sha-*) continue ;; esac
+            args+=(-t "${tag/ghcr.io/docker.io}")
           done <<< "$TAGS"
+          if [ "${#args[@]}" -eq 0 ]; then
+            echo "No non-sha tags for this ref — skipping Docker Hub publish (GHCR sha-tag already pushed)."
+            exit 0
+          fi
           docker buildx imagetools create "${args[@]}" "$SOURCE_REF"
 
       - name: Attest GHCR image
