@@ -10,7 +10,7 @@ Versioning: [Semantic Versioning](https://semver.org/)
 ## [Unreleased]
 
 ### Fixed
-- **Docker Hub published `sha-<short>` tags alongside release tags** — `docker-publish.yml`'s "Copy manifest to Docker Hub" step reused GHCR's full tag list verbatim, including the commit-sha tag meant for CI/provenance use. Docker Hub now only receives `latest`/`beta`/semver tags; GHCR is unaffected
+- **Docker Hub published `sha-<short>` tags alongside release tags** — `docker-publish.yml`'s "Copy manifest to Docker Hub" step reused GHCR's full tag list verbatim, including the commit-sha tag meant for CI/provenance use. Docker Hub now only receives `latest`/`beta`/semver tags; GHCR is unaffected. On an ordinary `main`/`beta` push with no non-sha tags, the copy (and its Docker Hub provenance attestation) is now skipped instead of failing the job against a manifest that was never published
 
 ---
 
