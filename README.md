@@ -163,7 +163,7 @@ Requires **Python 3.14** (see `.python-version`; matches CI and the Docker image
 
 ```bash
 python3.14 -m venv .venv && . .venv/bin/activate
-pip install -r requirements-dev.txt
+pip install -e ".[dev]"
 ruff check .
 pytest  # runs the suite and prints branch coverage for app/
 ```

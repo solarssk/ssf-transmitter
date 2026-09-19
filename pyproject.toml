@@ -1,3 +1,7 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
 name = "ssf-transmitter"
 # Source of truth for the release-automation pipeline (.github/workflows/release.yml,
@@ -7,6 +11,46 @@ name = "ssf-transmitter"
 # from the git tag at image build time.
 version = "0.5.13"
 requires-python = ">=3.14"
+# Loose ranges. The exact resolved set (with hashes) is requirements.txt,
+# generated from this list — see AGENTS.md before editing.
+dependencies = [
+    "fastapi>=0.141.1,<1.0.0",
+    "uvicorn>=0.52.4,<1.0.0",
+    "aiosqlite>=0.22.1,<1.0.0",
+    "PyJWT[crypto]>=2.13.0,<3.0.0",
+    "cryptography>=50.0.1,<51.0.0",
+    "httpx>=0.28.1,<1.0.0",
+    "slowapi>=0.1.10,<1.0.0",
+    # Optional: enable ANSI-coloured logs with SSF_LOG_COLOR=true
+    "colorlog>=6.12.0,<7.0.0",
+]
+
+# Dev/CI tooling, split by concern like the other repos. Not hash-locked:
+# only what ships in the image (dependencies above) is.
+[project.optional-dependencies]
+test = [
+    "pytest>=9.1.1,<10.0.0",
+    "pytest-cov>=7.1.0,<8.0.0",
+    "hypothesis>=6.167.1,<7.0.0",
+]
+lint = [
+    "ruff>=0.16.5,<1.0.0",
+]
+typecheck = [
+    "mypy>=2.3.1,<3.0.0",
+]
+security = [
+    "pip-audit>=2.10.1,<3.0.0",
+    "deptry>=0.25.1,<1.0.0",
+    "zizmor>=1.30.0,<2.0.0",
+]
+dev = [
+    "ssf-transmitter[test,lint,typecheck,security]",
+    "pip-tools>=7.6.1,<8.0.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -31,9 +75,13 @@ show_missing = true
 skip_empty = true
 
 [tool.deptry]
-# DEP003 (transitive dependency used directly) requires full pyproject.toml
-# dependency declaration to work correctly — skip it until dependencies are
-# migrated from requirements.txt to [project.dependencies].
+# The optional-dependencies extras are dev tooling, not runtime imports —
+# without this deptry reads them as regular dependencies and reports every
+# one as unused (DEP002).
+optional_dependencies_dev_groups = ["test", "lint", "typecheck", "security", "dev"]
+# DEP003 (transitive dependency used directly): the app imports pydantic and
+# starlette, which arrive via fastapi rather than being declared here. Ignored
+# rather than declaring them so the fastapi range keeps deciding their versions.
 # DEP001 (missing) and DEP002 (unused) are still enforced.
 ignore = ["DEP003"]
 

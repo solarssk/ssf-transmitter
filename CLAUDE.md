@@ -25,7 +25,7 @@ This file adds Claude Code–specific notes only.
 ```bash
 # Setup (Python 3.14)
 python3.14 -m venv .venv && source .venv/bin/activate
-pip install -r requirements-dev.txt
+pip install -e ".[dev]"
 
 # Verify before commit
 ruff check .

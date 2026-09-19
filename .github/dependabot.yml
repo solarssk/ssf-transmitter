@@ -24,7 +24,9 @@ updates:
     labels:
       - "dependencies"
 
-  # Keep Python dependencies up to date
+  # Keep Python dependencies up to date. pyproject.toml holds the ranges;
+  # Dependabot recognizes the pip-compile-generated requirements.txt next to
+  # it and regenerates the hashes there itself.
   - package-ecosystem: "pip"
     directory: "/"
     schedule:

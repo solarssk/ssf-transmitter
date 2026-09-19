@@ -102,7 +102,7 @@ When changing auth, tokens, streams, or outbound HTTP, add or extend tests in `t
 
 ```bash
 python3.14 -m venv .venv && . .venv/bin/activate
-pip install -r requirements-dev.txt
+pip install -e ".[dev]"
 ruff check .
 pytest
 deptry .
@@ -110,7 +110,7 @@ deptry .
 
 Copy [`.env.example`](.env.example) for local env vars. Tests use defaults from `tests/conftest.py` (`.testdata/` for keys + DB).
 
-CI and the Dockerfile install from hash-locked `requirements.lock.txt` / `requirements-dev.lock.txt` instead (fixed target platforms; see `scripts/lock_requirements.py`); local dev stays on the loose ranges above since it isn't tied to one platform.
+Dependencies are declared as loose ranges in `pyproject.toml`: `[project.dependencies]` for runtime, `[project.optional-dependencies]` extras (`test`, `lint`, `typecheck`, `security`, `dev`) for tooling — the same layout as the other repos and the Playbook's [hash-pinned lockfile recipe](https://github.com/solarssk/playbook/blob/main/docs/ci-cookbook.md#14-hash-pinned-dependency-lockfile-python-pip-compile). Only the runtime set is locked: `requirements.txt` is its hash-pinned `pip-compile` output, what the Dockerfile and CI's runtime install use (`--require-hashes`); dev tooling floats within its ranges. Dependabot bumps the ranges in `pyproject.toml` and regenerates `requirements.txt` itself. To regenerate manually, use the pinned `pip-tools==7.6.1` under Python 3.14 (it must match the Dockerfile's base image: `pip-compile` resolves marker-conditional dependencies using whatever interpreter runs it): `pip-compile --generate-hashes --allow-unsafe -o requirements.txt pyproject.toml`. CI's `dependency-lock` job fails if the two drift apart.
 
 ---
 
@@ -154,7 +154,7 @@ Prefer **focused regression tests** over broad mocks. Security fixes should incl
 | Calling `push_verification_set` without mocking in tests | Flaky CI / real network calls |
 | Returning `endpoint_url_token` in stream GET responses | Token leak |
 | Using `logger.error` for quarantine/warning paths | Startup uses ✅/⚠️/❌ semantics; warnings should be `logger.warning` |
-| Bumping `requirements.txt` or `requirements-dev.txt` without regenerating the matching `.lock.txt` | The Dockerfile and CI's own dependency install both use the hash-locked files (`pip install --require-hashes`), not the loose-range ones directly. If the previously-locked version still satisfies the new range, the install **succeeds silently on the stale pin**: no error. Regenerate both with `python scripts/lock_requirements.py` (CI's "Verify lock files are up to date" step catches drift either way) |
+| Editing `[project.dependencies]` in `pyproject.toml` without regenerating `requirements.txt` | The Dockerfile and CI's runtime install use the hash-pinned `requirements.txt` (`pip install --require-hashes`), not the ranges. If the previously-pinned version still satisfies the new range, the install **succeeds silently on the stale pin**: no error. Regenerate with the `pip-compile` command above (CI's `dependency-lock` job catches drift either way) |
 
 ---
 

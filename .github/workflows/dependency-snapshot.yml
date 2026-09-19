@@ -36,22 +36,14 @@ jobs:
           persist-credentials: false
 
       # Trivy's pip analyzer only recognizes a file literally named
-      # requirements.txt, and only entries with an exact `==` pin — our
-      # actual requirements.txt uses `>=`/`<` ranges (for humans and the
-      # Docker build) and requirements-dev.lock.txt has the pins but the
-      # wrong filename, so Trivy silently finds zero language-specific
-      # files against either as checked in (verified locally with a real
-      # trivy binary — confirmed "Number of language-specific files num=0"
-      # against both). requirements-dev.lock.txt is a strict superset of
-      # requirements.lock.txt at identical resolved versions (every
-      # runtime pin also appears, unchanged, in the 67-package dev lock —
-      # verified, zero conflicts), so copying just that one file under the
-      # name Trivy expects covers both runtime and dev/test dependencies
-      # in a single scan.
+      # requirements.txt, which is exactly what the hash-pinned runtime lock
+      # is called — copied to an otherwise empty directory so the scan sees
+      # just the resolved runtime dependency set (the dev tooling floats and
+      # isn't part of the shipped image).
       - name: Prepare resolved dependency manifest
         run: |
           mkdir -p /tmp/dependency-snapshot-src
-          cp requirements-dev.lock.txt /tmp/dependency-snapshot-src/requirements.txt
+          cp requirements.txt /tmp/dependency-snapshot-src/requirements.txt
 
       - name: Submit dependency snapshot
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0

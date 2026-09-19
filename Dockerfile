@@ -23,17 +23,17 @@ RUN apt-get update && \
 RUN groupadd --system --gid 10001 appuser && \
     useradd --system --uid 10001 --gid 10001 --no-create-home appuser
 
-COPY requirements.txt requirements.lock.txt .
+COPY requirements.txt .
 # Install only pre-built wheels (--only-binary :all:, no setup.py execution)
-# whose hash matches requirements.lock.txt (--require-hashes, tamper-evident
-# supply chain — see requirements.lock.txt's header for how to regenerate
-# it from requirements.txt). Then strip pip/setuptools/wheel and
+# whose hash matches requirements.txt (--require-hashes, tamper-evident
+# supply chain — it's pip-compile output from requirements.in, see its
+# header for how to regenerate). Then strip pip/setuptools/wheel and
 # ensurepip's bundled pip wheel — none are needed at runtime (the app
 # never imports or shells out to pip), and removing them drops pip's
 # internally vendored copies of msgpack/setuptools (which even the latest
 # pip release ships at versions with known CVEs) from the image entirely,
 # instead of just suppressing the scanner finding.
-RUN pip install --no-cache-dir --only-binary :all: --require-hashes -r requirements.lock.txt && \
+RUN pip install --no-cache-dir --only-binary :all: --require-hashes -r requirements.txt && \
     pip uninstall --yes --no-input pip setuptools wheel && \
     rm -rf /usr/local/lib/python3.14/ensurepip
 
