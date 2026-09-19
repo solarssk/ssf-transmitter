@@ -109,7 +109,7 @@ jobs:
       - name: Upload coverage to Codecov
         # Fork and Dependabot workflows cannot read repository secrets; tests still run.
         if: ${{ env.CODECOV_TOKEN != '' }}
-        uses: codecov/codecov-action@0b35c9ecc4f0529d0eb674914510c22f85b196b4  # v7.1.0
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5  # v7.1.1
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
         with:
@@ -232,7 +232,7 @@ jobs:
       # on amd64) merges clean and only fails *after* merge, in the real
       # publish job. Build and boot it here too, before merge.
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a  # v4
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1  # v4
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e  # v4
