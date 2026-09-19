@@ -7,6 +7,14 @@ updates:
       interval: "weekly"
     labels:
       - "dependencies"
+    groups:
+      # init/analyze (codeql.yml) must be the same version, or CodeQL
+      # fails with "Loaded a configuration file for version X, but
+      # running version Y"; upload-sarif (scorecard.yml) is bundled in
+      # too since all three are always released together upstream.
+      codeql-action:
+        patterns:
+          - "github/codeql-action/*"
 
   # Keep Docker base image up to date (digest bumps)
   - package-ecosystem: "docker"
