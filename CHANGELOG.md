@@ -12,6 +12,9 @@ Versioning: [Semantic Versioning](https://semver.org/)
 ### Fixed
 - **Docker Hub published `sha-<short>` tags alongside release tags** — `docker-publish.yml`'s "Copy manifest to Docker Hub" step reused GHCR's full tag list verbatim, including the commit-sha tag meant for CI/provenance use. Docker Hub now only receives `latest`/`beta`/semver tags; GHCR is unaffected. On an ordinary `main`/`beta` push with no non-sha tags, the copy (and its Docker Hub provenance attestation) is now skipped instead of failing the job against a manifest that was never published
 
+### Changed
+- **Dependencies now follow the Playbook's pip-compile layout** — ranges live in `pyproject.toml` (`[project.dependencies]` plus `test`/`lint`/`typecheck`/`security`/`dev` extras), and `requirements.txt` is the hash-pinned `pip-compile --generate-hashes --allow-unsafe` output for the runtime set only (installed with `--require-hashes` by the Dockerfile and CI). Dependabot understands this layout and regenerates the hashes itself, so weekly Python dependency PRs no longer fail CI on a stale lock and need no manual regeneration. Removes `scripts/lock_requirements.py`, `requirements.lock.txt`, `requirements-dev.lock.txt`, `requirements-dev.txt`, and the `uv` dependency in CI; a new `dependency-lock` job recompiles `requirements.txt` and fails on drift. Dev/CI tooling is no longer hash-locked (it floats within its `pyproject.toml` ranges), matching the other repos. Local setup is now `pip install -e ".[dev]"`. Nothing for operators to change; the image installs the same runtime package set
+
 ---
 
 ## [0.5.13] — 2026-09-13 — Apple SCIM sync error handling

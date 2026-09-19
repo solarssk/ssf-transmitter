@@ -44,34 +44,26 @@ jobs:
           cache: "pip"
           cache-dependency-path: |
             requirements.txt
-            requirements-dev.txt
-            requirements.lock.txt
-            requirements-dev.lock.txt
+            pyproject.toml
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4  # v10.1.0
-
-      # requirements.lock.txt / requirements-dev.lock.txt are what the
-      # Dockerfile and this job's own dependency install actually use
-      # (`pip install --require-hashes`); requirements.txt /
-      # requirements-dev.txt only set the ranges dependabot bumps. If they
-      # drift, both installs still succeed — pinned to stale versions —
-      # while this check is the only thing that would catch it. See
-      # AGENTS.md pitfalls table.
-      - name: Verify lock files are up to date
-        run: python scripts/lock_requirements.py --check
-
-      # --only-binary :all: rules out arbitrary setup.py execution;
-      # --require-hashes verifies every downloaded artifact against
-      # requirements-dev.lock.txt (this job always runs on ubuntu-latest,
-      # a fixed platform, so a single-platform lock is enough here). No
-      # separate `pip install --upgrade pip` first — that installs pip
-      # itself without a version/hash pin, which is exactly what this
-      # step exists to avoid; actions/setup-python's bundled pip already
-      # supports --require-hashes (a long-stable flag).
-      - name: Install dependencies
+      # requirements.txt is pip-compile output (hash-pinned) from
+      # pyproject.toml's [project.dependencies] — exactly what the Docker
+      # image installs, so CI tests the shipped versions. --only-binary
+      # :all: rules out arbitrary setup.py execution; --require-hashes
+      # verifies every downloaded artifact. No separate `pip install
+      # --upgrade pip` first — that installs pip itself without a
+      # version/hash pin, which is exactly what this step exists to avoid;
+      # actions/setup-python's bundled pip already supports
+      # --require-hashes (a long-stable flag).
+      - name: Install runtime dependencies (hash-locked)
         run: |
-          pip install --no-cache-dir --only-binary :all: --require-hashes -r requirements-dev.lock.txt
+          pip install --no-cache-dir --only-binary :all: --require-hashes -r requirements.txt
+
+      # Dev tooling floats within pyproject.toml's extras ranges; only what
+      # ships in the image is hash-locked (see the dependency-lock job).
+      - name: Install dev tooling
+        run: |
+          pip install --no-cache-dir -e ".[dev]"
 
       - name: Lint
         run: ruff check .
@@ -147,17 +139,10 @@ jobs:
       - name: Check for unused/missing dependencies
         run: deptry .
 
+      # Audits the hash-pinned runtime set — what the Docker image actually
+      # installs — rather than the loose ranges in pyproject.toml.
       - name: Audit dependencies for known vulnerabilities
-        run: pip-audit -r requirements.txt -r requirements-dev.txt
-
-      # Separate invocations: a hash-pinned file can't be combined with
-      # loose ranges in one pip-audit/pip call (pip requires every file in
-      # one `-r ... -r ...` invocation to be hash-pinned once any of them
-      # are). These are what actually get installed — the Docker image and
-      # this job itself — and can diverge from the ranges above; see the
-      # lock-freshness check further up.
-      - name: Audit locked dependencies for known vulnerabilities
-        run: pip-audit -r requirements.lock.txt -r requirements-dev.lock.txt
+        run: pip-audit -r requirements.txt
 
       - name: Build Docker image
         run: docker build -t ssf-transmitter:ci .
@@ -257,3 +242,42 @@ jobs:
           docker logs smoke-arm64
           docker rm -f smoke-arm64
           [ -n "$ok" ] || { echo "::error::container did not become healthy"; exit 1; }
+
+  dependency-lock:
+    name: Verify requirements.txt matches pyproject.toml
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Must match the Dockerfile's base image Python version (3.14):
+      # pip-compile resolves environment-marker-conditional transitive
+      # dependencies using the interpreter it runs under, so a different
+      # version here can reproduce a spuriously different lockfile even
+      # when pyproject.toml hasn't changed.
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.14"
+          cache: "pip"
+
+      # Pinned exactly (unlike pyproject.toml's own pip-tools floor for local
+      # dev use): pip-tools has shifted how it renders the generated file's
+      # header between versions, which would break the diff below for a
+      # reason unrelated to any real dependency change.
+      - name: Install pip-tools
+        run: pip install "pip-tools==7.6.1"
+
+      # pip-compile keeps existing pins from requirements.txt while they
+      # still satisfy pyproject.toml, so re-running it without --upgrade
+      # reproduces the same file unless pyproject.toml's constraints changed
+      # without regenerating the lock to match.
+      - name: Verify requirements.txt matches pyproject.toml
+        run: |
+          pip-compile --generate-hashes --allow-unsafe -o requirements.txt pyproject.toml
+          git diff --exit-code requirements.txt

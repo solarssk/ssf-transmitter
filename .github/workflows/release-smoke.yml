@@ -47,7 +47,8 @@ jobs:
 
       - name: Install test dependencies
         run: |
-          pip install --no-cache-dir --only-binary :all: --require-hashes -r requirements-dev.lock.txt
+          pip install --no-cache-dir --only-binary :all: --require-hashes -r requirements.txt
+          pip install --no-cache-dir -e ".[test]"
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f  # v4

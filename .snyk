@@ -3,11 +3,11 @@
 # Overrides the org-level Snyk Pip scanning default (Python 3.7.4) for this
 # repo. requires-python in pyproject.toml is ">=3.14", but 3.14 isn't yet a
 # selectable Snyk scanning target (max is 3.12 at time of writing) — 3.12 is
-# still high enough that every pinned package in requirements.lock.txt
+# still high enough that every pinned package in requirements.txt
 # (verified against each package's PyPI requires-python) resolves correctly,
 # unlike 3.7 which makes Snyk silently substitute older, vulnerable versions
 # of transitive dependencies (e.g. limits, reported as limits@3.10.1 instead
-# of the actually-locked limits==5.8.0) for packages that dropped 3.7 support.
+# of the actually-pinned limits==5.8.0) for packages that dropped 3.7 support.
 #
 # See: https://support.snyk.io/hc/en-us/articles/11963556416797
 version: v1.25.0
