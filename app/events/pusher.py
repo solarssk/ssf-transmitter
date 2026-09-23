@@ -11,15 +11,17 @@ from app.crypto import sign_set, sign_verification_set
 from app.database import Stream
 from app.events.mapper import MappedEvent
 from app.security.log_sanitize import sanitize_for_log
-from app.security.url_validation import _is_blocked_ip, _resolve_host, receiver_host_allowed
+from app.security.url_validation import _is_blocked_ip, _resolve_host, receiver_host_allowed, safe_hostname
 
 logger = logging.getLogger(__name__)
 
 
 def _safe_host(url: str) -> str:
     """Extract the hostname from a URL for safe logging (no path or token)."""
-    parsed = urlparse(url)
-    return parsed.netloc or "unknown-host"
+    try:
+        return urlparse(url).netloc or "unknown-host"
+    except ValueError:
+        return "unknown-host"
 
 
 def _revalidate_endpoint(url: str) -> bool:
@@ -33,14 +35,16 @@ def _revalidate_endpoint(url: str) -> bool:
     """
     allowed_hosts = settings.ssf_allowed_receiver_hosts
     if allowed_hosts and not receiver_host_allowed(url, allowed_hosts):
-        host = urlparse(url).hostname or ""
         logger.warning(
             "Blocked outbound push: endpoint_url host %r is not in SSF_ALLOWED_RECEIVER_HOSTS allowlist",
-            host,
+            safe_hostname(url),
         )
         return False
 
-    host = urlparse(url).hostname or ""
+    host = safe_hostname(url)
+    if not host:
+        logger.warning("Blocked outbound push: endpoint_url has no parseable host")
+        return False
     ips = _resolve_host(host)
     if not ips:
         logger.warning("Blocked outbound push: endpoint_url host %r failed to resolve", host)

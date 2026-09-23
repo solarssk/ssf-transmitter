@@ -792,6 +792,35 @@ class TestCheckStoredStreamsAllowlist:
 
         assert _check_stored_streams_allowlist() is True
 
+    def test_malformed_stored_endpoint_url_is_reported_not_crashed(self, monkeypatch, tmp_path):
+        import sqlite3
+        from contextlib import closing
+
+        from app.startup import _check_stored_streams_allowlist
+
+        db_file = tmp_path / "ssf.db"
+        with closing(sqlite3.connect(db_file)) as con:
+            con.execute(
+                """
+                CREATE TABLE streams (
+                  stream_id TEXT PRIMARY KEY, aud TEXT NOT NULL, endpoint_url TEXT NOT NULL,
+                  endpoint_token TEXT NOT NULL, events_requested TEXT NOT NULL,
+                  status TEXT DEFAULT 'enabled', created_at INTEGER NOT NULL
+                )
+                """
+            )
+            con.execute(
+                "INSERT INTO streams VALUES ('s1', 'aud', 'https://[not-a-real-ipv6/events', 'tok', '[]', 'enabled', 1)"
+            )
+            con.commit()
+
+        monkeypatch.setattr(
+            "app.startup.settings",
+            _good_settings(ssf_allowed_receiver_hosts=["allowed.example.test"], database_path=str(db_file)),
+        )
+
+        assert _check_stored_streams_allowlist() is False
+
 
 class TestQuarantineEdgeCases:
     def test_stream_with_empty_endpoint_token_is_skipped(self, monkeypatch, caplog, tmp_path):

@@ -1,0 +1,44 @@
+name: ClusterFuzzLite batch fuzzing
+
+# Weekly, longer-running fuzzing session: builds a corpus over time and
+# reports every crash found (not just ones new since main), unlike
+# fuzzing-pr.yml's fast, crash-on-first-hit PR checks. No storage-repo is
+# configured, so each run starts from the seed corpus rather than a
+# persisted one — still finds bugs, just without corpus continuity between
+# runs; wiring up a storage repo is a separate follow-up if this proves
+# worth it.
+on:
+  schedule:
+    - cron: "30 4 * * 0" # weekly, Sunday — offset from scorecard.yml's Wednesday run
+
+permissions: {}
+
+jobs:
+  batch-fuzz:
+    name: Batch fuzz (${{ matrix.sanitizer }})
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write # upload SARIF to the Security tab
+    strategy:
+      fail-fast: false
+      matrix:
+        sanitizer:
+          - address
+    steps:
+      - name: Build fuzzers (${{ matrix.sanitizer }})
+        id: build
+        uses: google/clusterfuzzlite/actions/build_fuzzers@884713a6c30a92e5e8544c39945cd7cb630abcd1 # v1
+        with:
+          language: python
+          sanitizer: ${{ matrix.sanitizer }}
+
+      - name: Run fuzzers (${{ matrix.sanitizer }})
+        id: run
+        uses: google/clusterfuzzlite/actions/run_fuzzers@884713a6c30a92e5e8544c39945cd7cb630abcd1 # v1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          fuzz-seconds: 3600
+          mode: "batch"
+          sanitizer: ${{ matrix.sanitizer }}
+          output-sarif: true

@@ -15,10 +15,24 @@ updates:
       codeql-action:
         patterns:
           - "github/codeql-action/*"
+      # build_fuzzers/run_fuzzers (fuzzing-pr.yml, fuzzing-batch.yml) are
+      # released together upstream — same reasoning as codeql-action above.
+      clusterfuzzlite-action:
+        patterns:
+          - "google/clusterfuzzlite/*"
 
   # Keep Docker base image up to date (digest bumps)
   - package-ecosystem: "docker"
     directory: "/"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+
+  # Same, for the ClusterFuzzLite fuzzer build image — a separate directory
+  # entry since Dependabot's docker ecosystem doesn't scan recursively.
+  - package-ecosystem: "docker"
+    directory: "/.clusterfuzzlite"
     schedule:
       interval: "weekly"
     labels:
