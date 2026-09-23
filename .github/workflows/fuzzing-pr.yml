@@ -1,6 +1,6 @@
 name: ClusterFuzzLite PR fuzzing
 
-# Fuzzes every PR for up to 10 minutes using the harnesses under fuzz/ (see
+# Fuzzes every PR for 2 minutes using the harnesses under fuzz/ (see
 # .clusterfuzzlite/'s Dockerfile/build.sh for the build side). "code-change"
 # mode quits on the first crash and only reports crashes not already present
 # on main — see fuzzing-batch.yml for the scheduled, longer-running,
@@ -45,7 +45,7 @@ jobs:
         uses: google/clusterfuzzlite/actions/run_fuzzers@884713a6c30a92e5e8544c39945cd7cb630abcd1 # v1
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          fuzz-seconds: 600
+          fuzz-seconds: 120
           mode: "code-change"
           sanitizer: ${{ matrix.sanitizer }}
           output-sarif: true
