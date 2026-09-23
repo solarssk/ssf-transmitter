@@ -38,3 +38,15 @@ updates:
       python-dependencies:
         patterns:
           - "*"
+    # pydantic-core is a hash-locked transitive dependency (via fastapi ->
+    # pydantic) that pydantic pins to an *exact* version. Dependabot keeps
+    # proposing standalone pydantic-core bumps whenever a newer release
+    # lands on PyPI, but pip-compile always reverts them because no
+    # published pydantic release supports that pydantic-core version yet —
+    # this broke the "Verify requirements.txt matches pyproject.toml" CI
+    # job on every weekly PR that included it (#149, #155, #160). It will
+    # move again automatically, in lockstep with pydantic, once pydantic
+    # itself needs the newer pydantic-core and pip-compile re-resolves both
+    # together.
+    ignore:
+      - dependency-name: "pydantic-core"
