@@ -321,6 +321,11 @@ async def test_push_set_blocked_when_host_not_in_allowlist(monkeypatch, stream, 
     assert "SSF_ALLOWED_RECEIVER_HOSTS allowlist" in caplog.text
 
 
+def test_safe_host_returns_placeholder_for_unparseable_url():
+    assert pusher._safe_host("https://receiver.example.test/events") == "receiver.example.test"
+    assert pusher._safe_host("https://[not-a-real-ipv6/events") == "unknown-host"
+
+
 @pytest.mark.anyio
 @pytest.mark.parametrize("allowed_hosts", [["allowed.example.com"], []])
 async def test_push_set_blocked_not_crashed_on_malformed_stored_endpoint_url(
