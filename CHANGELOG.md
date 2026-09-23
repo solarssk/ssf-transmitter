@@ -9,6 +9,9 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Security
+- **`GITHUB_TOKEN` no longer defaults to a broad grant in 8 workflows** — `ci.yml`, `codeql.yml`, `dependency-review.yml`, `dependency-snapshot.yml`, `release.yml`, `scorecard.yml`, `sync-main-to-beta.yml`, and `sync-wiki.yml` each now declare an explicit, minimal top-level `permissions:` block (`{}` where no job needs anything by default), instead of relying on the repository's default token scope or granting `write` workflow-wide. Where a job genuinely needs to write (publish to the Wiki, merge into `beta`, cut a release), that grant now lives on the job itself, not the whole workflow — so adding an unrelated job later can't silently inherit it. No functional change; closes 9 of OpenSSF Scorecard's Token-Permissions findings. The remaining 3 (submitting a dependency snapshot, creating a GitHub Release, dispatching the release-smoke workflow) stay job-scoped `write` grants because the Dependency Submission API and Releases API require it — already least-privilege, and can't go lower without dropping the feature
+
 ### Fixed
 - **Docker Hub published `sha-<short>` tags alongside release tags** — `docker-publish.yml`'s "Copy manifest to Docker Hub" step reused GHCR's full tag list verbatim, including the commit-sha tag meant for CI/provenance use. Docker Hub now only receives `latest`/`beta`/semver tags; GHCR is unaffected. On an ordinary `main`/`beta` push with no non-sha tags, the copy (and its Docker Hub provenance attestation) is now skipped instead of failing the job against a manifest that was never published
 
