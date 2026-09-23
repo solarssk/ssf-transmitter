@@ -1,10 +1,9 @@
 #!/bin/bash -eu
 # ClusterFuzzLite requires this file at .clusterfuzzlite/build.sh.
-# Pinned exactly (not the loose atheris floor any other extra would use):
-# atheris ships as a source-built wheel per Python version, and pinning it
-# keeps a fuzzer build reproducible the same way this repo pins pip-tools
-# for the same reason (see ci.yml's "Install pip-tools" step).
-pip3 install --no-cache-dir "atheris==2.3.0"
+# Hash-pinned (--require-hashes) like the rest of this repo's installs; see
+# requirements-atheris.txt. Pinned at all because atheris ships as a
+# per-Python-version wheel, so an unpinned build isn't reproducible.
+pip3 install --no-cache-dir --require-hashes -r "${SRC}/requirements-atheris.txt"
 
 for fuzzer in "${SRC}/ssf-transmitter/fuzz"/fuzz_*.py; do
   compile_python_fuzzer "${fuzzer}"

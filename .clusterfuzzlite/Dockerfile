@@ -24,4 +24,4 @@ ARG PYTHONPATH=""
 ENV PYTHONPATH="$SRC/ssf-transmitter:${PYTHONPATH}"
 WORKDIR $SRC/ssf-transmitter
 
-COPY .clusterfuzzlite/build.sh $SRC/
+COPY .clusterfuzzlite/build.sh .clusterfuzzlite/requirements-atheris.txt $SRC/

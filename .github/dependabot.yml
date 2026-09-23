@@ -38,6 +38,14 @@ updates:
     labels:
       - "dependencies"
 
+  # atheris, hash-pinned in the fuzz image's own requirements file.
+  - package-ecosystem: "pip"
+    directory: "/.clusterfuzzlite"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+
   # Keep Python dependencies up to date. pyproject.toml holds the ranges;
   # Dependabot recognizes the pip-compile-generated requirements.txt next to
   # it and regenerates the hashes there itself.
