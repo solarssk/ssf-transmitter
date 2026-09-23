@@ -31,10 +31,10 @@ dependencies = [
 test = [
     "pytest>=9.1.1,<10.0.0",
     "pytest-cov>=7.1.0,<8.0.0",
-    "hypothesis>=6.167.1,<7.0.0",
+    "hypothesis>=6.168.0,<7.0.0",
 ]
 lint = [
-    "ruff>=0.16.5,<1.0.0",
+    "ruff>=0.16.8,<1.0.0",
 ]
 typecheck = [
     "mypy>=2.3.1,<3.0.0",
@@ -42,7 +42,7 @@ typecheck = [
 security = [
     "pip-audit>=2.10.1,<3.0.0",
     "deptry>=0.25.1,<1.0.0",
-    "zizmor>=1.30.0,<2.0.0",
+    "zizmor>=1.30.1,<2.0.0",
 ]
 dev = [
     "ssf-transmitter[test,lint,typecheck,security]",
