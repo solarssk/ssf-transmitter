@@ -31,14 +31,7 @@ on:
   push:
     branches: [main]
 
-permissions:
-  contents: write
-  actions: write
-  # Required by the Milestones API's PATCH endpoint (grouped under Issues,
-  # not Contents) — without it, "Close matching GitHub milestone" 403s on
-  # every real release that has a matching open milestone, failing the job
-  # even though the release/tag/docker-dispatch steps above already succeeded.
-  issues: write
+permissions: {}
 
 concurrency:
   group: release-${{ github.repository }}
@@ -47,6 +40,15 @@ concurrency:
 jobs:
   publish-release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
+      # Required by the Milestones API's PATCH endpoint (grouped under
+      # Issues, not Contents) — without it, "Close matching GitHub
+      # milestone" 403s on every real release that has a matching open
+      # milestone, failing the job even though the release/tag/
+      # docker-dispatch steps above already succeeded.
+      issues: write
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
