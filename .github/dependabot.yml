@@ -45,6 +45,12 @@ updates:
       interval: "weekly"
     labels:
       - "dependencies"
+    # atheris 3.1+ ships only cp312+ wheels; the OSS-Fuzz Python base image
+    # runs 3.11, so #171's bump to 3.1.0 failed with "No matching
+    # distribution". Lift this once the base image's Python catches up.
+    ignore:
+      - dependency-name: "atheris"
+        versions: [">=3.1"]
 
   # Keep Python dependencies up to date. pyproject.toml holds the ranges;
   # Dependabot recognizes the pip-compile-generated requirements.txt next to
