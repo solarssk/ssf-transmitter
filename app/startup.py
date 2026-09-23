@@ -17,7 +17,7 @@ import httpx
 
 from app.config import settings
 from app.crypto import TokenDecryptionError, decrypt_token
-from app.security.url_validation import receiver_host_allowed
+from app.security.url_validation import receiver_host_allowed, safe_hostname
 
 logger = logging.getLogger("app.startup")
 
@@ -107,7 +107,7 @@ def _check_stored_streams_allowlist() -> bool:
     violations: list[str] = []
     for stream_id, endpoint_url in rows:
         if not receiver_host_allowed(endpoint_url, allowed_hosts):
-            host = (urlparse(endpoint_url).hostname or "unknown-host").lower()
+            host = safe_hostname(endpoint_url) or "unknown-host"
             violations.append(f"{stream_id} -> {host!r}")
 
     if not violations:

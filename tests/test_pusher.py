@@ -322,6 +322,29 @@ async def test_push_set_blocked_when_host_not_in_allowlist(monkeypatch, stream, 
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("allowed_hosts", [["allowed.example.com"], []])
+async def test_push_set_blocked_not_crashed_on_malformed_stored_endpoint_url(
+    monkeypatch, stream, event, caplog, allowed_hosts
+):
+    # A stored endpoint_url that urlparse() rejects (unbalanced "[" → "Invalid IPv6
+    # URL") must fail the push closed, not raise — with or without an allowlist.
+    monkeypatch.setattr(FakeAsyncClient, "requests", [])
+    monkeypatch.setattr(pusher, "sign_set", lambda *a, **kw: "signed.jwt")
+    monkeypatch.setattr(pusher.httpx, "AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr(pusher, "settings", replace(pusher.settings, ssf_allowed_receiver_hosts=allowed_hosts))
+    bad_stream = replace(stream, endpoint_url="https://[not-a-real-ipv6/events")
+
+    import logging
+
+    with caplog.at_level(logging.WARNING, logger="app.events.pusher"):
+        delivered = await pusher.push_set(bad_stream, event, "user@example.com")
+
+    assert delivered is False
+    assert FakeAsyncClient.requests == []
+    assert "Blocked outbound push" in caplog.text
+
+
+@pytest.mark.anyio
 async def test_push_verification_set_blocked_when_host_not_in_allowlist(monkeypatch, stream, caplog):
     monkeypatch.setattr(FakeAsyncClient, "requests", [])
     monkeypatch.setattr(pusher, "sign_verification_set", lambda *a, **kw: "signed.jwt")

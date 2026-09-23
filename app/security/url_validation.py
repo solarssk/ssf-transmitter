@@ -103,18 +103,29 @@ def _resolve_host(host: str) -> list[str]:
         return []
 
 
+def safe_hostname(url: str) -> str:
+    """Return *url*'s lowercased hostname, or "" if it has none or can't be parsed.
+
+    ``urlparse()`` itself raises ``ValueError`` for some malformed netlocs (e.g.
+    an unbalanced ``[`` → "Invalid IPv6 URL"). Callers that read ``endpoint_url``
+    from the database (outbound push, startup preflight) must not crash on such
+    a value, so they use this instead of calling ``urlparse(url).hostname``.
+    """
+    try:
+        return (urlparse(url).hostname or "").lower()
+    except ValueError:
+        return ""
+
+
 def receiver_host_allowed(url: str, allowed_hosts: list[str]) -> bool:
     """Return True when *url*'s host is permitted by the configured allowlist.
 
     An empty *allowed_hosts* list means all hosts are permitted (no allowlist).
+    An unparseable URL has no host, so it is never allowed.
     """
     if not allowed_hosts:
         return True
-    try:
-        host = (urlparse(url).hostname or "").lower()
-    except ValueError:
-        return False  # unparseable (e.g. a malformed IPv6 literal) → not allowed
-    return host in allowed_hosts
+    return safe_hostname(url) in allowed_hosts
 
 
 def _reject_unsafe_scheme_or_parts(parsed: ParseResult) -> None:
