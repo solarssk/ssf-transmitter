@@ -84,6 +84,13 @@ optional_dependencies_dev_groups = ["test", "lint", "typecheck", "security", "de
 # rather than declaring them so the fastapi range keeps deciding their versions.
 # DEP001 (missing) and DEP002 (unused) are still enforced.
 ignore = ["DEP003"]
+# fuzz/ imports atheris, installed only inside .clusterfuzzlite/'s own build
+# (pinned there, see build.sh) — a separate build context from this
+# project's own dependency graph, the same way OSS-Fuzz/ClusterFuzzLite
+# treats fuzz targets everywhere. extend_exclude (not exclude) so this adds
+# to deptry's defaults (which already exclude tests/) instead of replacing
+# them.
+extend_exclude = ["fuzz"]
 
 [tool.deptry.per_rule_ignores]
 # uvicorn is not imported in Python code — it is invoked as a CLI entrypoint

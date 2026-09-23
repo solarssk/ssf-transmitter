@@ -9,6 +9,10 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Security
+- **Coverage-guided fuzz testing (ClusterFuzzLite + Atheris)** — `fuzz/fuzz_url_validation.py` and `fuzz/fuzz_log_sanitize.py` fuzz the deterministic pieces of `app.security.url_validation`'s SSRF-blocking logic and `app.security.log_sanitize.sanitize_for_log()`'s CWE-117 defense. Runs on every PR touching `app/security/`, `fuzz/`, or `.clusterfuzzlite/` (10 min, `fuzzing-pr.yml`) and weekly (1 hour, `fuzzing-batch.yml`); see `fuzz/README.md`
+- **`receiver_host_allowed()` could crash instead of failing closed on a malformed `endpoint_url`** — found by the new fuzzer within its first run: `urlparse()` itself raises `ValueError: Invalid IPv6 URL` for certain malformed bracket sequences (e.g. `http://[not-a-real-ipv6`), which propagated uncaught out of this function. Two real call sites relied on it never raising — `app/events/pusher.py`'s `_revalidate_endpoint()` (the DNS-rebinding re-check run before every outbound push) and `app/startup.py`'s stored-streams preflight check (reads `endpoint_url` straight from the database) — both documented as "return False / flag it, don't crash". Now returns `False` (not allowed) on an unparseable URL, matching `_is_blocked_ip()`'s existing "unparseable → treat as blocked" convention
+
 ### Fixed
 - **Docker Hub published `sha-<short>` tags alongside release tags** — `docker-publish.yml`'s "Copy manifest to Docker Hub" step reused GHCR's full tag list verbatim, including the commit-sha tag meant for CI/provenance use. Docker Hub now only receives `latest`/`beta`/semver tags; GHCR is unaffected. On an ordinary `main`/`beta` push with no non-sha tags, the copy (and its Docker Hub provenance attestation) is now skipped instead of failing the job against a manifest that was never published
 

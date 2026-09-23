@@ -226,6 +226,16 @@ def test_receiver_host_allowed_enforces_exact_host_match():
     assert receiver_host_allowed("https://other.example.com/events", allowed) is False
 
 
+def test_receiver_host_allowed_rejects_unparseable_url_instead_of_raising():
+    # Found by fuzz/fuzz_url_validation.py: urlparse() itself raises
+    # ValueError("Invalid IPv6 URL") for a malformed bracket sequence like
+    # this, which previously propagated uncaught out of
+    # receiver_host_allowed() — a function two callers (app/startup.py's
+    # preflight check, app/events/pusher.py's _revalidate_endpoint SSRF
+    # re-check) both rely on to fail closed rather than crash.
+    assert receiver_host_allowed("http://[not-a-real-ipv6/events", ["approved.example.com"]) is False
+
+
 # ---------------------------------------------------------------------------
 # Valid URL
 # ---------------------------------------------------------------------------

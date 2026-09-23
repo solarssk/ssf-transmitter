@@ -110,7 +110,10 @@ def receiver_host_allowed(url: str, allowed_hosts: list[str]) -> bool:
     """
     if not allowed_hosts:
         return True
-    host = (urlparse(url).hostname or "").lower()
+    try:
+        host = (urlparse(url).hostname or "").lower()
+    except ValueError:
+        return False  # unparseable (e.g. a malformed IPv6 literal) → not allowed
     return host in allowed_hosts
 
 
