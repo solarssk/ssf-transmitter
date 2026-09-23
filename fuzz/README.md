@@ -52,7 +52,7 @@ docker run --rm -it ssf-transmitter-fuzz bash -c '
 
 | Workflow | Trigger | Mode | Fuzz time |
 | --- | --- | --- | --- |
-| `fuzzing-pr.yml` | PRs touching `app/security/`, `fuzz/`, or `.clusterfuzzlite/` | `code-change` | 10 min, quits on first crash |
+| `fuzzing-pr.yml` | PRs touching `app/security/`, `fuzz/`, or `.clusterfuzzlite/` | `code-change` | 2 min, quits on first crash |
 | `fuzzing-batch.yml` | Weekly (Sunday) | `batch` | 1 hour, reports every crash |
 
 No storage repo is configured, so each run starts from scratch rather than a
