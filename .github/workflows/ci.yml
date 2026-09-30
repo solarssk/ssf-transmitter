@@ -74,15 +74,17 @@ jobs:
       # `ssf-transmitter[test,lint,typecheck,security]`, which forces
       # pip-compile to emit an unhashable, machine-local `file://` install
       # line for the package itself — compiling the four leaf extras
-      # instead avoids that entirely. Each is compiled with
-      # `-c requirements.txt` (see dev-dependency-lock), so the runtime
-      # packages every extra independently re-resolves (installing
-      # "ssf-transmitter[lint]" implies its own [project.dependencies] too)
-      # stay pinned to the exact versions/hashes requirements.txt already
-      # installed above — without that, combining multiple independently-
-      # compiled lockfiles in one `pip install` risks two conflicting exact
-      # pins for the same package (`ResolutionImpossible`), which is exactly
-      # what an earlier version of this step's release-smoke.yml sibling hit.
+      # instead avoids that entirely. Each is compiled constrained against
+      # requirements.txt plus every extra compiled before it (see
+      # dev-dependency-lock) — both the runtime packages every extra
+      # independently re-resolves (installing "ssf-transmitter[lint]"
+      # implies its own [project.dependencies] too) and any non-runtime
+      # package two extras happen to share transitively stay pinned to one
+      # exact version/hash across all four. Without that, combining
+      # multiple independently-compiled lockfiles in one `pip install`
+      # risks two conflicting exact pins for the same package
+      # (`ResolutionImpossible`), which is exactly what an earlier version
+      # of this step's release-smoke.yml sibling hit, for fastapi.
       # ssf-transmitter itself still can't be hash-pinned (it's this
       # checkout, not a downloadable archive), so it installs separately,
       # --no-deps since its dependencies are already satisfied by the four
@@ -319,6 +321,10 @@ jobs:
         with:
           persist-credentials: false
 
+      # Must match the Dockerfile's base image Python version (3.14), same
+      # reasoning as the dependency-lock job above: pip-compile resolves
+      # marker-conditional dependencies using whatever interpreter runs it,
+      # and this job calls pip-compile five times.
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
@@ -339,23 +345,32 @@ jobs:
       # self-references `ssf-transmitter[test,lint,typecheck,security]` and
       # would force pip-compile to emit an unhashable, checkout-local
       # `file://` line for the package itself (see ci.yml's "Install dev
-      # tooling" step for the full explanation). `-c requirements.txt`
-      # constrains every package the runtime lock already pins to that exact
-      # version and hash — each extra's own compile independently resolves
-      # the full runtime closure too (installing "ssf-transmitter[lint]"
-      # implies installing ssf-transmitter's own [project.dependencies]),
-      # and without this constraint that second, independent resolution can
-      # drift from requirements.txt's (e.g. a newer fastapi patch released
-      # between the two compiles). A step later in this repo's history
-      # installed requirements.txt and requirements-test.txt in the same
-      # `pip install` and hit exactly that: two conflicting exact pins for
-      # fastapi, `ResolutionImpossible`.
+      # tooling" step for the full explanation).
+      #
+      # Each `-c` constrains a package this run has already pinned to that
+      # exact version and hash: `requirements.txt` for the runtime closure
+      # every extra independently re-resolves too (installing
+      # "ssf-transmitter[lint]" implies its own [project.dependencies]), and
+      # every *prior* extra in this loop for whatever they happen to share
+      # with this one that isn't a runtime package — e.g. `pytest` (test)
+      # and `pip-audit` (security) both pull in `pygments` transitively,
+      # with no runtime pin to anchor it. Constraining only against
+      # requirements.txt isn't enough: without also chaining the extras
+      # together, a Dependabot PR that bumps just one extra's range can
+      # re-resolve a shared non-runtime package to a new version there
+      # while the others' unchanged pins stay put — installing all four
+      # together (ci.yml's "Install dev tooling" step) would then hit the
+      # exact `ResolutionImpossible` this chain exists to prevent, just for
+      # a different package than the fastapi one that motivated it
+      # originally.
       - name: Verify requirements-*.txt matches pyproject.toml
         run: |
           set -euo pipefail
+          constraints=(-c requirements.txt)
           for extra in test lint typecheck security; do
             pip-compile --extra "$extra" --generate-hashes --allow-unsafe \
-              -c requirements.txt -o "requirements-${extra}.txt" pyproject.toml
+              "${constraints[@]}" -o "requirements-${extra}.txt" pyproject.toml
+            constraints+=(-c "requirements-${extra}.txt")
           done
           git diff --exit-code requirements-test.txt requirements-lint.txt \
             requirements-typecheck.txt requirements-security.txt
