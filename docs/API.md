@@ -20,7 +20,7 @@ Returns HTML when `Accept` includes `text/html` (and not JSON-only); otherwise J
 ```json
 {
   "service": "SSF Transmitter",
-  "version": "0.5.13",
+  "version": "0.5.14",
   "discovery": "/.well-known/ssf-configuration"
 }
 ```
