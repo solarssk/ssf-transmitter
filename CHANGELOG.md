@@ -11,6 +11,7 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ### Security
 - **README now shows the OpenSSF Best Practices badge** — the project achieved the passing badge (project [#15112](https://www.bestpractices.dev/projects/15112)), closing Scorecard's `CIIBestPracticesID` finding, the last of the 18 original findings left after v0.5.14. Registered and self-assessed against all ~70 passing-level criteria (basics, change control, reporting, quality, security, analysis), matching `admitto`/`mail-autodiscover`'s existing badges
+- **Bumped PyJWT 2.14.0 → 2.15.1** — patches [CVE-2026-101918](https://github.com/jpadilla/pyjwt/security/advisories/GHSA-42vr-xj54-vc7v) (unauthenticated `RecursionError` DoS via a recursively nested payload in `PyJWKClient.get_signing_key_from_jwt` / `jwt.decode(..., verify_signature=False)`). Not reachable in this codebase — `app/crypto.py` only calls `jwt.encode()` to sign outbound SETs; it never decodes or verifies a JWT, and never uses `PyJWKClient` — but caught by `pip-audit` in CI and worth clearing regardless. All five hash-pinned lockfiles (`requirements.txt` and the four extras) regenerated to match
 
 ---
 
