@@ -9,6 +9,9 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Security
+- **README now shows the OpenSSF Best Practices badge** — the project achieved the passing badge (project [#15112](https://www.bestpractices.dev/projects/15112)), closing Scorecard's `CIIBestPracticesID` finding, the last of the 18 original findings left after v0.5.14. Registered and self-assessed against all ~70 passing-level criteria (basics, change control, reporting, quality, security, analysis), matching `admitto`/`mail-autodiscover`'s existing badges
+
 ---
 
 ## [0.5.14] — 2026-09-30 — OpenSSF Scorecard hardening
