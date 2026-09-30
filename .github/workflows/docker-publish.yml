@@ -244,6 +244,7 @@ jobs:
           echo "published=true" >> "$GITHUB_OUTPUT"
 
       - name: Attest GHCR image
+        id: attest-ghcr
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8  # v4.2.2
         with:
           subject-name: ${{ env.GHCR_IMAGE }}
@@ -311,15 +312,42 @@ jobs:
           path: sbom-cyclonedx-*.json
           retention-days: 90
 
+      # Keyless Sigstore signing (OIDC via Fulcio/Rekor, same mechanism as
+      # the image provenance above) of each SBOM, attached to the exact
+      # platform digest it actually describes — a distinct predicate from
+      # image provenance ("this exact CycloneDX document describes this
+      # image digest"). GHCR only, matching the image attestation above:
+      # one canonical signed copy per digest is enough.
+      - name: Attest SBOM (amd64)
+        id: attest-sbom-amd64
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6  # v4.2.2
+        with:
+          subject-name: ${{ env.GHCR_IMAGE }}
+          subject-digest: ${{ steps.platform-digests.outputs.amd64 }}
+          sbom-path: sbom-cyclonedx-amd64.json
+          push-to-registry: true
+
+      - name: Attest SBOM (arm64)
+        id: attest-sbom-arm64
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6  # v4.2.2
+        with:
+          subject-name: ${{ env.GHCR_IMAGE }}
+          subject-digest: ${{ steps.platform-digests.outputs.arm64 }}
+          sbom-path: sbom-cyclonedx-arm64.json
+          push-to-registry: true
+
       # Everything below is release-only: a real "v0.5.11"-style tag,
       # whether from release.yml's workflow_dispatch (github.ref_type is
       # 'tag' there too, since the tag already exists by the time it
       # dispatches this) or scripts/release-tag.sh's own tag push.
-      - name: Attach SBOMs to GitHub Release
+      - name: Attach SBOMs and attestations to GitHub Release
         if: github.ref_type == 'tag'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
+          IMAGE_BUNDLE_PATH: ${{ steps.attest-ghcr.outputs.bundle-path }}
+          SBOM_AMD64_BUNDLE_PATH: ${{ steps.attest-sbom-amd64.outputs.bundle-path }}
+          SBOM_ARM64_BUNDLE_PATH: ${{ steps.attest-sbom-arm64.outputs.bundle-path }}
         run: |
           set -euo pipefail
           # release.yml's path already created the release before dispatching
@@ -327,7 +355,15 @@ jobs:
           # so create it here if it's still missing — otherwise the upload
           # below fails and the smoke-test dispatch after it never runs.
           gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "$TAG" --generate-notes --latest
-          gh release upload "$TAG" sbom-cyclonedx-amd64.json sbom-cyclonedx-arm64.json --clobber
+          # Renamed to plain `.sigstore.json` names — one of the exact
+          # filename patterns OpenSSF Scorecard's Signed-Releases check
+          # pattern-matches against Release assets (it only checks the
+          # filename, not the signature itself).
+          cp "$IMAGE_BUNDLE_PATH" image.sigstore.json
+          cp "$SBOM_AMD64_BUNDLE_PATH" sbom-amd64.sigstore.json
+          cp "$SBOM_ARM64_BUNDLE_PATH" sbom-arm64.sigstore.json
+          gh release upload "$TAG" sbom-cyclonedx-amd64.json sbom-cyclonedx-arm64.json \
+            image.sigstore.json sbom-amd64.sigstore.json sbom-arm64.sigstore.json --clobber
 
       # The published image is only really pullable once this job's imagetools
       # calls above have completed — dispatching the smoke test from here,

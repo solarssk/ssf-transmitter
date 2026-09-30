@@ -10,6 +10,7 @@ Versioning: [Semantic Versioning](https://semver.org/)
 ## [Unreleased]
 
 ### Security
+- **Sigstore-signed SBOMs, attached to GitHub Releases** — `docker-publish.yml` now attests each platform's CycloneDX SBOM the same keyless (OIDC/Fulcio/Rekor) way it already attested image provenance, and copies every attestation bundle to a plain `.sigstore.json` name on the GitHub Release — the filename pattern OpenSSF Scorecard's Signed-Releases check looks for, matching `mail-autodiscover`'s convention. No change to what ships; this only adds verifiable signatures alongside it
 - **Dependabot now waits 7 days before proposing a version bump** — every ecosystem entry in `dependabot.yml` carries `cooldown: default-days: 7` (security updates are exempt, per Dependabot's own cooldown semantics), matching `mail-autodiscover`; a version published minutes ago is the one most likely to be a compromised release that gets pulled within days
 - **`verify-standard.yml` tracks the Playbook's latest tier-verification release** — bumped `solarssk/playbook/.github/workflows/verify-tier.yml` from `v0.1.1` to `v0.2.0`
 - **README now shows the OpenSSF Scorecard badge** — was missing alongside the existing CI/coverage/SonarCloud/Docker Hub badges
