@@ -10,17 +10,19 @@
   <a href="https://www.bestpractices.dev/projects/15112"><img src="https://www.bestpractices.dev/projects/15112/badge" alt="OpenSSF Best Practices"></a>
   &nbsp;
   <a href="https://securityscorecards.dev/viewer/?uri=github.com/solarssk/ssf-transmitter"><img src="https://api.securityscorecards.dev/projects/github.com/solarssk/ssf-transmitter/badge" alt="OpenSSF Scorecard"></a>
-  &nbsp;
+</p>
+
+<p align="center">
   <a href="https://github.com/solarssk/ssf-transmitter/releases/latest"><img src="https://img.shields.io/github/v/release/solarssk/ssf-transmitter" alt="Latest release"></a>
+  &nbsp;
+  <img src="https://img.shields.io/badge/platforms-amd64%20%7C%20arm64-blue" alt="Platforms: amd64, arm64">
+  &nbsp;
+  <a href="https://hub.docker.com/r/solarssk/ssf-transmitter"><img src="https://img.shields.io/badge/Docker%20Hub-solarssk%2Fssf--transmitter-2496ED?logo=docker&logoColor=white" alt="Docker Hub: solarssk/ssf-transmitter"></a>
   &nbsp;
   <a href="LICENSE"><img src="https://img.shields.io/github/license/solarssk/ssf-transmitter" alt="License: MIT"></a>
 </p>
 
 <p align="center">
-  <a href="https://hub.docker.com/r/solarssk/ssf-transmitter"><img src="https://img.shields.io/badge/Docker%20Hub-solarssk%2Fssf--transmitter-2496ED?logo=docker&logoColor=white" alt="Docker Hub: solarssk/ssf-transmitter"></a>
-  &nbsp;
-  <img src="https://img.shields.io/badge/platforms-amd64%20%7C%20arm64-blue" alt="Platforms: amd64, arm64">
-  &nbsp;
   <img src="https://img.shields.io/badge/Python-3.14-3776AB?logo=python&logoColor=white" alt="Python 3.14">
   &nbsp;
   <img src="https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white" alt="FastAPI">
