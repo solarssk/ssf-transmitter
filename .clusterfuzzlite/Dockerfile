@@ -9,7 +9,7 @@
 #   docker inspect --format='{{index .RepoDigests 0}}' gcr.io/oss-fuzz-base/base-builder-python
 # Dependabot's docker ecosystem entry for `/.clusterfuzzlite` proposes digest
 # bumps automatically.
-FROM gcr.io/oss-fuzz-base/base-builder-python@sha256:182f0e4543c1285088fea0dd685febf7e623ba0c4035d24e574bc79bc239c33b
+FROM gcr.io/oss-fuzz-base/base-builder-python@sha256:79cc75a68ab65120da54f35d53f10c7536554ffe684eea5bae078a9a5ff82923
 
 # `pip install .` isn't an option here: this image's own Python (3.11)
 # predates pyproject.toml's requires-python (>=3.14), so pip refuses the
