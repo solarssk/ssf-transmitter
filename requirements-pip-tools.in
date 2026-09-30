@@ -1,0 +1,8 @@
+# Source for requirements-pip-tools.txt (pip-compile --generate-hashes
+# --allow-unsafe -o requirements-pip-tools.txt requirements-pip-tools.in).
+# Exact version, not a range: pip-tools has shifted how it renders a
+# generated file's header between versions, which would break the drift
+# checks in dependency-lock / dev-dependency-lock for a reason unrelated to
+# any real dependency change. Must match pyproject.toml's own pip-tools
+# floor for local dev use.
+pip-tools==7.6.1

@@ -45,9 +45,21 @@ jobs:
         with:
           python-version: "3.14"
 
+      # requirements-test.txt alone, not alongside requirements.txt: compiling
+      # `--extra test` already resolves the full runtime closure too (pip-
+      # compile has to model "ssf-transmitter[test]" as installable, which
+      # means "ssf-transmitter" itself, which means its own [project.
+      # dependencies]) — passing both files to one `pip install` handed the
+      # resolver two independently-compiled, occasionally-drifted exact pins
+      # for the same packages (e.g. fastapi) and failed with
+      # ResolutionImpossible. requirements-test.txt is compiled with
+      # `-c requirements.txt` precisely so its copy of the runtime closure
+      # never drifts from the real one, but installing from one self-
+      # sufficient file is simpler than relying on that constraint holding —
+      # matches mail-autodiscover's own per-job lockfile usage.
       - name: Install test dependencies (hash-locked)
         run: |
-          pip install --no-cache-dir --only-binary :all: --require-hashes -r requirements.txt -r requirements-test.txt
+          pip install --no-cache-dir --only-binary :all: --require-hashes -r requirements-test.txt
           pip install --no-cache-dir --no-deps -e .
 
       - name: Log in to GitHub Container Registry
