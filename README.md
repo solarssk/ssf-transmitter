@@ -7,6 +7,8 @@
   &nbsp;
   <a href="https://sonarcloud.io/summary/new_code?id=solarssk_ssf-transmitter"><img src="https://sonarcloud.io/api/project_badges/measure?project=solarssk_ssf-transmitter&metric=alert_status" alt="SonarCloud Quality Gate"></a>
   &nbsp;
+  <a href="https://securityscorecards.dev/viewer/?uri=github.com/solarssk/ssf-transmitter"><img src="https://api.securityscorecards.dev/projects/github.com/solarssk/ssf-transmitter/badge" alt="OpenSSF Scorecard"></a>
+  &nbsp;
   <a href="https://github.com/solarssk/ssf-transmitter/releases/latest"><img src="https://img.shields.io/github/v/release/solarssk/ssf-transmitter" alt="Latest release"></a>
   &nbsp;
   <a href="LICENSE"><img src="https://img.shields.io/github/license/solarssk/ssf-transmitter" alt="License: MIT"></a>
