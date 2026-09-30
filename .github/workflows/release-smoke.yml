@@ -45,10 +45,10 @@ jobs:
         with:
           python-version: "3.14"
 
-      - name: Install test dependencies
+      - name: Install test dependencies (hash-locked)
         run: |
-          pip install --no-cache-dir --only-binary :all: --require-hashes -r requirements.txt
-          pip install --no-cache-dir -e ".[test]"
+          pip install --no-cache-dir --only-binary :all: --require-hashes -r requirements.txt -r requirements-test.txt
+          pip install --no-cache-dir --no-deps -e .
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f  # v4
