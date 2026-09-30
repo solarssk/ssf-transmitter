@@ -9,6 +9,9 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Security
+- **Bumped PyJWT 2.14.0 → 2.15.1** — patches [CVE-2026-101918](https://github.com/jpadilla/pyjwt/security/advisories/GHSA-42vr-xj54-vc7v) (unauthenticated `RecursionError` DoS via a recursively nested payload in `PyJWKClient.get_signing_key_from_jwt` / `jwt.decode(..., verify_signature=False)`). Not reachable in this codebase — `app/crypto.py` only calls `jwt.encode()` to sign outbound SETs; it never decodes or verifies a JWT, and never uses `PyJWKClient` — but caught by `pip-audit` in CI and worth clearing regardless. All five hash-pinned lockfiles (`requirements.txt` and the four extras) regenerated to match
+
 ---
 
 ## [0.5.14] — 2026-09-30 — OpenSSF Scorecard hardening
