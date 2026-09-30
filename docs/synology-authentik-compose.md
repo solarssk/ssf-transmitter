@@ -4,7 +4,7 @@ This service runs as a fourth container next to PostgreSQL, Authentik `server`, 
 
 Keep hostnames and secrets in `stack.env`. **Never commit** `stack.env` or paste secrets into compose YAML.
 
-**Current release:** `ghcr.io/solarssk/ssf-transmitter:0.5.13` (or `docker.io/solarssk/ssf-transmitter:0.5.13` — same image, public, no registry login needed; see below)
+**Current release:** `ghcr.io/solarssk/ssf-transmitter:0.5.14` (or `docker.io/solarssk/ssf-transmitter:0.5.14` — same image, public, no registry login needed; see below)
 
 See also: [Deployment.md](Deployment.md), [Upgrading.md](Upgrading.md), [Configuration.md](Configuration.md).
 
@@ -75,11 +75,11 @@ Match your Docker bridge subnet. Example below uses `172.16.3.0/24`. If NPM uses
 
 ## Service block
 
-Swap `image:` to `docker.io/solarssk/ssf-transmitter:0.5.13` for the public, no-login Docker Hub image (see [Registry access](#registry-access) above).
+Swap `image:` to `docker.io/solarssk/ssf-transmitter:0.5.14` for the public, no-login Docker Hub image (see [Registry access](#registry-access) above).
 
 ```yaml
   ssf-transmitter:
-    image: ghcr.io/solarssk/ssf-transmitter:0.5.13
+    image: ghcr.io/solarssk/ssf-transmitter:0.5.14
     container_name: authentik-ssf
     restart: unless-stopped
     networks:
@@ -156,15 +156,15 @@ If `SSF_HOST_PORT` changes, update the Nginx Proxy Manager port too.
 | SSF Config | `https://idp.example.com/shared-signals/.well-known/ssf-configuration` |
 | OpenID Config | `https://idp.example.com/application/o/apple-id/.well-known/openid-configuration` |
 
-## Upgrading from 0.5.12
+## Upgrading from 0.5.13
 
-Optional — v0.5.13 fixes one bug (`POST /apple-scim/sync` returning a clean `502` instead of a `500` on a transient Apple API error). Change image to `0.5.13` whenever convenient. Full guide: [Upgrading.md](Upgrading.md).
+Optional — v0.5.14 is mostly CI/security-tooling; the one app-level fix (a malformed stored receiver URL is now blocked instead of crashing) needs no action. Change image to `0.5.14` whenever convenient. Full guide: [Upgrading.md](Upgrading.md).
 
 ## Image updates
 
-Pin `0.5.13` in production. `:latest` updates on every `main` push when you pull and redeploy.
+Pin `0.5.14` in production. `:latest` updates on every `main` push when you pull and redeploy.
 
-Stable release tags (`v0.5.13`) update the `latest` Docker tag; pre-release tags do not.
+Stable release tags (`v0.5.14`) update the `latest` Docker tag; pre-release tags do not.
 
 ## Apple SCIM group filtering
 

@@ -1,5 +1,17 @@
 # Upgrading
 
+## v0.5.14 — OpenSSF Scorecard hardening (from 0.5.13)
+
+Release notes: [v0.5.14](https://github.com/solarssk/ssf-transmitter/releases/tag/v0.5.14)
+
+Mostly CI/security-tooling — least-privilege `GITHUB_TOKEN` grants, real fuzz testing, hash-pinned dev/CI tooling, Sigstore-signed SBOMs. One real app-level fix: a malformed stored `endpoint_url` (found by the new fuzzer, not seen in production) is now blocked instead of crashing outbound push or startup preflight. Nothing to configure, no migration, no new env vars — bump the tag whenever convenient:
+
+```bash
+docker compose pull ssf-transmitter
+docker compose up -d ssf-transmitter
+docker compose logs ssf-transmitter --tail 50
+```
+
 ## v0.5.13 — Apple SCIM sync error handling (from 0.5.12)
 
 Release notes: [v0.5.13](https://github.com/solarssk/ssf-transmitter/releases/tag/v0.5.13)
