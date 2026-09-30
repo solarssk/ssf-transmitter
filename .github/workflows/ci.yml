@@ -46,6 +46,10 @@ jobs:
           cache: "pip"
           cache-dependency-path: |
             requirements.txt
+            requirements-test.txt
+            requirements-lint.txt
+            requirements-typecheck.txt
+            requirements-security.txt
             pyproject.toml
 
       # requirements.txt is pip-compile output (hash-pinned) from
@@ -61,11 +65,35 @@ jobs:
         run: |
           pip install --no-cache-dir --only-binary :all: --require-hashes -r requirements.txt
 
-      # Dev tooling floats within pyproject.toml's extras ranges; only what
-      # ships in the image is hash-locked (see the dependency-lock job).
-      - name: Install dev tooling
+      # requirements-{test,lint,typecheck,security}.txt are pip-compile
+      # output from pyproject.toml's matching extras — same hash-pinning
+      # discipline as the runtime lock above, one lockfile per concern
+      # (matching mail-autodiscover's layout) rather than one combined "dev"
+      # lock: pip-compile can model a bare extra like `--extra lint`
+      # directly, but `dev`'s own definition self-references
+      # `ssf-transmitter[test,lint,typecheck,security]`, which forces
+      # pip-compile to emit an unhashable, machine-local `file://` install
+      # line for the package itself — compiling the four leaf extras
+      # instead avoids that entirely. Each is compiled constrained against
+      # requirements.txt plus every extra compiled before it (see
+      # dev-dependency-lock) — both the runtime packages every extra
+      # independently re-resolves (installing "ssf-transmitter[lint]"
+      # implies its own [project.dependencies] too) and any non-runtime
+      # package two extras happen to share transitively stay pinned to one
+      # exact version/hash across all four. Without that, combining
+      # multiple independently-compiled lockfiles in one `pip install`
+      # risks two conflicting exact pins for the same package
+      # (`ResolutionImpossible`), which is exactly what an earlier version
+      # of this step's release-smoke.yml sibling hit, for fastapi.
+      # ssf-transmitter itself still can't be hash-pinned (it's this
+      # checkout, not a downloadable archive), so it installs separately,
+      # --no-deps since its dependencies are already satisfied by the four
+      # lockfiles above.
+      - name: Install dev tooling (hash-locked)
         run: |
-          pip install --no-cache-dir -e ".[dev]"
+          pip install --no-cache-dir --only-binary :all: --require-hashes \
+            -r requirements-test.txt -r requirements-lint.txt -r requirements-typecheck.txt -r requirements-security.txt
+          pip install --no-cache-dir --no-deps -e .
 
       - name: Lint
         run: ruff check .
@@ -268,12 +296,9 @@ jobs:
           python-version: "3.14"
           cache: "pip"
 
-      # Pinned exactly (unlike pyproject.toml's own pip-tools floor for local
-      # dev use): pip-tools has shifted how it renders the generated file's
-      # header between versions, which would break the diff below for a
-      # reason unrelated to any real dependency change.
-      - name: Install pip-tools
-        run: pip install "pip-tools==7.6.1"
+      - name: Install pip-tools (hash-locked)
+        run: |
+          pip install --no-cache-dir --only-binary :all: --require-hashes -r requirements-pip-tools.txt
 
       # pip-compile keeps existing pins from requirements.txt while they
       # still satisfy pyproject.toml, so re-running it without --upgrade
@@ -283,3 +308,69 @@ jobs:
         run: |
           pip-compile --generate-hashes --allow-unsafe -o requirements.txt pyproject.toml
           git diff --exit-code requirements.txt
+
+  dev-dependency-lock:
+    name: Verify requirements-*.txt matches pyproject.toml
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Must match the Dockerfile's base image Python version (3.14), same
+      # reasoning as the dependency-lock job above: pip-compile resolves
+      # marker-conditional dependencies using whatever interpreter runs it,
+      # and this job calls pip-compile five times.
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.14"
+          cache: "pip"
+
+      - name: Install pip-tools (hash-locked)
+        run: |
+          pip install --no-cache-dir --only-binary :all: --require-hashes -r requirements-pip-tools.txt
+
+      - name: Verify requirements-pip-tools.txt matches requirements-pip-tools.in
+        run: |
+          pip-compile --generate-hashes --allow-unsafe -o requirements-pip-tools.txt requirements-pip-tools.in
+          git diff --exit-code requirements-pip-tools.txt
+
+      # Each `--extra <name>` is one of pyproject.toml's leaf extras (test,
+      # lint, typecheck, security) — never `dev`, whose own definition
+      # self-references `ssf-transmitter[test,lint,typecheck,security]` and
+      # would force pip-compile to emit an unhashable, checkout-local
+      # `file://` line for the package itself (see ci.yml's "Install dev
+      # tooling" step for the full explanation).
+      #
+      # Each `-c` constrains a package this run has already pinned to that
+      # exact version and hash: `requirements.txt` for the runtime closure
+      # every extra independently re-resolves too (installing
+      # "ssf-transmitter[lint]" implies its own [project.dependencies]), and
+      # every *prior* extra in this loop for whatever they happen to share
+      # with this one that isn't a runtime package — e.g. `pytest` (test)
+      # and `pip-audit` (security) both pull in `pygments` transitively,
+      # with no runtime pin to anchor it. Constraining only against
+      # requirements.txt isn't enough: without also chaining the extras
+      # together, a Dependabot PR that bumps just one extra's range can
+      # re-resolve a shared non-runtime package to a new version there
+      # while the others' unchanged pins stay put — installing all four
+      # together (ci.yml's "Install dev tooling" step) would then hit the
+      # exact `ResolutionImpossible` this chain exists to prevent, just for
+      # a different package than the fastapi one that motivated it
+      # originally.
+      - name: Verify requirements-*.txt matches pyproject.toml
+        run: |
+          set -euo pipefail
+          constraints=(-c requirements.txt)
+          for extra in test lint typecheck security; do
+            pip-compile --extra "$extra" --generate-hashes --allow-unsafe \
+              "${constraints[@]}" -o "requirements-${extra}.txt" pyproject.toml
+            constraints+=(-c "requirements-${extra}.txt")
+          done
+          git diff --exit-code requirements-test.txt requirements-lint.txt \
+            requirements-typecheck.txt requirements-security.txt
