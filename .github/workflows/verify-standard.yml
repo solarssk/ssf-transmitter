@@ -10,4 +10,4 @@ permissions:
 
 jobs:
   verify:
-    uses: solarssk/playbook/.github/workflows/verify-tier.yml@05abd97b57a86b1279885da39247e0b9ddb49107  # v0.1.1
+    uses: solarssk/playbook/.github/workflows/verify-tier.yml@0f0760fd3cf1eecee43deb2debbaa5a295fc3a8a  # v0.2.0

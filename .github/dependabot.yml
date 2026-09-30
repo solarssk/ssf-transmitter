@@ -1,3 +1,7 @@
+# Every entry carries a cooldown: a version published minutes ago is the one
+# most likely to be a compromised release that gets pulled within days, so
+# Dependabot waits before proposing it. Security updates ignore the cooldown,
+# so a real fix is never delayed by it (zizmor: dependabot-cooldown).
 version: 2
 updates:
   # Keep GitHub Actions up to date
@@ -5,6 +9,8 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 7
     labels:
       - "dependencies"
     groups:
@@ -26,6 +32,8 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 7
     labels:
       - "dependencies"
 
@@ -35,6 +43,8 @@ updates:
     directory: "/.clusterfuzzlite"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 7
     labels:
       - "dependencies"
 
@@ -43,6 +53,8 @@ updates:
     directory: "/.clusterfuzzlite"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 7
     labels:
       - "dependencies"
     # atheris 3.1+ ships only cp312+ wheels; the OSS-Fuzz Python base image
@@ -59,6 +71,8 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 7
     labels:
       - "dependencies"
     # Group all non-security updates into a single PR to reduce noise
