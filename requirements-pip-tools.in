@@ -5,4 +5,4 @@
 # checks in dependency-lock / dev-dependency-lock for a reason unrelated to
 # any real dependency change. Must match pyproject.toml's own pip-tools
 # floor for local dev use.
-pip-tools==7.6.1
+pip-tools==7.6.2
