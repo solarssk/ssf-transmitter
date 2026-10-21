@@ -109,9 +109,9 @@ A **stream** is the receiver configuration stored in SQLite: receiver URL, beare
 
 ## Upgrading
 
-**Already running with Apple Business Manager?** See [docs/Upgrading.md](docs/Upgrading.md#v0514--openssf-scorecard-hardening-from-0513):
+**Already running with Apple Business Manager?** See [docs/Upgrading.md](docs/Upgrading.md#v0515--dependency-security-refresh-from-0514):
 
-- v0.5.14 is mostly CI/security-tooling; the one app-level fix (a malformed stored receiver URL is now blocked instead of crashing) needs no action — nothing to configure
+- v0.5.15 is dependency-only (PyJWT and certifi security patches, FastAPI/Uvicorn/cryptography bumps) — nothing to configure
 - Do **not** add `SSF_TOKEN_ENCRYPTION_KEY` unless re-registering the stream
 
 ## Public endpoints

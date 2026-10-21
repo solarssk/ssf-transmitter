@@ -1,5 +1,17 @@
 # Upgrading
 
+## v0.5.15 — Dependency security refresh (from 0.5.14)
+
+Release notes: [v0.5.15](https://github.com/solarssk/ssf-transmitter/releases/tag/v0.5.15)
+
+Dependency-only — patches PyJWT (CVE-2026-101918, not reachable here) and certifi (PYSEC-2026-4320) and bumps FastAPI, Uvicorn and cryptography; no `app/` changes. Nothing to configure, no migration, no new env vars — bump the tag whenever convenient:
+
+```bash
+docker compose pull ssf-transmitter
+docker compose up -d ssf-transmitter
+docker compose logs ssf-transmitter --tail 50
+```
+
 ## v0.5.14 — OpenSSF Scorecard hardening (from 0.5.13)
 
 Release notes: [v0.5.14](https://github.com/solarssk/ssf-transmitter/releases/tag/v0.5.14)
