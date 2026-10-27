@@ -1,10 +1,10 @@
 # Upgrading
 
-## v0.5.16 — Development tooling security fixes (from 0.5.15)
+## v0.5.16 — Dependency updates and tooling security fixes (from 0.5.15)
 
 Release notes: [v0.5.16](https://github.com/solarssk/ssf-transmitter/releases/tag/v0.5.16)
 
-This release updates filelock and setuptools in development/CI tooling to resolve Dependabot alerts #10–#13. Neither affected dependency is installed in the service image. There are no application or runtime dependency changes, new environment variables, configuration changes, or migrations. Existing installations can update the image tag to `0.5.16` whenever convenient:
+This release updates filelock and setuptools in development/CI tooling to resolve Dependabot alerts #10–#13. Neither affected dependency is installed in the service image. It also updates FastAPI 0.143.0 → 0.143.2, Ruff 0.17.0 → 0.17.1, and Zizmor 1.30.1 → 1.31.0. There are no application code changes, new environment variables, configuration changes, or migrations. Existing installations can update the image tag to `0.5.16` whenever convenient:
 
 ```bash
 docker compose pull ssf-transmitter

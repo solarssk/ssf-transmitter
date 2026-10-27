@@ -158,7 +158,7 @@ If `SSF_HOST_PORT` changes, update the Nginx Proxy Manager port too.
 
 ## Upgrading from 0.5.15
 
-Optional — v0.5.16 fixes filelock and setuptools alerts in development/CI tooling. No application or runtime dependency changes, configuration changes, or migrations. Change image to `0.5.16` whenever convenient. Full guide: [Upgrading.md](Upgrading.md).
+v0.5.16 updates FastAPI and development/CI tooling, including filelock and setuptools security fixes. No application code changes, configuration changes, or migrations. Change image to `0.5.16` whenever convenient. Full guide: [Upgrading.md](Upgrading.md).
 
 ## Image updates
 

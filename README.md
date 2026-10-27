@@ -109,9 +109,9 @@ A **stream** is the receiver configuration stored in SQLite: receiver URL, beare
 
 ## Upgrading
 
-**Already running with Apple Business Manager?** See [docs/Upgrading.md](docs/Upgrading.md#v0516--development-tooling-security-fixes-from-0515):
+**Already running with Apple Business Manager?** See [docs/Upgrading.md](docs/Upgrading.md#v0516--dependency-updates-and-tooling-security-fixes-from-0515):
 
-- v0.5.16 fixes filelock and setuptools alerts in development/CI tooling; no runtime changes or configuration steps
+- v0.5.16 updates FastAPI and development/CI tooling, including filelock and setuptools security fixes; no configuration steps
 - Do **not** add `SSF_TOKEN_ENCRYPTION_KEY` unless re-registering the stream
 
 ## Public endpoints

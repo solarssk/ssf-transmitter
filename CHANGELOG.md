@@ -11,13 +11,16 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ---
 
-## [0.5.16] — 2026-10-27 — Development tooling security fixes
+## [0.5.16] — 2026-10-27 — Dependency updates and tooling security fixes
 
-Security updates for development and CI tooling only. No application or runtime dependency changes, new environment variables, configuration changes, or migrations.
+Updates FastAPI and development/CI tooling, including security fixes for filelock and setuptools. No application code changes, new environment variables, configuration changes, or migrations.
 
 ### Security
 - **Update filelock 4.0.7 → 4.2.1** in the hash-pinned security tooling dependencies, fixing Dependabot alerts #11–#13 (GHSA-v4x8-3wr5-3wq8, GHSA-567q-5qvw-pf92, GHSA-9vhv-jxww-xfm5): unsafe SQLite lock-file handling and Windows soft-lock timeout handling. Pulled in by `cachecontrol` for `pip-audit`; not installed in the service image.
 - **Update setuptools 84.0.0 → 84.1.0** in the hash-pinned `pip-tools` bootstrap dependencies, fixing Dependabot alert #10 (GHSA-xmj3-9gf7-h52w): Windows path escape during legacy wheel installation. The service image removes setuptools after installing runtime dependencies.
+
+### Changed
+- **Grouped Python dependency updates** — FastAPI 0.143.0 → 0.143.2, Ruff 0.17.0 → 0.17.1, and Zizmor 1.30.1 → 1.31.0, with all five hash-pinned runtime/tooling lockfiles synchronized.
 
 ---
 
