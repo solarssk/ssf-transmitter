@@ -1,5 +1,17 @@
 # Upgrading
 
+## v0.5.16 — Development tooling security fixes (from 0.5.15)
+
+Release notes: [v0.5.16](https://github.com/solarssk/ssf-transmitter/releases/tag/v0.5.16)
+
+This release updates filelock and setuptools in development/CI tooling to resolve Dependabot alerts #10–#13. Neither affected dependency is installed in the service image. There are no application or runtime dependency changes, new environment variables, configuration changes, or migrations. Existing installations can update the image tag to `0.5.16` whenever convenient:
+
+```bash
+docker compose pull ssf-transmitter
+docker compose up -d ssf-transmitter
+docker compose logs ssf-transmitter --tail 50
+```
+
 ## v0.5.15 — Dependency security refresh (from 0.5.14)
 
 Release notes: [v0.5.15](https://github.com/solarssk/ssf-transmitter/releases/tag/v0.5.15)
