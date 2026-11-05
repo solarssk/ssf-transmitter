@@ -4,7 +4,7 @@ This service runs as a fourth container next to PostgreSQL, Authentik `server`, 
 
 Keep hostnames and secrets in `stack.env`. **Never commit** `stack.env` or paste secrets into compose YAML.
 
-**Current release:** `ghcr.io/solarssk/ssf-transmitter:0.5.16` (or `docker.io/solarssk/ssf-transmitter:0.5.16` — same image, public, no registry login needed; see below)
+**Current release:** `ghcr.io/solarssk/ssf-transmitter:0.5.17` (or `docker.io/solarssk/ssf-transmitter:0.5.17` — same image, public, no registry login needed; see below)
 
 See also: [Deployment.md](Deployment.md), [Upgrading.md](Upgrading.md), [Configuration.md](Configuration.md).
 
@@ -59,6 +59,7 @@ SSF_FORWARDED_ALLOW_IPS=172.16.3.0/24
 # AUTHENTIK_URL=https://idp.example.com
 # AUTHENTIK_TOKEN=
 # APPLE_SCIM_GROUP_ID=
+# APPLE_SCIM_ALLOW_USERNAME_RECOVERY=false
 # APPLE_SCIM_ALERT_WEBHOOK_URL=
 
 # ── Optional: security hardening ──
@@ -75,11 +76,11 @@ Match your Docker bridge subnet. Example below uses `172.16.3.0/24`. If NPM uses
 
 ## Service block
 
-Swap `image:` to `docker.io/solarssk/ssf-transmitter:0.5.16` for the public, no-login Docker Hub image (see [Registry access](#registry-access) above).
+Swap `image:` to `docker.io/solarssk/ssf-transmitter:0.5.17` for the public, no-login Docker Hub image (see [Registry access](#registry-access) above).
 
 ```yaml
   ssf-transmitter:
-    image: ghcr.io/solarssk/ssf-transmitter:0.5.16
+    image: ghcr.io/solarssk/ssf-transmitter:0.5.17
     container_name: authentik-ssf
     restart: unless-stopped
     networks:
@@ -156,15 +157,19 @@ If `SSF_HOST_PORT` changes, update the Nginx Proxy Manager port too.
 | SSF Config | `https://idp.example.com/shared-signals/.well-known/ssf-configuration` |
 | OpenID Config | `https://idp.example.com/application/o/apple-id/.well-known/openid-configuration` |
 
-## Upgrading from 0.5.15
+## Upgrading from 0.5.16
 
-v0.5.16 updates FastAPI and development/CI tooling, including filelock and setuptools security fixes. No application code changes, configuration changes, or migrations. Change image to `0.5.16` whenever convenient. Full guide: [Upgrading.md](Upgrading.md).
+Back up `ssf-data`, `ssf-keys`, and the existing secrets before changing the image to `0.5.17`. Keep the current encryption-key configuration: do not add `SSF_TOKEN_ENCRYPTION_KEY` to a working install.
+
+The new encrypted outbox makes webhook acknowledgement asynchronous and delivery at-least-once. Monitor authenticated `GET /ssf/delivery/status`; a full queue returns `503` and the sender must retry. Changing the stream's delivery settings or replacing/deleting the stream cancels its pending SETs.
+
+Apple SCIM username-only recovery is disabled by default; enable `APPLE_SCIM_ALLOW_USERNAME_RECOVERY` only after verifying all matching unlinked accounts in scope. Run one container for the integration. Full procedure and rollback precautions: [Upgrading.md](Upgrading.md).
 
 ## Image updates
 
-Pin `0.5.16` in production. `:latest` updates on every `main` push when you pull and redeploy.
+Pin `0.5.17` in production. `:latest` updates on every `main` push when you pull and redeploy.
 
-Stable release tags (`v0.5.16`) update the `latest` Docker tag; pre-release tags do not.
+Stable release tags (`v0.5.17`) update the `latest` Docker tag; pre-release tags do not.
 
 ## Apple SCIM group filtering
 

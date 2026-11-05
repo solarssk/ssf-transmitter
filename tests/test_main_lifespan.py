@@ -70,3 +70,45 @@ async def test_lifespan_logs_unexpected_error_from_sync_task(_apple_scim_enabled
             await asyncio.sleep(0.05)  # let the background task actually raise before shutdown runs
 
     assert "Apple SCIM: sync loop exited with an unexpected error" in caplog.text
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("failure", ["cancelled", "error"])
+async def test_lifespan_reports_delivery_worker_exit(monkeypatch, caplog, failure):
+    """Unexpected worker exits are reported during shutdown without escaping lifespan."""
+
+    async def exit_worker(stop):
+        if failure == "cancelled":
+            raise asyncio.CancelledError
+        raise RuntimeError("delivery worker failed")
+
+    monkeypatch.setattr(main, "delivery_loop", exit_worker)
+    with caplog.at_level(logging.INFO, logger="app.main"):
+        async with main.lifespan(main.app):
+            await asyncio.sleep(0)
+
+    expected = (
+        "SSF delivery outbox worker stopped"
+        if failure == "cancelled"
+        else "SSF delivery outbox worker exited with an unexpected error"
+    )
+    assert expected in caplog.text
+
+
+@pytest.mark.anyio
+async def test_scheduled_sync_loop_runs_after_interval(monkeypatch):
+    """The periodic loop invokes the scheduled sync and remains cancellable."""
+    ran = asyncio.Event()
+
+    async def sync_once():
+        ran.set()
+
+    monkeypatch.setattr(main, "settings", replace(main.settings, apple_scim_sync_interval=0))
+    monkeypatch.setattr(main, "_run_scheduled_apple_scim_sync", sync_once)
+    task = asyncio.create_task(main._apple_scim_sync_loop())
+    try:
+        await asyncio.wait_for(ran.wait(), timeout=1)
+    finally:
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task

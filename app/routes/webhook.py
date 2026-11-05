@@ -10,9 +10,9 @@ import logging
 from fastapi import APIRouter, HTTPException, Request
 
 from app.config import settings
-from app.database import Stream, list_streams
-from app.events.mapper import MappedEvent, extract_action, extract_email, map_authentik_event
-from app.events.pusher import push_set
+from app.database import OutboxFullError, StreamChangedError, list_streams
+from app.events.mapper import extract_action, extract_email, map_authentik_event
+from app.events.outbox import enqueue_events
 from app.rate_limit import limiter
 from app.security.pii import mask_email
 
@@ -133,38 +133,25 @@ def _parse_webhook_json(raw_body: bytes) -> dict:
     return payload
 
 
-async def _dispatch_events(streams: list[Stream], events: list[MappedEvent], email: str) -> tuple[int, int]:
-    """Push every event to every enabled stream; return (delivered, failed) counts."""
-    delivered = 0
-    failed = 0
-    for stream in streams:
-        for event in events:
-            result = await push_set(stream, event, email)
-            if result is True:
-                delivered += 1
-            elif result is False:
-                failed += 1
-            # None = intentionally skipped (not in events_requested) — not a failure
-    return delivered, failed
-
-
 @router.post(
     "/webhook/authentik",
     responses={
         400: {"description": "Malformed JSON body"},
         401: {"description": "Missing or invalid webhook authentication"},
         413: {"description": "Request body too large"},
-        500: {"description": "Invalid SSF_WEBHOOK_AUTH_MODE configuration"},
+        500: {"description": "Invalid webhook authentication configuration or delivery could not be persisted"},
+        503: {"description": "Delivery queue is full or stream configuration changed before queueing"},
     },
 )
 @limiter.limit("60/minute")
 async def authentik_webhook(request: Request) -> dict:
     """Receive an Authentik webhook event, verify authentication, and push
-    matching Security Event Tokens to all enabled SSF streams.
+    matching Security Event Tokens to the durable delivery queue.
 
-    Returns a JSON object with ``status`` and optional ``delivered``/``failed``
-    counts.  Non-fatal conditions (no stream, unmapped event) return
-    ``{"status": "ignored", "reason": "..."}``.
+    An ``accepted`` response reports how many SETs were encrypted and committed
+    to SQLite; the count can be zero when all events are filtered. Receiver
+    delivery happens asynchronously. Non-fatal conditions (no stream,
+    unmapped event) return ``{"status": "ignored", "reason": "..."}``.
     """
     raw_body = await _read_body_within_limit(request)
     _authenticate_webhook(request, raw_body)
@@ -188,7 +175,8 @@ async def authentik_webhook(request: Request) -> dict:
         return {"status": "ignored", "reason": "missing_email"}
 
     streams = await list_streams()
-    if not streams:
+    enabled_streams = [stream for stream in streams if stream.status == "enabled"]
+    if not enabled_streams:
         logger.warning(
             "No SSF stream configured for event delivery action=%s email=%s",
             action,
@@ -196,5 +184,19 @@ async def authentik_webhook(request: Request) -> dict:
         )
         return {"status": "ignored", "reason": "no_enabled_stream"}
 
-    delivered, failed = await _dispatch_events(streams, events, email)
-    return {"status": "ok", "delivered": delivered, "failed": failed}
+    try:
+        queued = await enqueue_events(enabled_streams, events, email)
+    except OutboxFullError as exc:
+        logger.error("Rejected Authentik webhook because the SSF delivery queue is full")
+        raise HTTPException(
+            status_code=503,
+            detail="Delivery queue is full; retry the webhook later",
+        ) from exc
+    except StreamChangedError as exc:
+        logger.warning("Rejected webhook because the SSF stream changed during queueing")
+        raise HTTPException(
+            status_code=503,
+            detail="Stream configuration changed before delivery could be queued; retry the webhook",
+        ) from exc
+    logger.info("Queued Authentik webhook action=%s queued_deliveries=%d", action, queued)
+    return {"status": "accepted", "queued": queued}

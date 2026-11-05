@@ -9,9 +9,35 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+---
+
+## [0.5.17] — 2026-11-05 — Apple SCIM safety and reliable SET delivery
+
+This release hardens Apple SCIM synchronization and stream replacement, and
+introduces an encrypted SQLite outbox for asynchronous SET delivery. Review
+the upgrade guide before deploying: webhook responses, username recovery,
+queue retention, and stream-change behavior have changed.
+
+### Fixed
+- Abort Apple SCIM synchronization before writes if the Apple user listing is incomplete, inconsistent, or unavailable; manual sync returns `502` instead of treating a partial listing as an empty directory.
+- Preserve the existing SSF stream and its encrypted token until a replacement has passed verification and been stored.
+- Send only changed fields in the default Apple SCIM `PATCH`, using individual name subattributes instead of the rejected whole-name path. A limited Apple test confirmed changed first and last names, including a two-operation request; empty values and other combinations remain unverified.
+- Reject ambiguous or mismatched Apple SCIM 409-recovery results and stop updating an account if its `externalId` repair fails or cannot be verified.
+- Prevent overlapping Apple SCIM syncs and serialize token refresh with OAuth authorization within the single Uvicorn worker.
+- Persist Authentik-mapped signed SETs in an encrypted SQLite outbox before acknowledging webhooks; retry receiver failures indefinitely with capped exponential backoff and expose queue health through the management API.
+- Serialize stream mutations and queue discards with in-flight SET delivery so that a completed operation cannot send a stale queued item.
+- Run outbound-delivery DNS revalidation off the event loop so delivery deadlines can expire if name resolution is slow.
+- Forward container stop signals to Uvicorn and stop the delivery worker cooperatively, finishing its current attempt without cancelling an in-progress SQLite operation.
+- Close release milestones named either `X.Y.Z` or `vX.Y.Z`, matching the existing `v0.5.17` milestone.
+
 ### Changed
-- Replace six independently maintained pip-tools lockfiles with one native `uv.lock` shared by runtime and tooling. Dependabot now updates the root `uv` ecosystem; CI, Docker, release smoke tests, and dependency snapshots export from that lock with hash verification and binary-only installs. No operator configuration or database changes.
-- Update FastAPI to 0.161.0, Hypothesis to 6.170.5, Ruff to 0.17.2, and Zizmor to 1.31.1.
+- Username-only Apple account recovery is now disabled by default; `APPLE_SCIM_ALLOW_USERNAME_RECOVERY=true` explicitly enables it for all matching unlinked accounts in the configured sync scope. Already linked accounts are unaffected.
+- A manual Apple SCIM sync or OAuth callback now returns `409` when another sync or authorization is in progress; the callback can be retried while its code and state remain valid.
+- The image explicitly runs one Uvicorn worker, even if `WEB_CONCURRENCY` is set, because stream and Apple SCIM locks are process-local. Multiple containers sharing the connection remain unsupported.
+- An accepted webhook reports how many SETs were durably queued, not delivered synchronously; `queued: 0` is possible when all events are filtered, and ignored events also return HTTP 200 without queueing. Delivery is at-least-once and can duplicate a SET; stream replacement or delivery-configuration changes cancel pending SETs for the old configuration. The queue holds up to 10,000 items and rejects new webhooks with `503` when full.
+- Queued SETs contain subject email addresses and are Fernet-encrypted at rest with the receiver-token key. Preserve the existing key and SQLite volume across upgrades and check `/ssf/delivery/status` before key rotation or rollback.
+- Replace six independently maintained pip-tools lockfiles with one native `uv.lock` shared by runtime and tooling. Dependabot now updates the root `uv` ecosystem; CI, Docker, release smoke tests, and dependency snapshots export from that lock with hash verification and binary-only installs.
+- Update FastAPI to 0.162.0, pytest to 9.2.0, Hypothesis to 6.170.13, Ruff to 0.17.3, Zizmor to 1.31.1, and the Docker export-stage uv image to 0.13.7; refresh pinned GitHub Actions.
 
 ---
 

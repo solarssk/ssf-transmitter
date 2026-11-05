@@ -180,10 +180,10 @@ jobs:
           set -euo pipefail
           VERSION='${{ steps.bump.outputs.version }}'
           MID="$(gh api "repos/${GITHUB_REPOSITORY}/milestones" \
-            --jq ".[] | select(.title == \"${VERSION}\" and .state == \"open\") | .number" \
+            --jq ".[] | select((.title == \"${VERSION}\" or .title == \"v${VERSION}\") and .state == \"open\") | .number" \
             | head -n 1)"
           if [ -z "$MID" ]; then
-            echo "No open milestone titled ${VERSION} — skipping."
+            echo "No open milestone titled ${VERSION} or v${VERSION} — skipping."
             exit 0
           fi
           gh api -X PATCH "repos/${GITHUB_REPOSITORY}/milestones/${MID}" -f state=closed

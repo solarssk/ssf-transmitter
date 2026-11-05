@@ -65,6 +65,26 @@ def test_authentik_url_none_when_unset(monkeypatch):
     assert cfg.apple_scim_enabled is False
 
 
+@pytest.mark.parametrize(("value", "expected"), [(None, False), ("false", False), (" true ", True)])
+def test_username_recovery_requires_explicit_opt_in(monkeypatch, value, expected):
+    """Unlinked account recovery is disabled unless explicitly enabled."""
+    if value is None:
+        monkeypatch.delenv("APPLE_SCIM_ALLOW_USERNAME_RECOVERY", raising=False)
+    else:
+        monkeypatch.setenv("APPLE_SCIM_ALLOW_USERNAME_RECOVERY", value)
+
+    cfg = Settings.from_env()
+
+    assert cfg.apple_scim_allow_username_recovery is expected
+    assert cfg.safe_log_dict()["apple_scim_allow_username_recovery"] is expected
+
+
+def test_username_recovery_rejects_invalid_opt_in(monkeypatch):
+    monkeypatch.setenv("APPLE_SCIM_ALLOW_USERNAME_RECOVERY", "yes")
+    with pytest.raises(ValueError, match="APPLE_SCIM_ALLOW_USERNAME_RECOVERY"):
+        Settings.from_env()
+
+
 def test_stream_rejected_when_host_not_in_allowlist(client, monkeypatch):
     """POST /ssf/streams rejects hosts outside SSF_ALLOWED_RECEIVER_HOSTS."""
     from app.config import settings as real_settings

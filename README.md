@@ -67,7 +67,7 @@ flowchart LR
     C -->|"HTTPS POST"| D(("📡 SSF receiver\ne.g. Apple Business Manager"))
 ```
 
-A logout or password change in Authentik fires a webhook; the payload is mapped to a CAEP `session-revoked` or `credential-change` event, signed as a JWT, and pushed to every enabled stream's receiver. Optionally, a separate background loop keeps an Apple Business Manager user directory in sync via SCIM: see [docs/Apple-SCIM-Sync.md](docs/Apple-SCIM-Sync.md).
+A logout or password change in Authentik fires a webhook; the payload is mapped to a CAEP `session-revoked` or `credential-change` event, signed as a JWT, encrypted in a durable SQLite outbox, and delivered asynchronously to the enabled stream's receiver. Optionally, a separate background loop keeps an Apple Business Manager user directory in sync via SCIM: see [docs/Apple-SCIM-Sync.md](docs/Apple-SCIM-Sync.md).
 
 ## Features
 
@@ -77,9 +77,9 @@ A logout or password change in Authentik fires a webhook; the payload is mapped 
 | 🛠️ | **Stream management API** | Create, read, update, and delete the single active SSF stream over a management Bearer token. |
 | 🪝 | **Flexible webhook auth** | Bearer token (recommended) or legacy HMAC-SHA256 signature for the Authentik webhook. |
 | 🗺️ | **CAEP event mapping** | Logout and password-change Authentik events map to `session-revoked` and `credential-change` SETs. |
-| ✍️ | **RS256-signed SET delivery** | Every push is a signed JWT, revalidated against SSRF and DNS-rebinding checks right before it goes out. |
+| ✍️ | **Durable RS256-signed SET delivery** | Matching SETs are encrypted in SQLite before acknowledgement, then delivered with retry and SSRF/DNS-rebinding checks. |
 | 🚦 | **Defense in depth** | Receiver hostname allowlist, in-app rate limiting, and standard HTTP security headers on every response. |
-| 🔒 | **Encrypted receiver tokens** | Fernet-encrypted at rest in SQLite; management and webhook tokens never touch disk. |
+| 🔒 | **Encrypted delivery data** | Queued signed SETs and receiver tokens are Fernet-encrypted at rest in SQLite; management and webhook tokens never touch disk. |
 | 🕵️ | **PII masked by default** | Email addresses are pseudonymised in logs unless explicitly opted out. |
 | 👥 | **Apple SCIM user sync** | Optional directory sync from Authentik to Apple Business Manager, scoped to a single group if you want. |
 | ✅ | **Startup preflight checks** | Clear ✅/⚠️/❌ output per check before the service starts serving traffic. |
@@ -91,8 +91,8 @@ A logout or password change in Authentik fires a webhook; the payload is mapped 
 |---|-------|---------------|
 | 🐍 | **Runtime** | Python 3.14 |
 | ⚡ | **Framework** | FastAPI + Uvicorn |
-| 🗄️ | **Storage** | SQLite via `aiosqlite` |
-| 🔐 | **Crypto** | `cryptography` (RS256 JWT signing, Fernet token encryption) |
+| 🗄️ | **Storage** | SQLite via `aiosqlite` (stream config and durable SET outbox) |
+| 🔐 | **Crypto** | `cryptography` (RS256 JWT signing, Fernet encryption at rest) |
 | 🚦 | **Rate limiting** | `slowapi` |
 | 🛡️ | **CI/CD security** | CodeQL (every PR + weekly), Trivy (image scan, blocks on HIGH/CRITICAL), SonarCloud, `pip-audit` on both loose and hash-locked dependencies, CycloneDX SBOM per platform, OpenSSF Scorecard (report-only, weekly + on push to `main`) |
 
@@ -109,10 +109,11 @@ A **stream** is the receiver configuration stored in SQLite: receiver URL, beare
 
 ## Upgrading
 
-**Already running with Apple Business Manager?** See [docs/Upgrading.md](docs/Upgrading.md#v0516--dependency-updates-and-tooling-security-fixes-from-0515):
+**Upgrading from v0.5.16?** See [docs/Upgrading.md](docs/Upgrading.md#v0517--apple-scim-safety-and-reliable-set-delivery-from-0516):
 
-- v0.5.16 updates FastAPI and development/CI tooling, including filelock and setuptools security fixes; no configuration steps
-- Do **not** add `SSF_TOKEN_ENCRYPTION_KEY` unless re-registering the stream
+- Back up the data and keys volumes and retain the existing encryption-key configuration; do **not** add `SSF_TOKEN_ENCRYPTION_KEY` to a working install.
+- SET delivery is now queued and at-least-once. Monitor `/ssf/delivery/status`; changing a stream's delivery configuration cancels its pending SETs.
+- Apple SCIM username-only recovery is disabled by default; enable it only after verifying all matching unlinked accounts in scope.
 
 ## Public endpoints
 
@@ -123,6 +124,7 @@ A **stream** is the receiver configuration stored in SQLite: receiver URL, beare
 | JWKS | `https://idp.example.com/shared-signals/jwks.json` |
 | Stream management | `https://idp.example.com/shared-signals/ssf/streams` |
 | Status | `https://idp.example.com/shared-signals/ssf/status` |
+| Delivery queue status | `https://idp.example.com/shared-signals/ssf/delivery/status` |
 
 `/docs` and `/openapi.json` are off by default. Set `SSF_ENABLE_OPENAPI=true` only in dev or a trusted LAN.
 
@@ -131,10 +133,10 @@ Replace `idp.example.com` with your IdP hostname and `/shared-signals` with your
 ## Security at a glance
 
 - SSRF protection on receiver URLs: HTTPS-only, private-IP blocklist, DNS re-resolved before every push (catches rebinding)
-- Receiver tokens encrypted at rest (Fernet); management and webhook tokens live in environment variables only, never written to disk or logged
+- Receiver tokens and queued signed SETs encrypted at rest (Fernet); management and webhook tokens live in environment variables only, never written to disk or logged
 - Constant-time comparison on every bearer-token check; per-route rate limiting
 - Email addresses pseudonymised in logs by default (`SSF_LOG_PII=false`)
-- No persistent store of personal data: see [docs/security/DATA-PROTECTION.md](docs/security/DATA-PROTECTION.md)
+- Queued SETs contain personal data until delivered or discarded; see [docs/security/DATA-PROTECTION.md](docs/security/DATA-PROTECTION.md)
 
 See [SECURITY.md](SECURITY.md) for the full trust model and how to report a vulnerability.
 

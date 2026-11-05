@@ -1,4 +1,4 @@
-"""FastAPI application entry point and Apple SCIM background sync loop."""
+"""FastAPI application entry point and background workers."""
 
 from __future__ import annotations
 
@@ -21,6 +21,7 @@ import app.config as config
 from app.config import configure_logging, settings
 from app.crypto import ensure_keys
 from app.database import init_db
+from app.events.outbox import delivery_loop
 from app.rate_limit import limiter
 from app.routes import apple_scim, jwks, root, streams, verification, webhook, wellknown
 from app.startup import quarantine_undecryptable_receiver_tokens, run_preflight_checks
@@ -63,18 +64,17 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         return response
 
 
-async def _apple_scim_sync_loop() -> None:
-    """Background task: sync users from Authentik to Apple every APPLE_SCIM_SYNC_INTERVAL seconds."""
+async def _run_scheduled_apple_scim_sync() -> None:
+    """Run one scheduled sync after any current operation finishes."""
     from app.alerts import send_alert
-    from app.scim.apple import sync_users
+    from app.scim.apple import AppleUserListError, sync_users
     from app.scim.authentik import get_users
+    from app.scim.coordination import scim_operation
     from app.scim.token import get_valid_access_token
 
-    logger.info("Apple SCIM: sync loop started interval=%ds", settings.apple_scim_sync_interval)
-    while True:
-        await asyncio.sleep(settings.apple_scim_sync_interval)
-        logger.info("Apple SCIM: starting scheduled sync")
-        try:
+    logger.info("Apple SCIM: starting scheduled sync")
+    try:
+        async with scim_operation(wait=True):
             token = await get_valid_access_token()
             if not token:
                 logger.warning("Apple SCIM: skipping sync — no valid token; visit /apple-scim/authorize")
@@ -82,12 +82,22 @@ async def _apple_scim_sync_loop() -> None:
                     event="scim_no_valid_token",
                     message="Apple SCIM sync skipped — no valid token. Visit /apple-scim/authorize to re-authorize",
                 )
-                continue
+                return
             users = await get_users()
             if users is not None:
                 await sync_users(token, users)
-        except Exception:
-            logger.exception("Apple SCIM: unhandled error in sync loop")
+    except AppleUserListError:
+        logger.exception("Apple SCIM: scheduled sync aborted — incomplete Apple user listing")
+    except Exception:
+        logger.exception("Apple SCIM: unhandled error in sync loop")
+
+
+async def _apple_scim_sync_loop() -> None:
+    """Background task: sync users from Authentik to Apple every APPLE_SCIM_SYNC_INTERVAL seconds."""
+    logger.info("Apple SCIM: sync loop started interval=%ds", settings.apple_scim_sync_interval)
+    while True:
+        await asyncio.sleep(settings.apple_scim_sync_interval)
+        await _run_scheduled_apple_scim_sync()
 
 
 @asynccontextmanager
@@ -98,6 +108,8 @@ async def lifespan(app: FastAPI):
     await init_db()
     quarantine_undecryptable_receiver_tokens()
 
+    set_delivery_stop = asyncio.Event()
+    set_delivery_task = asyncio.create_task(delivery_loop(set_delivery_stop))
     apple_scim_task: asyncio.Task | None = None
     if settings.apple_scim_enabled:
         logger.info("Apple SCIM sync enabled — background sync every %ds", settings.apple_scim_sync_interval)
@@ -105,8 +117,19 @@ async def lifespan(app: FastAPI):
 
     yield
 
+    set_delivery_stop.set()
     if apple_scim_task is not None:
         apple_scim_task.cancel()
+    delivery_results = await asyncio.gather(set_delivery_task, return_exceptions=True)
+    delivery_result = delivery_results[0]
+    if isinstance(delivery_result, asyncio.CancelledError):
+        logger.info("SSF delivery outbox worker stopped")
+    elif isinstance(delivery_result, BaseException):
+        logger.warning("SSF delivery outbox worker exited with an unexpected error", exc_info=delivery_result)
+    else:
+        logger.info("SSF delivery outbox worker stopped")
+
+    if apple_scim_task is not None:
         # gather(..., return_exceptions=True) collects the task's outcome
         # without re-raising it here — unlike `try: await task / except
         # CancelledError`, there is no exception left needing a re-raise for

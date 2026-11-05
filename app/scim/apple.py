@@ -1,8 +1,8 @@
 """Apple SCIM 2.0 client.
 
 Pushes users from Authentik to Apple Business Manager via Apple's SCIM endpoint.
-Uses externalId (Authentik PK) as the primary correlation key; userName (email)
-is a fallback for users whose externalId is missing and needs one PATCH repair.
+Uses externalId (Authentik PK) as the primary correlation key. Recovery of a
+userName match without externalId requires an explicit operator opt-in.
 
 Apple SCIM base URL: https://federation.apple.com/feeds/business/scim
 Note: Apple's SCIM endpoint does not include /v2 in the public URL.
@@ -12,16 +12,17 @@ Sync strategy (Authentik pattern):
 2. For each Authentik user:
    - Found (by either key), unchanged → skip (unchanged)
    - Found (by either key), changed  → PATCH changed attributes while preserving externalId
-   - Not found → POST; on 409 → query filter=userName eq "..." then PATCH
+   - Not found → POST; on 409 → query by userName and reconcile only a safe match
 3. Users present in Apple but absent from Authentik are left untouched;
    deactivate them in Authentik first (active=false propagates on next sync).
 """
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, TypeGuard
 from urllib.parse import quote
 
 import httpx
@@ -36,6 +37,10 @@ APPLE_SCIM_BASE = "https://federation.apple.com/feeds/business/scim"
 ABM_ACTIVITY_URL = "https://business.apple.com/main/activity"
 
 
+class AppleUserListError(Exception):
+    """Apple's user listing could not be read completely and safely."""
+
+
 @dataclass
 class SyncResult:
     """Counters returned after an Apple SCIM sync run."""
@@ -43,7 +48,7 @@ class SyncResult:
     created: int = 0
     updated: int = 0
     unchanged: int = 0
-    conflicts: int = 0  # users that exist but have a personal Apple ID conflict
+    conflicts: int = 0  # identity or creation conflicts requiring operator review
     errors: int = 0
     update_400_invalid_request: int = 0
     # Users with a real field diff outside the configured
@@ -58,17 +63,23 @@ class SyncResult:
     conflict_usernames: list[str] = field(default_factory=list)
 
 
-async def _fetch_users_page(client: httpx.AsyncClient, headers: dict, url: str) -> dict | None:
-    """GET one page of the Apple SCIM users list, or None on any upstream failure (logged)."""
-    resp = await client.get(url, headers=headers)
+async def _fetch_users_page(client: httpx.AsyncClient, headers: dict, url: str) -> dict:
+    """GET one page of the Apple SCIM users list or raise on an upstream failure."""
+    try:
+        resp = await client.get(url, headers=headers)
+    except httpx.HTTPError as exc:
+        raise AppleUserListError("Network error listing Apple SCIM users") from exc
     if resp.status_code != 200:
         logger.error("Apple SCIM list users failed response=%s", response_metadata(resp))
-        return None
+        raise AppleUserListError(f"Apple SCIM user listing returned HTTP {resp.status_code}")
     try:
-        return resp.json()
-    except Exception:
+        data = resp.json()
+    except ValueError as exc:
         logger.error("Apple SCIM list users returned non-JSON response=%s", response_metadata(resp))
-        return None
+        raise AppleUserListError("Apple SCIM user listing returned non-JSON") from exc
+    if not isinstance(data, dict):
+        raise AppleUserListError("Apple SCIM user listing returned an invalid response")
+    return data
 
 
 def _index_users_page(data: dict, by_ext_id: dict[str, dict], by_username: dict[str, dict]) -> None:
@@ -82,37 +93,98 @@ def _index_users_page(data: dict, by_ext_id: dict[str, dict], by_username: dict[
             by_username[_normalize_identifier(username)] = u
 
 
-def _next_users_page_url(data: dict) -> str | None:
+def _next_users_page_url(data: dict, *, expected_start: int = 1) -> str | None:
     """Return the next page URL, or None on the last page.
 
     Apple uses startIndex/itemsPerPage pagination (not cursor/next-link).
     """
-    total = data.get("totalResults", 0)
-    start = data.get("startIndex", 1)
-    per_page = data.get("itemsPerPage") or len(data.get("Resources", []))
+    total = data["totalResults"]
+    start = data.get("startIndex", expected_start)
+    per_page = data.get("itemsPerPage", len(data.get("Resources", [])))
     if per_page == 0:
-        return None  # guard: empty page with totalResults > 0 would loop forever
+        if start <= total:
+            raise AppleUserListError("Apple SCIM user listing ended before all users were returned")
+        return None
     if start + per_page - 1 < total:
         return f"{APPLE_SCIM_BASE}/Users?count=200&startIndex={start + per_page}"
     return None
 
 
-async def _get_existing_users(client: httpx.AsyncClient, headers: dict) -> tuple[dict[str, dict], dict[str, dict]]:
-    """Return all Apple SCIM users indexed by externalId AND by userName.
+def _validate_users_page(data: dict, expected_start: int, expected_total: int | None) -> tuple[list[dict], int]:
+    """Validate pagination metadata before any users from the page are used."""
+    total = data.get("totalResults")
+    start = data.get("startIndex", expected_start)
+    resources = data.get("Resources", [])
+    if not isinstance(total, int) or isinstance(total, bool) or total < 0:
+        raise AppleUserListError("Apple SCIM user listing has an invalid totalResults")
+    if expected_total is not None and total != expected_total:
+        raise AppleUserListError("Apple SCIM user listing changed during pagination")
+    if not isinstance(start, int) or isinstance(start, bool) or start != expected_start:
+        raise AppleUserListError("Apple SCIM user listing has an unexpected startIndex")
+    if not isinstance(resources, list) or not all(isinstance(user, dict) for user in resources):
+        raise AppleUserListError("Apple SCIM user listing has invalid Resources")
+    per_page = data.get("itemsPerPage", len(resources))
+    if not isinstance(per_page, int) or isinstance(per_page, bool) or per_page != len(resources):
+        raise AppleUserListError("Apple SCIM user listing has an invalid itemsPerPage")
+    if start - 1 + len(resources) > total:
+        raise AppleUserListError("Apple SCIM user listing exceeds totalResults")
+    if not resources and start <= total:
+        raise AppleUserListError("Apple SCIM user listing ended before all users were returned")
+    return resources, total
 
-    Returns:
-        (by_ext_id, by_username) — two dicts for primary and fallback lookup.
-        by_username keys are lowercased for case-insensitive matching.
+
+def _is_safe_user_id(value: object) -> TypeGuard[str]:
+    """Reject identifiers that cannot safely identify a single user URL segment."""
+    return (
+        isinstance(value, str)
+        and value == value.strip()
+        and value not in ("", ".", "..")
+        and not any(char in value for char in ("/", "\\", "%"))
+        and not any(ord(char) < 32 or ord(char) == 127 for char in value)
+    )
+
+
+def _user_url(user_id: str) -> str:
+    return f"{APPLE_SCIM_BASE}/Users/{quote(user_id, safe='')}"
+
+
+def _index_unique_user(
+    user: dict, seen_ids: set[str], by_ext_id: dict[str, dict], by_username: dict[str, dict]
+) -> None:
+    """Reject ambiguous identities before adding one listed user to the indexes."""
+    user_id = user.get("id")
+    username = user.get("userName")
+    if not _is_safe_user_id(user_id):
+        raise AppleUserListError("Apple SCIM user listing contains a user with an invalid id")
+    if not isinstance(username, str) or not username.strip():
+        raise AppleUserListError("Apple SCIM user listing contains a user without a userName")
+    external_id = str(user.get("externalId") or "").strip()
+    normalized_username = _normalize_identifier(username)
+    if user_id in seen_ids or normalized_username in by_username or (external_id and external_id in by_ext_id):
+        raise AppleUserListError("Apple SCIM user listing contains duplicate identities")
+    seen_ids.add(user_id)
+    _index_users_page({"Resources": [user]}, by_ext_id, by_username)
+
+
+async def _get_existing_users(client: httpx.AsyncClient, headers: dict) -> tuple[dict[str, dict], dict[str, dict]]:
+    """Return a complete Apple user listing indexed by externalId and userName.
+
+    Raise AppleUserListError instead of returning a partial index on failure.
     """
     by_ext_id: dict[str, dict] = {}
     by_username: dict[str, dict] = {}
+    seen_ids: set[str] = set()
+    expected_start = 1
+    expected_total: int | None = None
     url: str | None = f"{APPLE_SCIM_BASE}/Users?count=200"
     while url:
         data = await _fetch_users_page(client, headers, url)
-        if data is None:
-            return by_ext_id, by_username
-        _index_users_page(data, by_ext_id, by_username)
-        url = _next_users_page_url(data)
+        users, total = _validate_users_page(data, expected_start, expected_total)
+        expected_total = total
+        for user in users:
+            _index_unique_user(user, seen_ids, by_ext_id, by_username)
+        url = _next_users_page_url(data, expected_start=expected_start)
+        expected_start += len(users)
     return by_ext_id, by_username
 
 
@@ -146,15 +218,27 @@ def _log_user_ref(user: dict) -> str:
 
 
 def _can_recover_by_username(apple_user: dict, authentik_external_id: object) -> bool:
-    """Return True when a userName match is safe to adopt for the current Authentik user.
+    """Return whether a userName match may be reconciled with this Authentik user.
 
-    Recovery is allowed when the Apple record has no ``externalId`` (lost linkage) or
-    already carries the same ``externalId``.  A *different* ``externalId`` means the
-    record belongs to another Authentik user — adopting it would corrupt that account.
+    An existing matching externalId is sufficient. A missing one requires
+    explicit opt-in; a different or missing Authentik externalId is rejected.
     """
     found_ext = str(apple_user.get("externalId") or "").strip()
     current_ext = str(authentik_external_id or "").strip()
-    return not found_ext or found_ext == current_ext
+    if not current_ext:
+        return False
+    if found_ext:
+        return found_ext == current_ext
+    return settings.apple_scim_allow_username_recovery
+
+
+def _record_username_conflict(result: SyncResult, user: dict, reason: str) -> None:
+    """Record a conflict without guessing its cause or writing to the account."""
+    result.conflicts += 1
+    username = user.get("userName")
+    if isinstance(username, str) and username:
+        result.conflict_usernames.append(username)
+    logger.warning("Apple SCIM: ⚠️  %s — USERNAME_CONFLICT: %s", _log_user_ref(user), reason)
 
 
 def _primary_email(user: dict) -> str | None:
@@ -265,7 +349,18 @@ def _actionable_diffs(diffs: dict[str, bool], mode: str) -> dict[str, bool]:
     return {key: value for key, value in diffs.items() if key in allowed_keys}
 
 
-def _build_update_request(user: dict, mode: str, apple_id: str) -> tuple[str, dict[str, Any], list[str]]:
+def _changed_name_operations(user: dict, diffs: dict[str, bool]) -> list[dict[str, Any]]:
+    """Build individual name-subattribute PATCH operations for changed fields."""
+    return [
+        {"op": "Replace", "path": f"name.{subfield}", "value": user.get("name", {}).get(subfield, "")}
+        for subfield in _MODE_FIELD_TO_DIFF_KEYS["name"]
+        if diffs.get(subfield, False)
+    ]
+
+
+def _build_update_request(
+    user: dict, mode: str, apple_id: str, *, diffs: dict[str, bool]
+) -> tuple[str, dict[str, Any], list[str]]:
     """Build the outbound Apple SCIM update request for the configured mode."""
     fields = _update_fields_for_mode(mode)
     if mode == "replace_all":
@@ -274,28 +369,37 @@ def _build_update_request(user: dict, mode: str, apple_id: str) -> tuple[str, di
         # from `user` plus the Apple-assigned id, not the raw dict.
         put_body = {k: v for k, v in user.items() if k != "externalId"}
         put_body["id"] = apple_id
-        return "PUT", put_body, fields
+        return "PUT", put_body, [name for name in fields if name != "externalId"]
+
+    fields = [name for name in fields if any(diffs.get(key, False) for key in _MODE_FIELD_TO_DIFF_KEYS[name])]
+    if not fields:
+        raise ValueError("Cannot build a PATCH without changed attributes")
 
     operations: list[dict[str, Any]] = []
+    patch_fields: list[str] = []
     for field_name in fields:
+        if field_name == "name":
+            name_operations = _changed_name_operations(user, diffs)
+            operations.extend(name_operations)
+            patch_fields.extend(operation["path"] for operation in name_operations)
+            continue
         if field_name == "externalId":
             value: Any = str(user.get("externalId") or "").strip()
         elif field_name == "userName":
             value = user.get("userName")
-        elif field_name == "name":
-            value = user.get("name", {})
         elif field_name == "emails":
             value = user.get("emails", [])
         else:
             value = user.get("active", True)
         operations.append({"op": "Replace", "path": field_name, "value": value})
+        patch_fields.append(field_name)
     return (
         "PATCH",
         {
             "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
             "Operations": operations,
         },
-        fields,
+        patch_fields,
     )
 
 
@@ -340,15 +444,18 @@ async def _patch_user(
     new_user: dict,
     result: SyncResult,
     *,
+    diffs: dict[str, bool],
     label: str = "",
 ) -> None:
     """PATCH a user update. Shared by normal update path and 409-recovery path."""
     apple_id = apple_user["id"]
-    method, update_body, changed_fields = _build_update_request(new_user, settings.apple_scim_update_mode, apple_id)
+    method, update_body, changed_fields = _build_update_request(
+        new_user, settings.apple_scim_update_mode, apple_id, diffs=diffs
+    )
     if method == "PUT":
-        resp = await client.put(f"{APPLE_SCIM_BASE}/Users/{apple_id}", json=update_body, headers=headers)
+        resp = await client.put(_user_url(apple_id), json=update_body, headers=headers)
     else:
-        resp = await client.patch(f"{APPLE_SCIM_BASE}/Users/{apple_id}", json=update_body, headers=headers)
+        resp = await client.patch(_user_url(apple_id), json=update_body, headers=headers)
     if resp.status_code in (200, 204):
         result.updated += 1
         logger.info(
@@ -386,10 +493,44 @@ async def _patch_external_id(
         "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
         "Operations": [{"op": "Replace", "path": "externalId", "value": external_id}],
     }
-    resp = await client.patch(f"{APPLE_SCIM_BASE}/Users/{apple_id}", json=body, headers=headers)
+    resp = await client.patch(_user_url(apple_id), json=body, headers=headers)
     if resp.status_code in (200, 204):
+        try:
+            verification = await client.get(_user_url(apple_id), headers=headers)
+        except httpx.HTTPError as exc:
+            result.errors += 1
+            logger.warning(
+                "Apple SCIM: externalId repair verification failed for %s: %s",
+                _log_user_ref(new_user),
+                type(exc).__name__,
+            )
+            return False
+        if verification.status_code != 200:
+            result.errors += 1
+            logger.warning(
+                "Apple SCIM: externalId repair verification failed for %s: HTTP %s",
+                _log_user_ref(new_user),
+                verification.status_code,
+            )
+            return False
+        try:
+            verified = verification.json()
+        except ValueError:
+            verified = None
+        if (
+            not isinstance(verified, dict)
+            or verified.get("id") != apple_id
+            or str(verified.get("externalId") or "").strip() != external_id
+            or _normalize_identifier(verified.get("userName")) != _normalize_identifier(new_user.get("userName"))
+            or not isinstance(verified.get("name", {}), dict)
+        ):
+            result.errors += 1
+            logger.warning("Apple SCIM: externalId repair could not be verified for %s", _log_user_ref(new_user))
+            return False
+        verified_user = dict(verified)
+        apple_user.clear()
+        apple_user.update(verified_user)
         result.updated += 1
-        apple_user["externalId"] = external_id
         logger.info(
             "Apple SCIM: linked %s to appleId=%s (externalId repair)",
             _log_user_ref(new_user),
@@ -415,7 +556,7 @@ async def _query_username_filter(
 ) -> dict | None:
     """Query Apple SCIM for filter=userName eq "...". Return the JSON payload, or None on any failure (logged)."""
     # SCIM RFC 7644 filter literals use double quotes (not single quotes from repr())
-    scim_filter = quote('"' + username + '"')
+    scim_filter = quote(json.dumps(username, ensure_ascii=False), safe="")
     filter_url = f"{APPLE_SCIM_BASE}/Users?filter=userName%20eq%20{scim_filter}"
     try:
         resp = await client.get(filter_url, headers=headers)
@@ -428,13 +569,33 @@ async def _query_username_filter(
         )
         return None
     try:
-        return resp.json()
-    except Exception:
+        payload = resp.json()
+    except ValueError:
         logger.warning(
             "Apple SCIM: 409-recovery filter query returned non-JSON response=%s",
             response_metadata(resp),
         )
         return None
+    if not isinstance(payload, dict):
+        logger.warning("Apple SCIM: 409-recovery filter query returned an invalid response")
+        return None
+    return payload
+
+
+def _username_recovery_allowed(apple_user: dict, user: dict, result: SyncResult) -> bool:
+    """Record unsafe username matches and warn when unlinked recovery is enabled."""
+    if _can_recover_by_username(apple_user, user.get("externalId")):
+        if not str(apple_user.get("externalId") or "").strip():
+            logger.warning("Apple SCIM: username-only recovery explicitly enabled for %s", _log_user_ref(user))
+        return True
+    if not str(user.get("externalId") or "").strip():
+        reason = "Authentik user has no externalId"
+    elif str(apple_user.get("externalId") or "").strip():
+        reason = "matched Apple record has an externalId belonging to a different user"
+    else:
+        reason = "matched Apple record has no externalId; username-only recovery is disabled"
+    _record_username_conflict(result, user, reason)
+    return False
 
 
 async def _reconcile_diffs(
@@ -458,6 +619,9 @@ async def _reconcile_diffs(
     sync_users() path) to derive the label from the actionable diffs and
     emit those debug logs.
     """
+    if recovered_by_username and not _username_recovery_allowed(apple_user, user, result):
+        return
+
     diffs = _field_diffs(apple_user, user)
     external_id_patch_attempted = False
     # Repair unconditionally once recovered by username, not
@@ -470,7 +634,8 @@ async def _reconcile_diffs(
     # stay broken for another whole sync cycle.
     if recovered_by_username and diffs.get("externalId"):
         external_id_patch_attempted = True
-        await _patch_external_id(client, headers, apple_user, user, result)
+        if not await _patch_external_id(client, headers, apple_user, user, result):
+            return
         diffs = _field_diffs(apple_user, user, include_external_id=False)
     actionable = _actionable_diffs(diffs, settings.apple_scim_update_mode)
     # Computed independently of whether an actionable update
@@ -492,13 +657,9 @@ async def _reconcile_diffs(
         label = patch_label if patch_label is not None else _format_changed_fields(actionable)
         if patch_label is None:
             logger.debug("Apple SCIM: update %s — changed: %s", _log_user_ref(user), label)
-        await _patch_user(client, headers, apple_user, user, result, label=label)
+        await _patch_user(client, headers, apple_user, user, result, diffs=actionable, label=label)
     elif not external_id_patch_attempted:
-        # A failed repair attempt is already counted via
-        # result.errors (and update_400_invalid_request)
-        # inside _patch_external_id — don't also count it
-        # here as unchanged, which would double-count the
-        # same user into two mutually-exclusive buckets.
+        # A successfully repaired linkage was already counted as updated.
         result.unchanged += 1
         if patch_label is None:
             logger.debug("Apple SCIM: unchanged %s", _log_user_ref(user))
@@ -510,12 +671,7 @@ async def _handle_409(
     user: dict,
     result: SyncResult,
 ) -> None:
-    """Handle 409 on POST using Authentik pattern: query by userName then PATCH.
-
-    409 + scimType=uniqueness → user exists in Apple but wasn't returned in GET list
-    (typically USERNAME_CONFLICT_WITH_EXISTING_APPLE_ID — personal Apple ID on same email).
-    Try to find the user via filter query and re-establish the link.
-    """
+    """Resolve a create conflict only when the username lookup identifies an eligible account."""
     username = user.get("userName", "")
     # Mask the email address per SSF_LOG_PII setting so it does not leak
     # into production logs when privacy mode is active.
@@ -523,57 +679,52 @@ async def _handle_409(
         username, log_pii=settings.log_pii, pii_key=settings.pii_pepper or settings.ssf_management_token
     )
     payload = await _query_username_filter(client, headers, username, safe_username)
-    resources = payload.get("Resources", []) if isinstance(payload, dict) else []
-    if resources:
-        found = resources[0]
-        ext_id = user.get("externalId")
-        # Allow recovery when the matched Apple record has no externalId
-        # OR the same externalId as the current user (it is our record,
-        # just missing from the initial GET list).
-        # Reject only when a *different* externalId is present — that means
-        # the record belongs to another Authentik user and overwriting it
-        # would corrupt that account.
-        if not _can_recover_by_username(found, ext_id):
-            logger.warning(
-                "Apple SCIM: 409-recovery skipped for %s — matched Apple record"
-                " has externalId=%s belonging to a different user",
-                safe_username,
-                found.get("externalId"),
-            )
-        else:
-            await _reconcile_diffs(
-                client, headers, found, user, result, recovered_by_username=True, patch_label="409-recovery"
-            )
-            return
+    if payload is None:
+        result.errors += 1
+        return
+    try:
+        resources, total = _validate_users_page(payload, expected_start=1, expected_total=None)
+    except AppleUserListError:
+        result.errors += 1
+        logger.warning("Apple SCIM: 409-recovery filter query returned an invalid user listing")
+        return
+    if total > 1:
+        _record_username_conflict(result, user, "multiple Apple accounts match the username")
+        return
+    if total == 0:
+        _record_username_conflict(result, user, "no matching Apple user found after a create conflict; review ABM")
+        return
 
-    # Could not locate user — flag as conflict with actionable message.
-    result.conflicts += 1
-    result.conflict_usernames.append(username)
-    logger.warning(
-        "Apple SCIM: ⚠️  %s — USERNAME_CONFLICT: email already used as personal Apple ID"
-        " | Action: ABM → Settings → Activity Centre → accept pending invitation",
-        safe_username,
-    )
+    found = resources[0]
+    apple_id = found.get("id")
+    found_username = found.get("userName")
+    if (
+        not _is_safe_user_id(apple_id)
+        or not isinstance(found_username, str)
+        or not found_username.strip()
+        or _normalize_identifier(found_username) != _normalize_identifier(username)
+    ):
+        result.errors += 1
+        logger.warning("Apple SCIM: 409-recovery filter returned an invalid or mismatched identity")
+        return
+    await _reconcile_diffs(client, headers, found, user, result, recovered_by_username=True, patch_label="409-recovery")
 
 
-def _match_apple_user(user: dict, by_ext_id: dict[str, dict], by_username: dict[str, dict]) -> tuple[dict | None, bool]:
-    """Return (apple_user, recovered_by_username) for *user* using the externalId/userName lookup."""
-    ext_id = user["externalId"]
+def _match_apple_user(
+    user: dict, by_ext_id: dict[str, dict], by_username: dict[str, dict]
+) -> tuple[dict | None, bool, bool]:
+    """Return the match, whether it used username, and whether the two keys conflict."""
+    ext_id = str(user["externalId"]).strip()
     by_ext = by_ext_id.get(ext_id)
-    if by_ext is not None:
-        return by_ext, False
-
     username_match = by_username.get(_normalize_identifier(user.get("userName")))
-    if username_match and _can_recover_by_username(username_match, ext_id):
-        return username_match, True
+    if by_ext is not None:
+        if username_match is not None and username_match["id"] != by_ext["id"]:
+            return None, False, True
+        return by_ext, False, False
 
     if username_match:
-        logger.warning(
-            "Apple SCIM: email match skipped for %s — Apple record externalId=%s belongs to a different Authentik user",
-            _log_user_ref(user),
-            username_match.get("externalId"),
-        )
-    return None, False
+        return username_match, True, False
+    return None, False, False
 
 
 async def _create_user(client: httpx.AsyncClient, headers: dict, user: dict, result: SyncResult) -> None:
@@ -617,6 +768,7 @@ def _log_sync_start(scim_users: list[dict], by_ext_id: dict, by_username: dict) 
 
 
 def _log_sync_summary(result: SyncResult) -> None:
+    """Summarize sync outcomes and flag accounts needing operator review."""
     logger.info(
         "Apple SCIM: sync done — created=%d updated=%d unchanged=%d conflicts=%d "
         "errors=%d update_400_invalid_request=%d out_of_scope_diffs=%d",
@@ -630,7 +782,7 @@ def _log_sync_summary(result: SyncResult) -> None:
     )
     if result.conflicts > 0:
         logger.warning(
-            "Apple SCIM: ⚠️  %d account(s) pending user acceptance (personal Apple ID conflict) — go to %s",
+            "Apple SCIM: ⚠️  %d account(s) require identity or creation-conflict review — go to %s",
             result.conflicts,
             ABM_ACTIVITY_URL,
         )
@@ -658,7 +810,10 @@ async def sync_users(access_token: str, scim_users: list[dict]) -> SyncResult:
 
         for user in scim_users:
             ext_id = user["externalId"]
-            apple_user, recovered_by_username = _match_apple_user(user, by_ext_id, by_username)
+            apple_user, recovered_by_username, username_conflict = _match_apple_user(user, by_ext_id, by_username)
+            if username_conflict:
+                _record_username_conflict(result, user, "username belongs to a different Apple account")
+                continue
 
             try:
                 if apple_user is None:

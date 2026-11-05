@@ -2,6 +2,7 @@ import hashlib
 import hmac
 import json
 from dataclasses import replace
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -140,6 +141,43 @@ def test_status_reports_no_stream_or_enabled_stream(client: TestClient):
     assert status.json()["stream_id"] == created["stream_id"]
 
 
+def test_delivery_status_is_management_protected_and_exposes_only_counters(client: TestClient):
+    unauthorized = client.get("/ssf/delivery/status")
+    assert unauthorized.status_code == 401
+
+    response = client.get("/ssf/delivery/status", headers=MGMT_HEADERS)
+    assert response.status_code == 200
+    assert set(response.json()) == {
+        "pending",
+        "blocked",
+        "oldest_pending_at",
+        "oldest_pending_age_seconds",
+        "stored",
+        "capacity",
+    }
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "handler", "field"),
+    [
+        ("POST", "/ssf/delivery/retry-blocked", "requeue_blocked_outbox", "requeued"),
+        ("DELETE", "/ssf/delivery/pending", "delete_pending_outbox", "discarded"),
+        ("DELETE", "/ssf/delivery/blocked", "delete_blocked_outbox", "discarded"),
+    ],
+)
+def test_delivery_actions_require_management_auth_and_report_counts(client, monkeypatch, method, path, handler, field):
+    """Queue mutations require management auth and report the affected count."""
+    operation = AsyncMock(return_value=2)
+    monkeypatch.setattr(f"app.routes.streams.{handler}", operation)
+
+    assert client.request(method, path).status_code == 401
+    response = client.request(method, path, headers=MGMT_HEADERS)
+
+    assert response.status_code == 200
+    assert response.json() == {field: 2}
+    operation.assert_awaited_once_with()
+
+
 def test_webhook_rejects_unsigned_request_by_default(client: TestClient):
     """Unsigned webhook requests are rejected with 401 (fail-closed by default)."""
     response = client.post(
@@ -200,16 +238,16 @@ def test_webhook_ignores_event_when_no_stream_configured(client: TestClient):
     assert response.json() == {"status": "ignored", "reason": "no_enabled_stream"}
 
 
-def test_webhook_delivers_mapped_event_without_logging_or_posting_real_token(client: TestClient, monkeypatch):
-    """Mapped Authentik events are pushed as SETs; receiver token is never logged."""
+def test_webhook_durably_queues_mapped_event(client: TestClient, monkeypatch):
+    """A mapped event is acknowledged only after the durable queue accepts it."""
     create_stream(client)  # uses MGMT_HEADERS internally
-    pushed = []
+    queued = []
 
-    async def fake_push_set(stream, event, email):
-        pushed.append((stream.aud, event.uri, email, stream.endpoint_token))
-        return True
+    async def fake_enqueue_events(streams, events, email):
+        queued.append((streams[0].aud, events[0].uri, email, streams[0].endpoint_token))
+        return 1
 
-    monkeypatch.setattr("app.routes.webhook.push_set", fake_push_set)
+    monkeypatch.setattr("app.routes.webhook.enqueue_events", fake_enqueue_events)
     body = json.dumps(
         {
             "body": {
@@ -222,8 +260,8 @@ def test_webhook_delivers_mapped_event_without_logging_or_posting_real_token(cli
     response = client.post("/webhook/authentik", content=body, headers=signed_headers(body))
 
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "delivered": 1, "failed": 0}
-    assert pushed == [
+    assert response.json() == {"status": "accepted", "queued": 1}
+    assert queued == [
         (
             "apple-business-manager",
             "https://schemas.openid.net/secevent/caep/event-type/session-revoked",
@@ -233,65 +271,64 @@ def test_webhook_delivers_mapped_event_without_logging_or_posting_real_token(cli
     ]
 
 
-def test_webhook_counts_failed_deliveries_separately_from_delivered(client: TestClient, monkeypatch):
-    """A push_set() failure is counted in `failed`, not silently dropped or counted as delivered."""
+def test_webhook_reports_zero_when_stream_filters_all_events(client: TestClient, monkeypatch):
+    """A filtered event returns accepted with no SET signed or stored."""
+    create_stream(client)
+    monkeypatch.setattr("app.events.outbox.sign_set", lambda **kwargs: pytest.fail("unexpected signing"))
+    body = json.dumps(
+        {
+            "body": {
+                "action": "authentik.core.user.write",
+                "user": {"email": "user@example.com"},
+                "context": {"changed_fields": ["password"]},
+            }
+        }
+    ).encode()
+
+    response = client.post("/webhook/authentik", content=body, headers=signed_headers(body))
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "accepted", "queued": 0}
+    assert client.get("/ssf/delivery/status", headers=MGMT_HEADERS).json()["pending"] == 0
+
+
+def test_webhook_returns_retryable_error_if_stream_changes_during_queueing(client: TestClient, monkeypatch):
+    """A webhook is not acknowledged if its stream changed before persistence."""
+    from app.database import StreamChangedError
+
     create_stream(client)
 
-    async def failing_push_set(stream, event, email):
-        return False
+    async def stale_stream(*args):
+        raise StreamChangedError("stream changed")
 
-    monkeypatch.setattr("app.routes.webhook.push_set", failing_push_set)
+    monkeypatch.setattr("app.routes.webhook.enqueue_events", stale_stream)
     body = json.dumps(
         {"body": {"action": "authentik.core.auth.logout", "user": {"email": "user@example.com"}}}
     ).encode()
 
     response = client.post("/webhook/authentik", content=body, headers=signed_headers(body))
 
-    assert response.status_code == 200
-    assert response.json() == {"status": "ok", "delivered": 0, "failed": 1}
+    assert response.status_code == 503
+    assert "retry the webhook" in response.json()["detail"]
 
 
-@pytest.mark.anyio
-async def test_dispatch_events_counts_delivered_and_failed_across_multiple_events(monkeypatch):
-    """_dispatch_events() sums delivered/failed correctly across more than one event for a stream.
+def test_webhook_returns_retryable_error_if_outbox_is_full(client: TestClient, monkeypatch):
+    from app.database import OutboxFullError
 
-    Every real Authentik action maps to at most one SSF event, and this app
-    supports only a single active stream, so the nested stream x event loop
-    never iterates more than once via the HTTP-level tests above — exercise
-    it directly here instead.
-    """
-    from app.database import Stream
-    from app.events.mapper import CREDENTIAL_CHANGE, SESSION_REVOKED, MappedEvent
-    from app.routes.webhook import _dispatch_events
+    create_stream(client)
 
-    stream = Stream(
-        stream_id="s1",
-        aud="apple-business-manager",
-        endpoint_url="https://receiver.example.test/events",
-        endpoint_token="token",
-        events_requested=[SESSION_REVOKED, CREDENTIAL_CHANGE],
-        status="enabled",
-        created_at=0,
-    )
-    events = [
-        MappedEvent(uri=SESSION_REVOKED, payload={}),
-        MappedEvent(uri=CREDENTIAL_CHANGE, payload={}),
-        MappedEvent(uri=SESSION_REVOKED, payload={}),
-    ]
-    # None (skipped) first so the loop must continue past a non-matching
-    # branch to a later event, then False, then True — each branch (skip,
-    # fail, deliver) gets to loop back for a subsequent event, not just fire
-    # on the final iteration.
-    results = iter([None, False, True])
+    async def full_queue(*args):
+        raise OutboxFullError("full")
 
-    async def fake_push_set(stream, event, email):
-        return next(results)
+    monkeypatch.setattr("app.routes.webhook.enqueue_events", full_queue)
+    body = json.dumps(
+        {"body": {"action": "authentik.core.auth.logout", "user": {"email": "user@example.com"}}}
+    ).encode()
 
-    monkeypatch.setattr("app.routes.webhook.push_set", fake_push_set)
+    response = client.post("/webhook/authentik", content=body, headers=signed_headers(body))
 
-    delivered, failed = await _dispatch_events([stream], events, "user@example.com")
-
-    assert (delivered, failed) == (1, 1)
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Delivery queue is full; retry the webhook later"
 
 
 def test_service_root_returns_json_discovery(client: TestClient):

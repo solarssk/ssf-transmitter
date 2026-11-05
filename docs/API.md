@@ -20,7 +20,7 @@ Returns HTML when `Accept` includes `text/html` (and not JSON-only); otherwise J
 ```json
 {
   "service": "SSF Transmitter",
-  "version": "0.5.16",
+  "version": "0.5.17",
   "discovery": "/.well-known/ssf-configuration"
 }
 ```
@@ -111,7 +111,7 @@ Registers an SSF push stream. The receiver calls this to configure where SETs ar
 
 **Response** `201 Created`
 **Response** `400 Bad Request` — invalid `endpoint_url`, or the registration payload was otherwise rejected.
-**Response** `502 Bad Gateway` — the verification SET could not be delivered to `endpoint_url`; registration was rolled back and no stream was created.
+**Response** `502 Bad Gateway` — the verification SET could not be delivered to `endpoint_url`; no new stream is created and any existing stream remains unchanged.
 ```json
 {
   "iss": "https://idp.example.com/shared-signals",
@@ -209,6 +209,47 @@ Returns the current stream status.
 }
 ```
 
+### `GET /ssf/delivery/status`
+
+Returns counters for the durable outbound SET queue. Requires management
+authentication. It never returns queued SETs, email addresses, or receiver
+tokens.
+
+```json
+{
+  "pending": 2,
+  "blocked": 0,
+  "oldest_pending_at": 1716800000,
+  "oldest_pending_age_seconds": 18,
+  "stored": 2,
+  "capacity": 10000
+}
+```
+
+`blocked` deliveries need operator attention. Pending deliveries pause while
+their stream is paused; replacing or deleting a stream, or changing its
+audience, endpoint, token, or event filter, cancels deliveries for the old
+configuration. The queue is capped at 10,000 stored items; a full queue causes
+webhooks to return `503` without enqueueing the new event. The sender must
+retry. Pausing, changing, or deleting a stream, and discarding pending items,
+wait for an in-flight delivery to finish; a SET already accepted by the
+receiver cannot be recalled.
+
+### `POST /ssf/delivery/retry-blocked`
+
+Returns `{"requeued": N}` and retries all blocked deliveries. Use after
+restoring the at-rest encryption key if queued payloads became unreadable.
+
+### `DELETE /ssf/delivery/pending`
+
+Permanently discards all pending deliveries and returns `{"discarded": N}`.
+Use only when the queued events should no longer be delivered.
+
+### `DELETE /ssf/delivery/blocked`
+
+Permanently discards all blocked deliveries and returns `{"discarded": N}`.
+Use only when those events cannot or should not be recovered.
+
 ---
 
 ## Verification
@@ -242,12 +283,15 @@ Receives event notifications from Authentik. Called by Authentik, not by SSF rec
 | `hmac` (legacy) | `X-Authentik-Signature: sha256=<hex>` | Verified against `SSF_WEBHOOK_SECRET` |
 | `unsigned` | None | Dev/lab only — never use in production |
 
-**Response** `200 OK`
+**Response** `200 OK` — `queued` is the number of matching SETs encrypted and
+committed to the durable queue. It can be `0` when the stream filters out every
+mapped event. This does not mean the receiver has accepted a SET; delivery and
+retries happen asynchronously.
 ```json
-{ "status": "ok", "delivered": 1, "failed": 0 }
+{ "status": "accepted", "queued": 1 }
 ```
 
-Possible `status` values when no SET is delivered:
+Ignored events also return `200 OK` without queueing a SET:
 
 | status | reason | Meaning |
 |---|---|---|
@@ -258,7 +302,42 @@ Possible `status` values when no SET is delivered:
 **Response** `400 Bad Request` — malformed JSON body.
 **Response** `401 Unauthorized` — missing or invalid webhook authentication (see `SSF_WEBHOOK_AUTH_MODE` above).
 **Response** `413 Payload Too Large` — request body exceeds the configured size limit.
-**Response** `500 Internal Server Error` — invalid `SSF_WEBHOOK_AUTH_MODE` configuration on the server.
+**Response** `500 Internal Server Error` — invalid `SSF_WEBHOOK_AUTH_MODE` configuration or the delivery could not be persisted.
+**Response** `503 Service Unavailable` — the queue is full or the stream changed while the event was being queued; Authentik should retry.
+
+Delivery is at-least-once. A process can stop after a receiver accepts a SET
+but before SQLite records completion, so a retry may deliver the same signed
+SET again. Failed deliveries retry indefinitely with exponential backoff up
+to one hour; inspect `/ssf/delivery/status` for a backlog. Queued SETs and
+receiver tokens are encrypted with the configured at-rest encryption key.
+Keep that key stable and backed up while the queue is non-empty; restoring the
+wrong key blocks affected deliveries rather than sending unreadable data.
+
+---
+
+## Apple SCIM
+
+### `POST /apple-scim/sync`
+
+Requires management authentication and runs a full sync. A successful
+response includes counts for `created`, `updated`, `unchanged`, `conflicts`,
+`errors`, `update_400_invalid_request`, and `out_of_scope_diffs`.
+
+**Response** `200 OK` — sync completed; inspect `conflicts` and `errors`.
+**Response** `401 Unauthorized` — management authentication failed or no valid Apple token is available.
+**Response** `409 Conflict` — another Apple sync or authorization is running; no new sync was started.
+**Response** `502 Bad Gateway` — Authentik or the complete Apple user listing could not be fetched.
+**Response** `503 Service Unavailable` — Apple SCIM is not configured.
+
+### `GET /apple-scim/callback`
+
+Public OAuth callback, protected by a single-use, time-limited state.
+`409 Conflict` means another Apple sync or authorization is running; the
+authorization code has not been exchanged. Retry the callback after that
+operation, or start authorization again if the code or state expired.
+
+See [Apple-SCIM-Sync.md](Apple-SCIM-Sync.md) for authorization, coordination
+and deployment requirements.
 
 ---
 

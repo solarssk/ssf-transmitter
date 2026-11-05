@@ -95,6 +95,79 @@ def test_token_encrypted_at_rest_in_sqlite(client: TestClient):
     assert stored.startswith("fernet1:")
 
 
+@pytest.mark.parametrize("verification_succeeds", [False, True])
+def test_stream_replacement_is_verified_before_existing_stream_changes(
+    client: TestClient, monkeypatch, verification_succeeds
+):
+    """A failed candidate verification leaves the old stream and ciphertext intact."""
+    import sqlite3
+    from contextlib import closing
+
+    from app.config import settings
+    from app.database import get_first_stream
+
+    old = _create_stream(client, token="old-receiver-token")
+    with closing(sqlite3.connect(settings.database_path)) as con:
+        old_row = con.execute("SELECT stream_id, endpoint_token, status FROM streams").fetchone()
+
+    observed = {}
+
+    async def _verify(candidate):
+        observed["candidate"] = candidate
+        observed["current"] = await get_first_stream()
+        return verification_succeeds
+
+    monkeypatch.setattr("app.routes.streams.push_verification_set", _verify)
+    response = client.post(
+        "/ssf/streams",
+        json={
+            "aud": "replacement-aud",
+            "delivery": {
+                "endpoint_url": "https://replacement.example.test/events",
+                "endpoint_url_token": "new-receiver-token",
+            },
+        },
+        headers=MGMT_HEADERS,
+    )
+
+    assert observed["current"].stream_id == old["stream_id"]
+    assert observed["current"].endpoint_token == "old-receiver-token"
+    assert observed["candidate"].stream_id != old["stream_id"]
+    assert observed["candidate"].endpoint_token == "new-receiver-token"
+    fetched = client.get("/ssf/streams", headers=MGMT_HEADERS)
+    with closing(sqlite3.connect(settings.database_path)) as con:
+        row_after = con.execute("SELECT stream_id, endpoint_token, status FROM streams").fetchone()
+
+    if verification_succeeds:
+        assert response.status_code == 201
+        assert fetched.json()["stream_id"] == observed["candidate"].stream_id == response.json()["stream_id"]
+        assert row_after[0] == observed["candidate"].stream_id
+        assert row_after[1].startswith("fernet1:")
+        assert "new-receiver-token" not in json.dumps(response.json())
+    else:
+        assert response.status_code == 502
+        assert fetched.status_code == 200
+        assert fetched.json() == old
+        assert row_after == old_row
+
+
+def test_failed_first_stream_registration_leaves_no_stream(client: TestClient, monkeypatch):
+    client.delete("/ssf/streams", headers=MGMT_HEADERS)
+
+    async def _verify(candidate):
+        return False
+
+    monkeypatch.setattr("app.routes.streams.push_verification_set", _verify)
+    response = client.post(
+        "/ssf/streams",
+        json={"aud": "test-aud", "delivery": {"endpoint_url": "https://receiver.example.test/events"}},
+        headers=MGMT_HEADERS,
+    )
+
+    assert response.status_code == 502
+    assert client.get("/ssf/streams", headers=MGMT_HEADERS).status_code == 404
+
+
 def test_patch_preserves_undecryptable_receiver_token_without_replacement(client: TestClient, monkeypatch):
     """Unrelated stream patches must not erase a token encrypted with an old key."""
     import dataclasses

@@ -7,9 +7,10 @@
 
 ## What this service does
 
-SSF Transmitter is a stateless bridge: it receives an Authentik webhook, maps it to an SSF
-Security Event Token (SET), and pushes the signed SET to one configured receiver (typically Apple
-Business Manager). Optionally, it also syncs a user directory from Authentik to Apple via SCIM.
+SSF Transmitter receives an Authentik webhook, maps it to an SSF Security Event Token (SET), and
+queues the signed SET in encrypted SQLite storage until it can be delivered to one configured
+receiver (typically Apple Business Manager). Optionally, it also syncs a user directory from
+Authentik to Apple via SCIM.
 It has no admin UI and no end-user-facing surface. The only "users" of the personal data it
 handles are the identity provider (Authentik) on one side and the receiver on the other, both
 chosen and operated by whoever deploys this service.
@@ -18,7 +19,7 @@ chosen and operated by whoever deploys this service.
 
 | Field | Purpose | Where it goes | Sensitivity |
 |---|---|---|---|
-| Email address (webhook path) | Subject identifier (`sub_id.format: email`) in the signed SET pushed for a logout / password-change event | Read from the Authentik webhook body, embedded in the outbound SET, sent to the configured receiver over HTTPS | Personal data |
+| Email address (webhook path) | Subject identifier (`sub_id.format: email`) in the signed SET pushed for a logout / password-change event | Read from the Authentik webhook body, embedded in the signed SET, encrypted in the SQLite outbox until delivery, then sent to the configured receiver over HTTPS | Personal data |
 | Email, name, username, Authentik user ID (as `externalId`), account active/inactive status (Apple SCIM sync path, optional) | User directory sync: creates/updates the matching SCIM User resource at the receiver (`app/scim/authentik.py::_map_to_scim`) | Read from Authentik's user API, sent to Apple's SCIM API over HTTPS | Personal data |
 | Pseudonymised email token (`[pii:<sha256[:8]>]`) | Log correlation without exposing the real address | Application logs only (stdout/stderr) | Pseudonymised (see [Logs](#logs)) |
 
@@ -57,21 +58,30 @@ determination belongs to the operator, not this document.
 
 ## Retention
 
-**No personal data is persisted at rest by this service.** The SQLite database
-(`app/database.py`) stores only stream/receiver configuration (endpoint URL, encrypted receiver
-token, requested event types, status) and Apple SCIM OAuth tokens, never an email address, name,
-or other per-user record. A webhook's email address exists in memory only for the duration of
-mapping and pushing that one event; the only thing that outlives the request is the pseudonymised
-log token described above, whose retention the operator controls.
+Signed SETs in the durable outbox contain the event subject email and are encrypted at rest using
+the same configured Fernet key as receiver tokens. A successfully delivered item is removed from
+SQLite; failed deliveries are retried indefinitely with exponential backoff. Blocked items remain
+encrypted until an operator retries or discards them. The outbox holds at most 10,000 entries;
+webhooks are rejected with `503` while it is full and the sender must retry. Paused streams hold
+queued items. Replacing or deleting a stream, or changing its audience, endpoint, receiver token,
+or event filter, cancels pending items for the old configuration. The outbox does not include
+Apple SCIM user records.
+
+The operator controls retention through the SQLite volume and backups, including any queued SETs.
+The authenticated `GET /ssf/delivery/status` endpoint exposes counts only;
+`POST /ssf/delivery/retry-blocked` and `DELETE /ssf/delivery/blocked` provide recovery or
+discard controls for blocked entries. Changing the encryption key while entries are queued makes
+them unreadable until the original key is restored; affected entries are blocked rather than sent.
 
 ## Data subject rights
 
-This service holds no queryable store of personal data to run an access or erasure request
-against: there is nothing here to export or delete beyond log retention (see
-[Logs](#logs)/[Retention](#retention)), since it doesn't persist subject records. A subject access,
-correction, or erasure request should be directed to the actual data controller (the organisation
-operating Authentik) and, for data already forwarded, to the receiver's own subprocessor
-agreement.
+The service does not maintain a searchable subject directory, but pending and blocked encrypted
+SETs can contain personal data. An operator can remove pending entries with
+`DELETE /ssf/delivery/pending` or by replacing/deleting the stream; blocked entries can be
+explicitly discarded with `DELETE /ssf/delivery/blocked`. Already delivered events are not
+retained by this service. A subject access, correction, or erasure request should also be directed
+to the actual data controller (the organisation operating Authentik) and, for data already
+forwarded, to the receiver's own subprocessor agreement.
 
 ## Subprocessors
 

@@ -32,8 +32,9 @@ from fastapi.responses import RedirectResponse
 
 from app.auth import require_management_auth
 from app.config import settings
-from app.scim.apple import sync_users
+from app.scim.apple import AppleUserListError, sync_users
 from app.scim.authentik import get_users
+from app.scim.coordination import AppleScimBusy, scim_operation, token_lock
 from app.scim.token import APPLE_TOKEN_URL, get_valid_access_token, load_tokens, save_tokens
 from app.security.http_logging import json_key_summary, response_metadata
 from app.security.log_sanitize import sanitize_for_log
@@ -73,6 +74,12 @@ def _consume_state(state: str) -> bool:
         return False
     del _pending_states[state]
     return True
+
+
+def _is_valid_state(state: str) -> bool:
+    """Check a state without consuming it, so a busy callback can be retried."""
+    _cleanup_expired_states()
+    return state in _pending_states
 
 
 def _require_scim_configured() -> None:
@@ -124,6 +131,7 @@ async def authorize() -> RedirectResponse:
             "description": "Missing 'code' or 'state' parameter, invalid/expired state "
             "(CSRF check failed), or Apple returned an OAuth error via ?error="
         },
+        409: {"description": "Another Apple SCIM sync or authorization is in progress"},
         502: {
             "description": "Network error, or Apple rejected the authorization code "
             "(token exchange failed or returned no access_token)"
@@ -152,11 +160,42 @@ async def callback(
     if not code:
         raise HTTPException(status_code=400, detail="Missing 'code' parameter in callback")
 
-    # CSRF check — state must match one we issued and be consumed immediately
-    if not state or not _consume_state(state):
+    if not state or not _is_valid_state(state):
         logger.warning("Apple SCIM: invalid or missing OAuth state — possible CSRF attempt")
         raise HTTPException(status_code=400, detail="Invalid or expired OAuth state parameter")
 
+    try:
+        async with scim_operation():
+            if not _consume_state(state):
+                raise HTTPException(status_code=400, detail="Invalid or expired OAuth state parameter")
+            expires_in, has_refresh_token = await _exchange_authorization_code(code)
+    except AppleScimBusy as exc:
+        logger.info("Apple SCIM: OAuth callback deferred — another sync or authorization is in progress")
+        raise HTTPException(
+            status_code=409,
+            detail="Another Apple SCIM operation is in progress. Retry this callback or start authorization again.",
+        ) from exc
+
+    task = asyncio.create_task(_background_sync())
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+
+    return {
+        "status": "authorized",
+        "expires_in": expires_in,
+        "has_refresh_token": has_refresh_token,
+        "message": "Authorization successful. Initial sync scheduled automatically.",
+    }
+
+
+async def _exchange_authorization_code(code: str) -> tuple[int, bool]:
+    """Exchange and store the authorization code without racing token refresh."""
+    async with token_lock():
+        return await _exchange_authorization_code_locked(code)
+
+
+async def _exchange_authorization_code_locked(code: str) -> tuple[int, bool]:
+    """Exchange and persist an authorization code while the token lock is held."""
     callback_url = settings.public_url("/apple-scim/callback")
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
@@ -208,28 +247,24 @@ async def callback(
         bool(refresh_token),
         expires_in,
     )
+    return expires_in, bool(refresh_token)
 
-    # Kick off an immediate sync in the background so the admin doesn't have
-    # to manually POST /apple-scim/sync after every (re-)authorization.
-    async def _background_sync() -> None:
-        """Run an immediate SCIM sync after OAuth authorization completes."""
-        try:
+
+async def _background_sync() -> None:
+    """Run the post-authorization sync using the latest stored token."""
+    try:
+        async with scim_operation(wait=True):
+            access_token = await get_valid_access_token()
+            if not access_token:
+                logger.warning("Apple SCIM: initial sync skipped — no valid token")
+                return
             users = await get_users()
             if users is not None:
                 await sync_users(access_token, users)
-        except Exception:
-            logger.exception("Apple SCIM: background sync after authorization failed")
-
-    task = asyncio.create_task(_background_sync())
-    _background_tasks.add(task)
-    task.add_done_callback(_background_tasks.discard)
-
-    return {
-        "status": "authorized",
-        "expires_in": expires_in,
-        "has_refresh_token": bool(refresh_token),
-        "message": "Authorization successful. Initial sync started automatically.",
-    }
+    except AppleUserListError:
+        logger.exception("Apple SCIM: initial sync aborted — incomplete Apple user listing")
+    except Exception:
+        logger.exception("Apple SCIM: background sync after authorization failed")
 
 
 @router.get(
@@ -270,7 +305,8 @@ async def status() -> dict:
     dependencies=[Depends(require_management_auth)],
     responses={
         401: {"description": "No valid Apple access token — visit /apple-scim/authorize"},
-        502: {"description": "Could not fetch users from Authentik, or a network error listing existing Apple users"},
+        409: {"description": "Another Apple SCIM sync or authorization is in progress"},
+        502: {"description": "Could not fetch users from Authentik or a complete Apple users list"},
         503: {"description": "Apple SCIM sync is not configured"},
     },
 )
@@ -282,25 +318,29 @@ async def sync() -> dict:
     """
     _require_scim_configured()
 
-    access_token = await get_valid_access_token()
-    if not access_token:
-        raise HTTPException(
-            status_code=401,
-            detail="No valid Apple access token. Visit /apple-scim/authorize to connect.",
-        )
-
-    users = await get_users()
-    if users is None:
-        raise HTTPException(status_code=502, detail="Could not fetch users from Authentik")
-
     try:
-        result = await sync_users(access_token, users)
-    except httpx.HTTPError:
-        # Only the initial "list existing Apple users" call can raise uncaught here —
-        # every per-user create/update inside sync_users() already catches
-        # httpx.HTTPError and counts it as result.errors instead of propagating.
+        async with scim_operation():
+            access_token = await get_valid_access_token()
+            if not access_token:
+                raise HTTPException(
+                    status_code=401,
+                    detail="No valid Apple access token. Visit /apple-scim/authorize to connect.",
+                )
+
+            users = await get_users()
+            if users is None:
+                raise HTTPException(status_code=502, detail="Could not fetch users from Authentik")
+
+            result = await sync_users(access_token, users)
+    except AppleScimBusy as exc:
+        logger.info("Apple SCIM: manual sync rejected — another sync or authorization is in progress")
+        raise HTTPException(status_code=409, detail="Another Apple SCIM operation is in progress") from exc
+    except AppleUserListError, httpx.HTTPError:
         logger.exception("Apple SCIM: sync failed — could not list existing Apple users")
-        raise HTTPException(status_code=502, detail="Could not reach Apple Business Manager") from None
+        raise HTTPException(
+            status_code=502,
+            detail="Could not reach Apple Business Manager or obtain a complete user list",
+        ) from None
 
     return {
         "status": "ok",

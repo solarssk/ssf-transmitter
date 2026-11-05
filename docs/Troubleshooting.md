@@ -55,14 +55,19 @@ Since v0.5.9 you cannot set `status: enabled` without a valid receiver token. Su
 ### Events not reaching Apple / receiver
 
 1. Check stream status is `enabled`.
-2. Check Authentik webhook fires (test notification).
-3. Check webhook auth: `SSF_WEBHOOK_AUTH_MODE=bearer` and Header Mapping in Authentik.
-4. Check logs for `delivered` / `failed` on `POST /webhook/authentik`.
+2. Check `GET /ssf/delivery/status` for pending or blocked items.
+3. Check the Authentik webhook response says `"status": "accepted"` and `queued` is greater than zero. An ignored event or `"queued": 0` stores no SET.
+4. Check webhook auth: `SSF_WEBHOOK_AUTH_MODE=bearer` and Header Mapping in Authentik.
 5. Verify receiver URL still passes SSRF validation and allowlist (`SSF_ALLOWED_RECEIVER_HOSTS`).
+6. Failed deliveries retry indefinitely with backoff; monitor queue age and capacity. Blocked entries require operator review; if caused by a key change, restore the original encryption key and call `POST /ssf/delivery/retry-blocked`.
+
+Changing the stream endpoint, audience, receiver token, or event filter cancels pending SETs for its previous configuration. Delivery is at-least-once, so a retry may result in a duplicate if the receiver accepted a SET just before the transmitter lost its completion record.
+
+If Authentik receives `503` because the queue is full, inspect `/ssf/delivery/status` and restore receiver connectivity or resolve blocked entries. The webhook was not acknowledged, so Authentik should retry it.
 
 ### `502` on stream create
 
-Verification SET delivery to receiver failed. Stream is rolled back. Check receiver URL, token, and network egress.
+Verification SET delivery to the new receiver failed. The existing stream, if any, remains unchanged. Check the new receiver URL, token, and network egress.
 
 ## Authentication
 
@@ -116,9 +121,19 @@ Check `SSF_ROOT_PATH` matches nginx location (`/shared-signals`) and `SSF_BASE_U
 
 All of `APPLE_SCIM_CLIENT_ID`, `APPLE_SCIM_CLIENT_SECRET`, `AUTHENTIK_URL`, `AUTHENTIK_TOKEN` must be set.
 
-### 409 / duplicate users
+### HTTP 409: another SCIM operation is running
 
-See changelog for 409 recovery rules. Use `APPLE_SCIM_GROUP_ID` to limit scope.
+A manual sync or OAuth callback returns `409` if a sync or authorization is
+already using the Apple connection. Wait for it to finish and retry. If the
+OAuth callback's code or state expires, start authorization again at
+`/apple-scim/authorize`. See [Apple-SCIM-Sync.md](Apple-SCIM-Sync.md#concurrent-syncs-and-authorization).
+
+### Identity conflicts / duplicate users
+
+Matching usernames with missing or different Apple `externalId` values are
+reported as conflicts instead of being updated automatically. Check account
+ownership and the sync scope before enabling username-only recovery; see
+[Apple-SCIM-Sync.md](Apple-SCIM-Sync.md#existing-apple-accounts).
 
 ## Health checks
 

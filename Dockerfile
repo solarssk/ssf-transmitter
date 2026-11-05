@@ -53,4 +53,5 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
      urllib.request.urlopen(f'http://localhost:{port}/jwks.json', timeout=4)" \
   || exit 1
 
-CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port \"${SSF_CONTAINER_PORT:-8000}\" --proxy-headers --forwarded-allow-ips=\"${SSF_FORWARDED_ALLOW_IPS:-127.0.0.1}\""]
+# Stream and Apple SCIM coordination is process-local; override WEB_CONCURRENCY.
+CMD ["sh", "-c", "exec uvicorn app.main:app --workers 1 --host 0.0.0.0 --port \"${SSF_CONTAINER_PORT:-8000}\" --proxy-headers --forwarded-allow-ips=\"${SSF_FORWARDED_ALLOW_IPS:-127.0.0.1}\""]
