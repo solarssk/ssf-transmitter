@@ -165,16 +165,17 @@ Set `APPLE_SCIM_GROUP_ID` to an Authentik group UUID to sync only members of a d
 
 ## Development
 
-Requires **Python 3.14** (see `.python-version`; matches CI and the Docker image).
+Requires **Python 3.14** and **uv 0.11.26** (matches CI and the Docker export stage).
 
 ```bash
-python3.14 -m venv .venv && . .venv/bin/activate
-pip install -e ".[dev]"
-ruff check .
-pytest  # runs the suite and prints branch coverage for app/
+uv sync --locked --all-extras
+uv run --no-sync ruff check .
+uv run --no-sync pytest  # runs the suite and prints branch coverage for app/
 ```
 
 GitHub Actions runs linting, tests with branch coverage, dependency checks, and a Docker image build on every push and pull request. Coverage is published to [Codecov](https://codecov.io/gh/solarssk/ssf-transmitter) for review on pull requests.
+
+See [Maintaining Python dependencies](docs/Dependencies.md) for targeted updates and the shared lock.
 
 ## Contributing
 

@@ -64,10 +64,8 @@ updates:
       - dependency-name: "atheris"
         versions: [">=3.1"]
 
-  # Keep Python dependencies up to date. pyproject.toml holds the ranges;
-  # Dependabot recognizes the pip-compile-generated requirements.txt next to
-  # it and regenerates the hashes there itself.
-  - package-ecosystem: "pip"
+  # uv resolves runtime and every tooling extra together in one native lock.
+  - package-ecosystem: "uv"
     directory: "/"
     schedule:
       interval: "weekly"
@@ -75,20 +73,7 @@ updates:
       default-days: 7
     labels:
       - "dependencies"
-    # Group all non-security updates into a single PR to reduce noise
     groups:
       python-dependencies:
         patterns:
           - "*"
-    # pydantic-core is a hash-locked transitive dependency (via fastapi ->
-    # pydantic) that pydantic pins to an *exact* version. Dependabot keeps
-    # proposing standalone pydantic-core bumps whenever a newer release
-    # lands on PyPI, but pip-compile always reverts them because no
-    # published pydantic release supports that pydantic-core version yet —
-    # this broke the "Verify requirements.txt matches pyproject.toml" CI
-    # job on every weekly PR that included it (#149, #155, #160). It will
-    # move again automatically, in lockstep with pydantic, once pydantic
-    # itself needs the newer pydantic-core and pip-compile re-resolves both
-    # together.
-    ignore:
-      - dependency-name: "pydantic-core"
