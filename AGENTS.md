@@ -51,7 +51,7 @@ app/
   config.py            # Settings from env; startup validation
   auth.py              # Management Bearer auth + failed-auth rate limit
   crypto.py            # RS256 keys, Fernet encrypt/decrypt receiver tokens
-  database.py          # SQLite streams + SCIM tokens
+  database.py          # SQLite streams, SCIM tokens + encrypted SET outbox
   models.py            # Pydantic request/response models
   startup.py           # Preflight checks (✅/⚠️/❌)
   rate_limit.py        # slowapi limiter instance
@@ -70,7 +70,7 @@ docs/                  # Operator documentation (API, Synology guide; more in do
 
 ```text
 Authentik webhook → app/routes/webhook.py → app/events/mapper.py
-  → app/events/pusher.py → receiver HTTPS endpoint
+  → app/events/outbox.py → encrypted SQLite outbox → app/events/pusher.py → receiver HTTPS endpoint
 
 Management API → app/routes/streams.py → app/database.py
   → encrypt receiver token → SQLite
@@ -85,14 +85,15 @@ Discovery: /.well-known/ssf-configuration, /jwks.json (public)
 These are product/security requirements, not style preferences.
 
 1. **Receiver tokens** are Fernet-encrypted in SQLite (`app/crypto.py`). Never log them or return them in API responses.
-2. **Sparse PATCH** on streams must preserve `endpoint_token` when `delivery.endpoint_url_token` is omitted (`app/database.py::_replacement_endpoint_token`).
-3. **Cannot enable** a stream (`status: enabled`) when the stored receiver token is undecryptable without supplying a replacement token.
-4. **SSRF protection**: `app/security/url_validation.py` validates receiver URLs at create/patch; `app/events/pusher.py` re-validates DNS before every push.
-5. **Constant-time** secret comparison (`hmac.compare_digest`) for management and webhook tokens.
-6. **Rate limits** are per-route decorators on `app/rate_limit.limiter`. Do not call one decorated route handler from another; each endpoint needs its own decorator (see `app/routes/streams.py`).
-7. **`SSF_MANAGEMENT_TOKEN` ≠ `SSF_WEBHOOK_TOKEN`**: different trust boundaries.
-8. **Middleware order** in `app/main.py` is LIFO; `RequestIDMiddleware` must wrap `SlowAPIMiddleware` so 429 responses get `X-Request-ID`.
-9. **OpenAPI** (`/docs`) is off unless `SSF_ENABLE_OPENAPI=true`.
+2. **Queued signed SETs** contain personal data and must use strict Fernet encryption (`app/crypto.py`); never persist their email or JWT in plaintext or expose them through status APIs.
+3. **Sparse PATCH** on streams must preserve `endpoint_token` when `delivery.endpoint_url_token` is omitted (`app/database.py::_replacement_endpoint_token`).
+4. **Cannot enable** a stream (`status: enabled`) when the stored receiver token is undecryptable without supplying a replacement token.
+5. **SSRF protection**: `app/security/url_validation.py` validates receiver URLs at create/patch; `app/events/pusher.py` re-validates DNS before every push.
+6. **Constant-time** secret comparison (`hmac.compare_digest`) for management and webhook tokens.
+7. **Rate limits** are per-route decorators on `app/rate_limit.limiter`. Do not call one decorated route handler from another; each endpoint needs its own decorator (see `app/routes/streams.py`).
+8. **`SSF_MANAGEMENT_TOKEN` ≠ `SSF_WEBHOOK_TOKEN`**: different trust boundaries.
+9. **Middleware order** in `app/main.py` is LIFO; `RequestIDMiddleware` must wrap `SlowAPIMiddleware` so 429 responses get `X-Request-ID`.
+10. **OpenAPI** (`/docs`) is off unless `SSF_ENABLE_OPENAPI=true`.
 
 When changing auth, tokens, streams, or outbound HTTP, add or extend tests in `tests/test_*_security.py` or adjacent modules.
 
@@ -109,7 +110,7 @@ uv run --no-sync deptry .
 
 Copy [`.env.example`](.env.example) for local env vars. Tests use defaults from `tests/conftest.py` (`.testdata/` for keys + DB).
 
-Dependencies are declared as ranges in `pyproject.toml`. **`uv.lock` is the single committed resolution for runtime and all tooling extras** (`test`, `lint`, `typecheck`, `security`, `dev`). Use uv 0.11.26 and Python 3.14, matching CI and the Docker export stage. Run `uv lock` after editing dependencies; use `uv lock --upgrade-package <name>` for a targeted update or `uv lock --upgrade` for an intentional full refresh. Commit `pyproject.toml` and `uv.lock` together. Dependabot uses the native `uv` ecosystem at the repository root; `.clusterfuzzlite` retains its independent pip lock and Python compatibility rules.
+Dependencies are declared as ranges in `pyproject.toml`. **`uv.lock` is the single committed resolution for runtime and all tooling extras** (`test`, `lint`, `typecheck`, `security`, `dev`). Use Python 3.14 and uv 0.13.7 (the Docker export-stage version) when updating the lock; CI currently checks and exports it with uv 0.11.26. Run `uv lock` after editing dependencies; use `uv lock --upgrade-package <name>` for a targeted update or `uv lock --upgrade` for an intentional full refresh. Review the lock diff and commit `pyproject.toml` and `uv.lock` together. Dependabot uses the native `uv` ecosystem at the repository root; `.clusterfuzzlite` retains its independent pip lock and Python compatibility rules.
 
 CI checks `uv lock --check`. CI, release smoke tests, the dependency snapshot, and Docker export their required subset directly with `uv export --locked --no-dev --no-emit-project` (plus `--all-extras` or `--extra test` for tooling). They install the exported requirements with `pip --only-binary :all: --require-hashes`. Do not commit those exports or restore the old six pip-tools lockfiles: that recreates independent sources of truth. The service imports `app` directly from the checkout/image, so these paths do not need an editable project installation or an unpinned isolated hatchling build. The standalone `uv sync` developer setup may build the local project.
 

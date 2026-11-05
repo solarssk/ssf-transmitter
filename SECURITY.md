@@ -62,6 +62,7 @@ This document covers the threat model, trust boundaries, and security properties
 | RSA 4096-bit private key | `/app/keys/private.pem` | File permissions 0600; volume must be root-owned |
 | Receiver endpoint URL | SQLite (`/app/data/ssf.db`) | Not secret; validated against SSRF blocklist |
 | Receiver bearer token | SQLite (`/app/data/ssf.db`) | Encrypted at rest (Fernet); key from `SSF_TOKEN_ENCRYPTION_KEY` or derived from `SSF_MANAGEMENT_TOKEN` |
+| Queued signed SETs (including subject email) | SQLite (`/app/data/ssf.db`) until delivered or discarded | Encrypted at rest with the same Fernet key; status endpoint exposes counts only |
 | Management token | Environment variable only | Never written to disk or logged |
 | Webhook bearer token (`SSF_WEBHOOK_TOKEN`) | Environment variable only | Never written to disk or logged |
 | Webhook HMAC secret (`SSF_WEBHOOK_SECRET`) | Environment variable only | Never written to disk or logged (legacy mode only) |
@@ -105,7 +106,7 @@ This document covers the threat model, trust boundaries, and security properties
 
 ### Receiver token exposure
 
-**Risk:** Receiver bearer tokens (used to authenticate push delivery to SSF receivers) are stored in SQLite.
+**Risk:** Receiver bearer tokens and queued signed SETs (which contain subject email addresses) are stored in SQLite.
 
 **Mitigation:**
 - Tokens are never returned in any API response.
@@ -113,6 +114,7 @@ This document covers the threat model, trust boundaries, and security properties
 - SQLite file is created with `chmod 0600`.
 - The container runs as a non-root user (`appuser`, UID 10001).
 - Streams with undecryptable stored receiver tokens are quarantined to `paused` at startup and cannot be re-enabled without a replacement `delivery.endpoint_url_token`.
+- Queued SET payloads fail closed and move to a blocked state if they cannot be decrypted; delivery retries are at-least-once and can duplicate an event after an ambiguous crash.
 - **Operator responsibility:** mount `/app/data` to a root-owned host path; use encrypted storage if your threat model requires it.
 
 ### JWT signing key compromise

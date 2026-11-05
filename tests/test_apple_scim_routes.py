@@ -300,6 +300,31 @@ def test_callback_background_sync_failure_is_logged_not_raised(client, monkeypat
     assert "background sync after authorization failed" in caplog.text
 
 
+def test_callback_background_incomplete_apple_listing_is_logged(client, monkeypatch, caplog):
+    import logging
+    import time
+
+    from app.scim.apple import AppleUserListError
+
+    monkeypatch.setattr(scim_routes, "settings", _configured_settings())
+    scim_routes._add_state("bg-apple-list-state")
+    monkeypatch.setattr(
+        FakeAsyncClient, "response", FakeTokenResponse(200, {"access_token": "tok", "expires_in": 3600})
+    )
+
+    async def _incomplete_list(access_token, users):
+        raise AppleUserListError("Incomplete Apple user listing")
+
+    monkeypatch.setattr(scim_routes, "sync_users", _incomplete_list)
+
+    with caplog.at_level(logging.ERROR, logger="app.routes.apple_scim"):
+        resp = client.get("/apple-scim/callback", params={"code": "some-code", "state": "bg-apple-list-state"})
+        time.sleep(0.1)
+
+    assert resp.status_code == 200
+    assert "initial sync aborted" in caplog.text
+
+
 def test_callback_background_sync_skipped_when_authentik_unavailable(client, monkeypatch):
     """get_users() returning None (Authentik unreachable, non-fatal) must skip sync_users
     without raising — the 200 response and token save already succeeded."""
@@ -493,6 +518,30 @@ def test_sync_502_when_apple_users_list_fails_with_network_error(client, monkeyp
 
     assert resp.status_code == 502
     assert "Could not reach Apple Business Manager" in resp.json()["detail"]
+
+
+def test_sync_502_when_apple_users_list_is_incomplete(client, monkeypatch):
+    from app.scim.apple import AppleUserListError
+
+    monkeypatch.setattr(scim_routes, "settings", _configured_settings())
+
+    async def _has_token():
+        return "valid-token"
+
+    async def _users():
+        return [{"userName": "a@example.com"}]
+
+    async def _sync_invalid_list(access_token, scim_users):
+        raise AppleUserListError("Incomplete Apple user listing")
+
+    monkeypatch.setattr(scim_routes, "get_valid_access_token", _has_token)
+    monkeypatch.setattr(scim_routes, "get_users", _users)
+    monkeypatch.setattr(scim_routes, "sync_users", _sync_invalid_list)
+
+    resp = client.post("/apple-scim/sync", headers=MGMT_HEADERS)
+
+    assert resp.status_code == 502
+    assert "Could not" in resp.json()["detail"]
 
 
 def test_sync_success_returns_result_summary(client, monkeypatch):

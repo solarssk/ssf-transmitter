@@ -30,6 +30,10 @@ class TokenDecryptionError(Exception):
     """Raised when a versioned at-rest token cannot be decrypted."""
 
 
+class EncryptedDataError(Exception):
+    """Raised when application data encrypted at rest cannot be decrypted."""
+
+
 def _is_valid_fernet_token_format(value: str) -> bool:
     """Return True when *value* matches Fernet wire format (not arbitrary plaintext)."""
     if not value.startswith(_FERNET_BLOB_PREFIX):
@@ -197,6 +201,26 @@ def encrypt_token(plaintext: str) -> str:
     fernet = Fernet(_get_token_encryption_key())
     encrypted = fernet.encrypt(plaintext.encode("utf-8")).decode("utf-8")
     return f"{_FERNET_PREFIX}{encrypted}"
+
+
+def encrypt_sensitive_data(plaintext: str) -> str:
+    """Encrypt sensitive application data for strict, versioned storage."""
+    encrypted = Fernet(_get_token_encryption_key()).encrypt(plaintext.encode("utf-8")).decode("utf-8")
+    return f"{_FERNET_PREFIX}{encrypted}"
+
+
+def decrypt_sensitive_data(ciphertext: str) -> str:
+    """Decrypt application data, failing closed for missing or invalid ciphertext."""
+    if not ciphertext.startswith(_FERNET_PREFIX):
+        raise EncryptedDataError("Stored sensitive data has an unsupported format")
+    try:
+        return (
+            Fernet(_get_token_encryption_key())
+            .decrypt(ciphertext[len(_FERNET_PREFIX) :].encode("utf-8"))
+            .decode("utf-8")
+        )
+    except (InvalidToken, UnicodeDecodeError) as exc:
+        raise EncryptedDataError("Stored sensitive data cannot be decrypted") from exc
 
 
 def _decrypt_fernet_blob(blob: str) -> str:

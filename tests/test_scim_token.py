@@ -7,6 +7,7 @@ state without cross-test interference.
 
 from __future__ import annotations
 
+import asyncio
 import sqlite3
 import time
 from contextlib import closing
@@ -112,6 +113,20 @@ async def test_save_and_load_tokens_roundtrip(monkeypatch, db_path):
     assert loaded["expires_at"] == pytest.approx(int(time.time()) + 3600 - 60, abs=2)
 
 
+@pytest.mark.parametrize("expires_in", [1, 30, 60])
+@pytest.mark.anyio
+async def test_short_lived_tokens_remain_usable_after_authorization(monkeypatch, db_path, expires_in):
+    monkeypatch.setattr(token_mod, "settings", _settings(db_path))
+    monkeypatch.setattr(token_mod.time, "time", lambda: 1_000_000)
+
+    await token_mod.save_tokens("short-lived", None, expires_in)
+    loaded = await token_mod.load_tokens()
+
+    assert loaded["expires_at"] == 1_000_000 + expires_in - expires_in // 2
+    assert await token_mod.get_valid_access_token() == "short-lived"
+    assert FakeAsyncClient.requests == []
+
+
 @pytest.mark.anyio
 async def test_load_tokens_returns_none_when_empty(monkeypatch, db_path):
     monkeypatch.setattr(token_mod, "settings", _settings(db_path))
@@ -173,6 +188,61 @@ async def test_get_valid_access_token_refreshes_when_expired(monkeypatch, db_pat
 
     persisted = await token_mod.load_tokens()
     assert persisted["access_token"] == "new-token"
+
+
+@pytest.mark.anyio
+async def test_concurrent_expired_token_requests_refresh_only_once(monkeypatch):
+    started = asyncio.Event()
+    release = asyncio.Event()
+    requests = []
+    stored = {"access_token": "expired", "refresh_token": "old-refresh", "expires_at": 0}
+
+    async def load():
+        return dict(stored)
+
+    async def save(access_token, refresh_token, expires_in):
+        stored.update(
+            access_token=access_token,
+            refresh_token=refresh_token,
+            expires_at=int(time.time()) + expires_in,
+        )
+
+    class Client:
+        def __init__(self, timeout):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, url, data):
+            requests.append(data["refresh_token"])
+            started.set()
+            await release.wait()
+            return FakeResponse(200, {"access_token": "fresh", "refresh_token": "rotated", "expires_in": 3600})
+
+    monkeypatch.setattr(token_mod, "settings", _settings("unused"))
+    monkeypatch.setattr(token_mod, "load_tokens", load)
+    monkeypatch.setattr(token_mod, "save_tokens", save)
+    monkeypatch.setattr(token_mod.httpx, "AsyncClient", Client)
+
+    first = asyncio.create_task(token_mod.get_valid_access_token())
+    second = None
+    try:
+        await asyncio.wait_for(started.wait(), timeout=1)
+        second = asyncio.create_task(token_mod.get_valid_access_token())
+        await asyncio.sleep(0)
+        assert requests == ["old-refresh"]
+    finally:
+        release.set()
+        assert await asyncio.wait_for(first, timeout=1) == "fresh"
+        if second is not None:
+            assert await asyncio.wait_for(second, timeout=1) == "fresh"
+
+    assert requests == ["old-refresh"]
+    assert stored["refresh_token"] == "rotated"
 
 
 # ---------------------------------------------------------------------------

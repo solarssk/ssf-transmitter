@@ -1,6 +1,6 @@
 # Event Mapping
 
-Authentik sends webhook notifications to `POST /webhook/authentik`. The transmitter maps supported actions to SSF Security Event Tokens (SETs) and pushes them to the active stream receiver.
+Authentik sends webhook notifications to `POST /webhook/authentik`. The transmitter maps supported actions to SSF Security Event Tokens (SETs), encrypts them in the durable outbox, then delivers them asynchronously to the active stream receiver.
 
 ## Currently emitted (v0.5.9)
 
@@ -31,6 +31,7 @@ Do **not** subscribe to `authentik.core.user.delete` expecting account-purged de
 | `{"status":"ignored","reason":"unmapped_event"}` | Action not mapped (e.g. `user.delete`, `is_active` change) |
 | `{"status":"ignored","reason":"missing_email"}` | User has no email |
 | `{"status":"ignored","reason":"no_enabled_stream"}` | No active stream configured |
+| `{"status":"accepted","queued":1}` | Matching SET was committed to the encrypted outbox; receiver delivery is asynchronous |
 
 ## Authentik configuration
 

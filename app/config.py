@@ -60,6 +60,16 @@ def _parse_apple_scim_update_mode(value: str | None) -> str:
     return mode
 
 
+def _parse_apple_scim_allow_username_recovery(value: str | None) -> bool:
+    """Require an explicit boolean for username-only Apple account recovery."""
+    if value is None:
+        return False
+    normalized = value.strip().lower()
+    if normalized not in {"true", "false"}:
+        raise ValueError("APPLE_SCIM_ALLOW_USERNAME_RECOVERY must be true or false")
+    return normalized == "true"
+
+
 def _parse_management_token(value: str | None) -> str:
     """Validate SSF_MANAGEMENT_TOKEN — required, minimum 32 characters."""
     if not value:
@@ -158,6 +168,7 @@ class Settings:
     apple_scim_token_url: str = "https://appleid.apple.com/auth/oauth2/v2/token"  # noqa: S105
     apple_scim_log_error_body: bool = False
     apple_scim_update_mode: str = "patch_all"
+    apple_scim_allow_username_recovery: bool = False
     # Set true to suppress the startup warning when SSF_ISSUER differs from SSF_BASE_URL.
     # Only needed during migration from older deployments where these values diverge.
     ssf_allow_custom_issuer: bool = False
@@ -251,6 +262,9 @@ class Settings:
             ),
             apple_scim_log_error_body=os.getenv("APPLE_SCIM_LOG_ERROR_BODY", "false").lower() == "true",
             apple_scim_update_mode=_parse_apple_scim_update_mode(os.getenv("APPLE_SCIM_UPDATE_MODE")),
+            apple_scim_allow_username_recovery=_parse_apple_scim_allow_username_recovery(
+                os.getenv("APPLE_SCIM_ALLOW_USERNAME_RECOVERY")
+            ),
             ssf_allow_custom_issuer=os.getenv("SSF_ALLOW_CUSTOM_ISSUER", "false").lower() == "true",
             ssf_log_color=os.getenv("SSF_LOG_COLOR", "false").lower() == "true",
             ssf_log_receiver_error_body=os.getenv("SSF_LOG_RECEIVER_ERROR_BODY", "false").lower() == "true",
@@ -280,6 +294,7 @@ class Settings:
             "apple_scim_group_id": self.apple_scim_group_id or "",
             "apple_scim_update_mode": self.apple_scim_update_mode,
             "apple_scim_log_error_body": self.apple_scim_log_error_body,
+            "apple_scim_allow_username_recovery": self.apple_scim_allow_username_recovery,
             "ssf_enable_openapi": self.ssf_enable_openapi,
             "ssf_allowed_receiver_hosts_count": len(self.ssf_allowed_receiver_hosts),
             "token_encryption_key_dedicated": bool(self.ssf_token_encryption_key),

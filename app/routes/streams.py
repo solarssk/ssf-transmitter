@@ -1,13 +1,25 @@
 """SSF stream management API (create, read, update, delete)."""
 
 import logging
+import time
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
 from app.auth import require_management_auth
 from app.config import settings
-from app.database import create_stream, delete_stream, delete_stream_by_id, get_first_stream, update_stream
+from app.database import (
+    delete_blocked_outbox,
+    delete_pending_outbox,
+    delete_stream,
+    delete_stream_by_id,
+    get_first_stream,
+    get_outbox_status,
+    prepare_stream,
+    requeue_blocked_outbox,
+    save_stream,
+    update_stream,
+)
 from app.events.pusher import push_verification_set
 from app.models import SUPPORTED_EVENT_URIS, StreamCreateRequest, StreamPatchRequest
 from app.rate_limit import limiter
@@ -92,7 +104,7 @@ async def create_stream_endpoint(request: Request, body: StreamCreateRequest) ->
     }
 
     try:
-        stream = await create_stream(payload)
+        stream = prepare_stream(payload)
     except ValueError as exc:
         logger.warning("Stream create rejected reason=%s aud=%s", exc, sanitize_for_log(body.aud))
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -100,16 +112,16 @@ async def create_stream_endpoint(request: Request, body: StreamCreateRequest) ->
     pushed = await push_verification_set(stream)
     if not pushed:
         logger.warning(
-            "Verification SET delivery failed; rolling back stream_id=%s aud=%s",
+            "Verification SET delivery failed; stream unchanged candidate_id=%s aud=%s",
             stream.stream_id,
             sanitize_for_log(stream.aud),
         )
-        await delete_stream_by_id(stream.stream_id)
         raise HTTPException(
             status_code=502,
             detail="Verification SET delivery failed; stream registration was not confirmed.",
         )
 
+    await save_stream(stream)
     return _stream_response(stream)
 
 
@@ -238,6 +250,38 @@ async def stream_status() -> dict[str, Any]:
         "aud": stream.aud,
         "events_requested": stream.events_requested,
     }
+
+
+@router.get("/delivery/status")
+async def delivery_status() -> dict[str, int | None]:
+    """Return durable SET queue counts without exposing payloads or receiver secrets."""
+    status = await get_outbox_status()
+    oldest = status["oldest_pending_at"]
+    return {
+        **status,
+        "oldest_pending_age_seconds": max(0, int(time.time()) - oldest) if oldest is not None else None,
+    }
+
+
+@router.post("/delivery/retry-blocked")
+@limiter.limit("10/minute")
+async def retry_blocked_deliveries(request: Request) -> dict[str, int]:
+    """Retry blocked deliveries after correcting their encryption-key issue."""
+    return {"requeued": await requeue_blocked_outbox()}
+
+
+@router.delete("/delivery/pending")
+@limiter.limit("10/minute")
+async def discard_pending_deliveries(request: Request) -> dict[str, int]:
+    """Permanently discard all pending SET deliveries."""
+    return {"discarded": await delete_pending_outbox()}
+
+
+@router.delete("/delivery/blocked")
+@limiter.limit("10/minute")
+async def discard_blocked_deliveries(request: Request) -> dict[str, int]:
+    """Permanently discard blocked deliveries that cannot be recovered."""
+    return {"discarded": await delete_blocked_outbox()}
 
 
 @router.get(

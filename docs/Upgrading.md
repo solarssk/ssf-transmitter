@@ -1,16 +1,25 @@
 # Upgrading
 
-## v0.5.16 — Dependency updates and tooling security fixes (from 0.5.15)
+## v0.5.17 — Apple SCIM safety and reliable SET delivery (from 0.5.16)
 
-Release notes: [v0.5.16](https://github.com/solarssk/ssf-transmitter/releases/tag/v0.5.16)
+Release notes: [v0.5.17](https://github.com/solarssk/ssf-transmitter/releases/tag/v0.5.17)
 
-This release updates filelock and setuptools in development/CI tooling to resolve Dependabot alerts #10–#13. Neither affected dependency is installed in the service image. It also updates FastAPI 0.143.0 → 0.143.2, Ruff 0.17.0 → 0.17.1, and Zizmor 1.30.1 → 1.31.0. There are no application code changes, new environment variables, configuration changes, or migrations. Existing installations can update the image tag to `0.5.16` whenever convenient:
+1. Back up `/app/data` (SQLite) and `/app/keys` (signing key), and securely retain the existing environment secrets. **Do not add or rotate `SSF_TOKEN_ENCRYPTION_KEY` on a working installation as part of this upgrade.** If it is unset, keep the same `SSF_MANAGEMENT_TOKEN`: it is the encryption-key source.
+2. Update the image tag to `0.5.17`, pull and restart the service:
 
 ```bash
 docker compose pull ssf-transmitter
 docker compose up -d ssf-transmitter
 docker compose logs ssf-transmitter --tail 50
 ```
+
+3. Check startup logs and `GET /ssf/status` using the management token. The new outbox table is created automatically in the existing SQLite database.
+4. Check `GET /ssf/delivery/status` for pending or blocked SETs. A successful webhook response now reports `{"status":"accepted","queued":1}` after the signed SET is stored, not after the receiver accepts it. Delivery is at-least-once; an ambiguous failure may produce a duplicate.
+5. Monitor webhook failures and ensure the sender retries `500`/`503` responses. The queue holds at most 10,000 pending or blocked items; a full queue returns `503` without accepting a new event. Failed accepted deliveries retry with backoff; inspect queue age and blocked counts.
+
+Queued SETs contain subject email addresses and are encrypted at rest with the receiver-token key. Pausing a stream holds pending deliveries; replacing or deleting it, or changing its audience, endpoint, token, or event filter, cancels pending deliveries for the old configuration. These operations wait for any in-flight delivery to finish. During graceful shutdown the worker finishes an in-flight push or its 30-second delivery deadline; if the container runtime stops it sooner, queued work is retried on restart and may be delivered more than once. See [API.md](API.md) for status and explicit retry/discard controls.
+
+Apple SCIM username-only recovery is now disabled by default. Existing `externalId`-linked accounts are unaffected. Set `APPLE_SCIM_ALLOW_USERNAME_RECOVERY=true` only after verifying ownership of **all** matching unlinked Apple accounts in the configured sync scope. An incomplete Apple listing aborts a sync, and a concurrent manual sync or OAuth callback returns `409`. Run only one container for the same Apple integration: coordination is process-local.
 
 ## v0.5.15 — Dependency security refresh (from 0.5.14)
 
@@ -190,11 +199,11 @@ docker compose up -d ssf-transmitter
 docker compose logs ssf-transmitter --tail 50
 ```
 
-Pin to a version tag (`0.5.11`) in production; use `:latest` only if you accept automatic updates on redeploy.
+Pin to a version tag (`0.5.17`) in production; use `:latest` only if you accept automatic updates on redeploy.
 
 ## Rolling back
 
-1. Stop container.
-2. Restore `/app/keys` and `/app/data` from backup if needed.
-3. Deploy previous image tag (e.g. `0.5.8`).
-4. If you upgraded DB format or encryption on 0.5.9+ installs, test rollback in a lab first.
+1. Before rolling back from `0.5.17`, drain the outbox if possible and verify `/ssf/delivery/status`: older versions do not deliver queued SETs.
+2. Stop the container and back up the current `/app/keys`, `/app/data`, and encryption-key configuration. Restoring an older database backup discards any queued events created after that backup.
+3. Deploy the previous image tag (e.g. `0.5.16`). Preserve the newer database and original key if blocked or pending SETs need to be recovered by returning to `0.5.17`.
+4. Test rollback in a lab first when changing DB format or encryption settings.

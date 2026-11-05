@@ -1,4 +1,6 @@
+import asyncio
 import hashlib
+import threading
 from dataclasses import replace
 from typing import ClassVar
 
@@ -106,6 +108,37 @@ async def test_push_verification_set_sends_accept_application_json(monkeypatch, 
 
     _, _, sent_headers = FakeAsyncClient.requests[0]
     assert sent_headers["Accept"] == "application/json"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("verification", [False, True])
+async def test_dns_revalidation_does_not_block_delivery_timeout(monkeypatch, stream, verification):
+    started = threading.Event()
+    release = threading.Event()
+
+    def blocking_revalidation(_url):
+        started.set()
+        release.wait(timeout=2)
+        return True
+
+    monkeypatch.setattr(pusher, "_revalidate_endpoint", blocking_revalidation)
+    monkeypatch.setattr(pusher, "sign_verification_set", lambda **kwargs: "signed.jwt")
+    monkeypatch.setattr(FakeAsyncClient, "requests", [])
+    monkeypatch.setattr(pusher.httpx, "AsyncClient", FakeAsyncClient)
+    operation = (
+        pusher.push_verification_set(stream)
+        if verification
+        else pusher.push_signed_set(stream, "signed.jwt", SESSION_REVOKED)
+    )
+    task = asyncio.create_task(operation)
+    try:
+        assert await asyncio.to_thread(started.wait, 1)
+        with pytest.raises(TimeoutError):
+            await asyncio.wait_for(task, timeout=0.05)
+        assert FakeAsyncClient.requests == []
+    finally:
+        release.set()
+        await asyncio.gather(task, return_exceptions=True)
 
 
 @pytest.mark.anyio

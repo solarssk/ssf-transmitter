@@ -92,6 +92,11 @@ jobs:
           E2E_BASE_URL: http://localhost:18000
         run: pytest tests_e2e/ -v --no-cov
 
+      - name: Verify graceful shutdown
+        run: |
+          docker stop --time 10 release-smoke
+          docker logs release-smoke 2>&1 | grep -F 'SSF delivery outbox worker stopped'
+
       - name: Stop smoke test container
         if: always()
         run: docker rm -f release-smoke

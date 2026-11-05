@@ -85,6 +85,20 @@ def test_streams_post_requires_auth(client: httpx.Client):
     assert resp.status_code == 401
 
 
+def test_delivery_status_requires_auth_and_reports_empty_outbox(client: httpx.Client):
+    assert client.get("/ssf/delivery/status").status_code == 401
+    resp = client.get("/ssf/delivery/status", headers=MGMT_HEADERS)
+    assert resp.status_code == 200
+    assert resp.json() == {
+        "pending": 0,
+        "blocked": 0,
+        "oldest_pending_at": None,
+        "oldest_pending_age_seconds": None,
+        "stored": 0,
+        "capacity": 10000,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Management API — streams CRUD, negative paths
 # ---------------------------------------------------------------------------

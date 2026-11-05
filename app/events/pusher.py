@@ -1,5 +1,6 @@
 """Deliver signed SET JWTs to registered SSF receiver endpoints."""
 
+import asyncio
 import hashlib
 import logging
 from urllib.parse import urlparse
@@ -78,9 +79,6 @@ async def push_set(stream: Stream, event: MappedEvent, email: str) -> bool | Non
         )
         return None
 
-    if not _revalidate_endpoint(stream.endpoint_url):
-        return False
-
     try:
         token = sign_set(
             event_uri=event.uri,
@@ -113,6 +111,14 @@ async def push_set(stream: Stream, event: MappedEvent, email: str) -> bool | Non
             event.payload,
         )
 
+    return await push_signed_set(stream, token, event.uri)
+
+
+async def push_signed_set(stream: Stream, token: str, event_uri: str) -> bool:
+    """Push a previously signed SET; returns False for validation or delivery failures."""
+    if not await asyncio.to_thread(_revalidate_endpoint, stream.endpoint_url):
+        return False
+
     headers: dict[str, str] = {
         "Content-Type": "application/secevent+jwt",
         "Accept": "application/json",
@@ -126,7 +132,7 @@ async def push_set(stream: Stream, event: MappedEvent, email: str) -> bool | Non
     except httpx.HTTPError:
         logger.exception(
             "Failed to push SET event_uri=%s aud=%s endpoint_host=%s",
-            event.uri,
+            event_uri,
             sanitize_for_log(stream.aud),
             _safe_host(stream.endpoint_url),
         )
@@ -136,7 +142,7 @@ async def push_set(stream: Stream, event: MappedEvent, email: str) -> bool | Non
         body_hash = hashlib.sha256(response.content).hexdigest()[:8]
         logger.warning(
             "Receiver returned error for SET event_uri=%s aud=%s endpoint_host=%s status_code=%s body_hash=%s",
-            event.uri,
+            event_uri,
             sanitize_for_log(stream.aud),
             _safe_host(stream.endpoint_url),
             response.status_code,
@@ -145,7 +151,7 @@ async def push_set(stream: Stream, event: MappedEvent, email: str) -> bool | Non
         if settings.ssf_log_receiver_error_body:
             logger.debug(
                 "Receiver error body event_uri=%s status_code=%s body_hash=%s body=%r",
-                event.uri,
+                event_uri,
                 response.status_code,
                 body_hash,
                 response.text[:2048],
@@ -156,7 +162,7 @@ async def push_set(stream: Stream, event: MappedEvent, email: str) -> bool | Non
 
     logger.info(
         "Pushed SET event_uri=%s aud=%s endpoint_host=%s status_code=%s",
-        event.uri,
+        event_uri,
         sanitize_for_log(stream.aud),
         _safe_host(stream.endpoint_url),
         response.status_code,
@@ -170,7 +176,7 @@ async def push_verification_set(stream: Stream, state: str | None = None) -> boo
     ``state`` is forwarded to the receiver when provided (receiver-initiated
     verification per SSF §6.2). Omitted for transmitter-initiated verification.
     """
-    if not _revalidate_endpoint(stream.endpoint_url):
+    if not await asyncio.to_thread(_revalidate_endpoint, stream.endpoint_url):
         return False
 
     try:

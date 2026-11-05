@@ -15,7 +15,15 @@ import asyncio
 import aiosqlite
 import pytest
 
-from app.database import create_stream, delete_stream, init_db, update_stream
+from app.database import (
+    create_stream,
+    delete_stream,
+    get_first_stream,
+    init_db,
+    prepare_stream,
+    save_stream,
+    update_stream,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -90,8 +98,37 @@ async def test_update_stream_does_not_lose_concurrent_token_rotation():
         update_stream({"delivery": {"endpoint_url_token": "rotated-token"}}),
     )
 
-    from app.database import get_first_stream
-
     stream = await get_first_stream()
     assert stream is not None
     assert stream.endpoint_token == "rotated-token"
+
+
+@pytest.mark.anyio
+async def test_failed_stream_save_rolls_back_replacement(monkeypatch):
+    original = await create_stream(
+        {
+            "aud": "original-aud",
+            "delivery": {
+                "endpoint_url": "https://receiver.example.test/events",
+                "endpoint_url_token": "original-token",
+            },
+        }
+    )
+    candidate = prepare_stream(
+        {
+            "aud": "replacement-aud",
+            "delivery": {
+                "endpoint_url": "https://replacement.example.test/events",
+                "endpoint_url_token": "replacement-token",
+            },
+        }
+    )
+
+    def _fail_encryption(token):
+        raise RuntimeError("encryption failed")
+
+    monkeypatch.setattr("app.database.encrypt_token", _fail_encryption)
+    with pytest.raises(RuntimeError, match="encryption failed"):
+        await save_stream(candidate)
+
+    assert await get_first_stream() == original

@@ -48,7 +48,7 @@ Older deployments that still use `X-Authentik-Signature` must keep `SSF_WEBHOOK_
 |---|---|---|
 | `SSF_FORWARDED_ALLOW_IPS` | `127.0.0.1` | Trusted reverse-proxy IPs/CIDRs for `X-Forwarded-For` (Uvicorn). **Set to your proxy subnet** when behind NPM/Caddy/Traefik. |
 | `SSF_ALLOWED_RECEIVER_HOSTS` | unset | Comma-separated allowlist of receiver hostnames for stream `endpoint_url`. Unset = any public host (private IPs always blocked). |
-| `SSF_TOKEN_ENCRYPTION_KEY` | unset | Dedicated Fernet key for receiver tokens in SQLite. When unset, derived from `SSF_MANAGEMENT_TOKEN`. See [Key Management](Key-Management.md). |
+| `SSF_TOKEN_ENCRYPTION_KEY` | unset | Dedicated Fernet key for receiver tokens and queued signed SETs in SQLite. When unset, derived from `SSF_MANAGEMENT_TOKEN`. See [Key Management](Key-Management.md). |
 | `SSF_PII_PEPPER` | unset | HMAC key for log pseudonymisation. Falls back to `SSF_MANAGEMENT_TOKEN` with a startup warning. |
 | `SSF_ENABLE_OPENAPI` | `false` | Expose `/docs`, `/redoc`, `/openapi.json` (dev/trusted LAN only) |
 
@@ -69,7 +69,7 @@ Default `127.0.0.1` is correct only when nothing forwards `X-Forwarded-For` from
 | Situation | Action |
 |---|---|
 | **New install**, before registering a stream | Optional but recommended — set once and keep |
-| **Existing install** with ABM/stream already working | **Do not add** unless you plan to re-register the stream |
+| **Existing install** with ABM/stream already working | **Do not add** unless you plan to re-register the stream; queued SETs encrypted with the prior key will be blocked |
 | Rotating `SSF_MANAGEMENT_TOKEN` | Expect paused streams; re-register with `delivery.endpoint_url_token` before setting `status: enabled` |
 
 ## Apple SCIM (optional)
@@ -82,13 +82,14 @@ Default `127.0.0.1` is correct only when nothing forwards `X-Forwarded-For` from
 | `AUTHENTIK_TOKEN` | Authentik API token |
 | `APPLE_SCIM_GROUP_ID` | Optional Authentik group UUID — sync only group members |
 | `APPLE_SCIM_SYNC_INTERVAL` | Seconds between syncs (default `3600`) |
+| `APPLE_SCIM_ALLOW_USERNAME_RECOVERY` | Allow linking all matching Apple accounts without `externalId` by username (default `false`); verify ownership first |
 | `APPLE_SCIM_ALERT_WEBHOOK_URL` | Webhook for re-auth / secret-expiry alerts |
 
 ## Storage paths (inside container)
 
 | Variable | Default | Description |
 |---|---|---|
-| `SSF_DATABASE_PATH` | `/app/data/ssf.db` | SQLite database (streams, SCIM tokens) |
+| `SSF_DATABASE_PATH` | `/app/data/ssf.db` | SQLite database (streams, SCIM tokens, encrypted pending SET deliveries) |
 | `SSF_KEYS_DIR` | `/app/keys` | RS256 private key + JWKS |
 
 Mount both volumes persistently. See [Key Management](Key-Management.md).

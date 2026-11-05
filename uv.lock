@@ -1232,7 +1232,7 @@ wheels = [
 
 [[package]]
 name = "ssf-transmitter"
-version = "0.5.16"
+version = "0.5.17"
 source = { editable = "." }
 dependencies = [
     { name = "aiosqlite" },

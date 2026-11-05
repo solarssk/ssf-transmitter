@@ -21,6 +21,29 @@ Generate the client secret in ABM under **Settings → Directory Sync**. It expi
 | `APPLE_SCIM_SYNC_INTERVAL` | Seconds between automatic syncs (default `3600`) |
 | `APPLE_SCIM_ALERT_WEBHOOK_URL` | Alerts for re-authorization or expired client secret |
 | `APPLE_SCIM_UPDATE_MODE` | Which fields a sync writes back to Apple (default `patch_all`) — see below |
+| `APPLE_SCIM_ALLOW_USERNAME_RECOVERY` | Allow username-only linking of existing Apple accounts without `externalId` (default `false`) — see below |
+
+### Existing Apple accounts
+
+The sync matches existing accounts by Authentik `externalId`. A matching Apple
+username alone does not establish ownership: by default, an account without
+`externalId` is reported as a conflict and is not created or updated. A
+matching username with a different `externalId` is always a conflict, even
+when username recovery is enabled. Already linked accounts are unaffected.
+
+To recover unlinked accounts, first verify that **every** matching Apple
+account in the configured sync scope belongs to the corresponding Authentik
+user. If necessary, restrict the scope with `APPLE_SCIM_GROUP_ID`. Then set
+`APPLE_SCIM_ALLOW_USERNAME_RECOVERY=true` and redeploy. This opts in all
+matching unlinked accounts in that scope, not one selected account; a
+username match alone is not proof of ownership. After the intended links
+have been established, set the option back to `false` and redeploy.
+
+The transmitter attempts to write the missing `externalId`, reads the Apple
+account back to confirm its identity and linkage, and stops further updates
+for that account during the run if either step fails. This recovery flow has
+not been verified on a live unlinked Apple account. A failed or ambiguous
+lookup is reported rather than used to select the first result.
 
 ### `APPLE_SCIM_UPDATE_MODE`
 
@@ -30,11 +53,30 @@ which field an Apple `400` response is coming from).
 
 | Value | Writes |
 |---|---|
-| `patch_all` (default) | Every syncable field (`externalId`, `userName`, name, emails, `active`) |
-| `replace_all` | Same fields as `patch_all`, via a full `PUT` instead of a `PATCH` |
+| `patch_all` (default) | Only changed syncable fields (`externalId`, `userName`, name, emails, `active`) via `PATCH` |
+| `replace_all` | A full `PUT` with `userName`, name, emails and `active`, excluding `externalId` |
 | `external_id_only` | Only `externalId` (identity linkage) |
 | `emails_only` | Only the email address |
 | `username_only` | Only `userName` |
+
+When username-only recovery is explicitly enabled, the sync attempts a
+separate `externalId` repair in **every** mode, including the narrow modes.
+
+These modes describe the requests the transmitter attempts, not a fully
+verified Apple contract. Apple has rejected a `PATCH` to the whole `name`
+attribute, so the default mode sends only changed `name.givenName` and
+`name.familyName` subattributes. In a limited live test on one account,
+Apple accepted no-op updates to both paths and stored and restored a changed
+`givenName`. It also stored and restored a changed `familyName` in a
+two-operation request that resent the unchanged `givenName`. Empty values,
+multiple changed values in one request, and combinations with other fields
+have not yet been verified. The tested Apple tenant did not advertise ETag
+support, so a concurrent change to the same field can be overwritten between
+the sync's read and write. A `PATCH` to `emails` replaces the whole email
+array and may remove additional addresses; `replace_all` can also overwrite
+other attributes. Do not probe alternative updates against production
+accounts; use an approved, isolated test account and verify the resulting
+record.
 
 **A narrow mode (anything but `patch_all`/`replace_all`) can permanently
 undersync a user.** If a user's email (say) differs from Apple's record but
@@ -57,6 +99,29 @@ user's record directly in Apple Business Manager.
 1. Open `GET /apple-scim/authorize` in a browser (public — no management token).
 2. Complete Apple OAuth; callback is `GET /apple-scim/callback` (CSRF-protected via state TTL since v0.5.9).
 
+## Concurrent syncs and authorization
+
+Only one full Apple SCIM sync or authorization-code exchange runs at a time.
+A scheduled sync waits for an ongoing operation to finish and then fetches
+fresh data. A manual sync instead returns HTTP `409` without starting another
+run; retry after the current operation finishes. The OAuth callback also returns
+`409` if the connection is busy, without exchanging the code. Retry the
+callback after the current operation, or start authorization again if Apple's
+code or the ten-minute state has expired.
+
+After a successful authorization, the initial sync waits for any operation
+already in progress and reads the latest stored token before starting. Token
+refresh and authorization-code exchange are also serialized so concurrent
+requests do not reuse a rotating refresh token or overwrite newer credentials.
+An interrupted token exchange may still require reauthorization if Apple
+rotated a token before the replacement was saved.
+
+This coordination is **in-process**, not a distributed lock. The supplied
+image explicitly starts one Uvicorn worker, even if `WEB_CONCURRENCY` is set.
+Run only one container for this Apple connection; overriding the command to
+use multiple workers or running overlapping containers can still cause races.
+The lock does not prevent changes by other SCIM clients or administrators.
+
 ## Admin endpoints (v0.5.9+)
 
 Require `Authorization: Bearer <SSF_MANAGEMENT_TOKEN>`:
@@ -65,6 +130,17 @@ Require `Authorization: Bearer <SSF_MANAGEMENT_TOKEN>`:
 |---|---|
 | `GET /apple-scim/status` | SCIM connection status |
 | `POST /apple-scim/sync` | Trigger manual sync |
+
+The sync first reads the Apple user listing. If a page fails, has malformed
+pagination or identity metadata, or cannot be reconciled with the other
+pages, the sync stops without creating or updating Apple users. Manual sync
+returns `502`; automatic sync logs the failure and tries again on the next
+scheduled cycle. These checks do not guarantee a consistent snapshot if
+another actor changes the Apple directory while pages are being read.
+An HTTP `200` sync response can still report nonzero `conflicts` or `errors`:
+identity mismatches and unlinked accounts requiring review count as conflicts;
+failed lookups or unverified links count as errors. Account names are omitted
+from the response and masked in logs unless PII logging is explicitly enabled.
 
 ## Group filtering (recommended)
 

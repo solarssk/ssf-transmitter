@@ -20,6 +20,7 @@ import httpx
 
 from app.alerts import send_alert
 from app.config import settings
+from app.scim.coordination import token_lock
 from app.security.http_logging import json_key_summary, response_metadata
 
 logger = logging.getLogger(__name__)
@@ -30,7 +31,8 @@ APPLE_TOKEN_URL = settings.apple_scim_token_url
 async def save_tokens(access_token: str, refresh_token: str | None, expires_in: int) -> None:
     """Persist tokens to the database (upsert — there is always at most one row)."""
     now = int(time.time())
-    expires_at = now + expires_in - 60  # 60-second safety margin
+    safety_margin = min(60, max(expires_in // 2, 0))
+    expires_at = now + expires_in - safety_margin
     async with aiosqlite.connect(settings.database_path) as db:
         await db.execute(
             """
@@ -61,16 +63,17 @@ async def load_tokens() -> dict | None:
 
 async def get_valid_access_token() -> str | None:
     """Return a valid access token, refreshing it first if it has expired."""
-    tokens = await load_tokens()
-    if tokens is None:
-        logger.warning("Apple SCIM: no tokens stored — visit /apple-scim/authorize to connect")
-        return None
+    async with token_lock():
+        tokens = await load_tokens()
+        if tokens is None:
+            logger.warning("Apple SCIM: no tokens stored — visit /apple-scim/authorize to connect")
+            return None
 
-    if int(time.time()) < tokens["expires_at"]:
-        return tokens["access_token"]
+        if int(time.time()) < tokens["expires_at"]:
+            return tokens["access_token"]
 
-    logger.info("Apple SCIM: access token expired, refreshing")
-    return await _refresh(tokens["refresh_token"])
+        logger.info("Apple SCIM: access token expired, refreshing")
+        return await _refresh(tokens["refresh_token"])
 
 
 async def _refresh(refresh_token: str | None) -> str | None:
