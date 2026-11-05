@@ -32,6 +32,7 @@ Do **not** subscribe to `authentik.core.user.delete` expecting account-purged de
 | `{"status":"ignored","reason":"missing_email"}` | User has no email |
 | `{"status":"ignored","reason":"no_enabled_stream"}` | No active stream configured |
 | `{"status":"accepted","queued":1}` | Matching SET was committed to the encrypted outbox; receiver delivery is asynchronous |
+| `{"status":"accepted","queued":0}` | The stream filtered out every mapped SET; nothing was queued |
 
 ## Authentik configuration
 

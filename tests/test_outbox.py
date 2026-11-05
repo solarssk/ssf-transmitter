@@ -1,5 +1,7 @@
 import asyncio
+import logging
 from dataclasses import replace
+from unittest.mock import AsyncMock
 
 import aiosqlite
 import pytest
@@ -8,7 +10,7 @@ import app.crypto as crypto
 import app.database as database
 from app.database import Stream, StreamChangedError
 from app.events import outbox
-from app.events.mapper import SESSION_REVOKED, MappedEvent
+from app.events.mapper import CREDENTIAL_CHANGE, SESSION_REVOKED, MappedEvent
 
 
 def test_sensitive_data_encryption_fails_closed_for_wrong_key(monkeypatch):
@@ -134,6 +136,104 @@ async def test_outbox_retries_failures_and_removes_successful_delivery(queued_st
 
 
 @pytest.mark.anyio
+async def test_old_failed_delivery_keeps_retrying(queued_stream, monkeypatch):
+    """Delivery failures remain retryable even when the item is older than seven days."""
+    db_path, stream = queued_stream
+    await _enqueue(stream)
+    async with aiosqlite.connect(db_path) as db:
+        await db.execute("UPDATE set_outbox SET created_at = 1")
+        await db.commit()
+    push = AsyncMock(return_value=False)
+    monkeypatch.setattr(outbox, "push_signed_set", push)
+
+    assert await outbox.deliver_pending() == 1
+
+    async with aiosqlite.connect(db_path) as db:
+        cursor = await db.execute("SELECT status, attempts, last_error FROM set_outbox")
+        assert await cursor.fetchone() == ("pending", 1, "delivery_failed")
+    push.assert_awaited_once()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("reason", ["paused", "filtered"])
+async def test_enqueue_skips_disabled_streams_and_filtered_events(queued_stream, monkeypatch, reason):
+    """Events outside the active stream's filter are neither signed nor queued."""
+    _, stream = queued_stream
+    candidate = (
+        replace(stream, status="paused")
+        if reason == "paused"
+        else replace(stream, events_requested=[CREDENTIAL_CHANGE])
+    )
+    monkeypatch.setattr(outbox, "sign_set", lambda **kwargs: pytest.fail("unexpected signing"))
+
+    assert await _enqueue(candidate) == 0
+    assert (await database.get_outbox_status())["stored"] == 0
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("plaintext", "expected_reason"),
+    [
+        ("not json", "payload_decryption_failed"),
+        ("[]", "payload_decryption_failed"),
+        ('{"aud": 1}', "payload_invalid"),
+    ],
+)
+async def test_malformed_encrypted_delivery_is_blocked_without_sending(
+    queued_stream, monkeypatch, plaintext, expected_reason
+):
+    """Unreadable or malformed encrypted records cannot reach a receiver."""
+    db_path, stream = queued_stream
+    await _enqueue(stream)
+    ciphertext = crypto.encrypt_sensitive_data(plaintext)
+    async with aiosqlite.connect(db_path) as db:
+        await db.execute("UPDATE set_outbox SET payload = ?", (ciphertext,))
+        await db.commit()
+    push = AsyncMock()
+    monkeypatch.setattr(outbox, "push_signed_set", push)
+
+    assert await outbox.deliver_pending() == 1
+
+    async with aiosqlite.connect(db_path) as db:
+        cursor = await db.execute("SELECT status, last_error FROM set_outbox")
+        assert await cursor.fetchone() == ("blocked", expected_reason)
+    push.assert_not_awaited()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("mutation", ["DELETE FROM streams", "UPDATE streams SET aud = 'changed'"])
+async def test_outbox_discards_stale_delivery_without_sending(queued_stream, monkeypatch, mutation):
+    """A missing or mismatched stream cannot receive an old queued SET."""
+    db_path, stream = queued_stream
+    await _enqueue(stream)
+    async with aiosqlite.connect(db_path) as db:
+        await db.execute(mutation)
+        await db.commit()
+    push = AsyncMock()
+    monkeypatch.setattr(outbox, "push_signed_set", push)
+
+    assert await outbox.deliver_pending() == 1
+    assert (await database.get_outbox_status())["stored"] == 0
+    push.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_outbox_retries_unexpected_push_error(queued_stream, monkeypatch, caplog):
+    """An unexpected delivery exception is logged and retained for retry."""
+    db_path, stream = queued_stream
+    await _enqueue(stream)
+    monkeypatch.setattr(outbox, "push_signed_set", AsyncMock(side_effect=RuntimeError("push failed")))
+
+    with caplog.at_level(logging.ERROR, logger="app.events.outbox"):
+        await outbox.deliver_pending()
+
+    async with aiosqlite.connect(db_path) as db:
+        cursor = await db.execute("SELECT status, attempts, last_error FROM set_outbox")
+        assert await cursor.fetchone() == ("pending", 1, "delivery_error")
+    assert "Unexpected queued SET delivery error" in caplog.text
+
+
+@pytest.mark.anyio
 async def test_delivery_is_retried_with_same_token_if_success_cannot_be_recorded(queued_stream, monkeypatch):
     _, stream = queued_stream
     await _enqueue(stream)
@@ -249,6 +349,55 @@ async def test_delivery_loop_finishes_inflight_item_before_stopping(queued_strea
 
 
 @pytest.mark.anyio
+async def test_delivery_stops_after_waiting_for_stream_lock(queued_stream, monkeypatch):
+    """A stop request while waiting for the lock leaves the queued SET untouched."""
+    _, stream = queued_stream
+    await _enqueue(stream)
+    selected = asyncio.Event()
+    stop = asyncio.Event()
+    get_due = outbox.get_due_outbox
+
+    async def get_due_and_signal():
+        items = await get_due()
+        selected.set()
+        return items
+
+    push = AsyncMock()
+    monkeypatch.setattr(outbox, "get_due_outbox", get_due_and_signal)
+    monkeypatch.setattr(outbox, "push_signed_set", push)
+    async with database.stream_operation_lock():
+        task = asyncio.create_task(outbox.deliver_pending(stop=stop))
+        await asyncio.wait_for(selected.wait(), timeout=1)
+        stop.set()
+
+    assert await asyncio.wait_for(task, timeout=1) == 0
+    assert (await database.get_outbox_status())["pending"] == 1
+    push.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_delivery_loop_recovers_from_database_error(monkeypatch, caplog):
+    """A failed poll is logged and the worker continues until asked to stop."""
+    stop = asyncio.Event()
+    calls = 0
+
+    async def failing_poll(*, stop):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("database unavailable")
+        stop.set()
+        return 0
+
+    monkeypatch.setattr(outbox, "deliver_pending", failing_poll)
+    with caplog.at_level(logging.ERROR, logger="app.events.outbox"):
+        await asyncio.wait_for(outbox.delivery_loop(stop, poll_interval_seconds=0), timeout=1)
+
+    assert calls == 2
+    assert "SSF delivery outbox worker encountered an unexpected error" in caplog.text
+
+
+@pytest.mark.anyio
 async def test_lifespan_waits_for_delivery_worker_database_operation(monkeypatch):
     import app.main as main
 
@@ -342,6 +491,54 @@ async def test_stream_configuration_change_cancels_pending_delivery(queued_strea
     assert (await database.get_outbox_status())["pending"] == 0
     with pytest.raises(StreamChangedError):
         await database.enqueue_outbox([(stream, {"token": "stale"})])
+
+
+@pytest.mark.anyio
+async def test_enqueue_rejects_stream_deleted_before_persistence(queued_stream):
+    """A webhook using a deleted stream is rejected rather than acknowledged."""
+    _, stream = queued_stream
+    assert await database.delete_stream_by_id(stream.stream_id)
+
+    with pytest.raises(StreamChangedError, match="Stream no longer exists"):
+        await _enqueue(stream)
+    assert (await database.get_outbox_status())["stored"] == 0
+
+
+@pytest.mark.anyio
+async def test_deleting_nonexistent_stream_preserves_pending_deliveries(queued_stream):
+    """Deleting the wrong stream ID cannot discard the active stream's queue."""
+    _, stream = queued_stream
+    await _enqueue(stream)
+
+    assert not await database.delete_stream_by_id("nonexistent-stream")
+    assert (await database.get_outbox_status())["pending"] == 1
+    assert await database.get_stream_by_id(stream.stream_id) == stream
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("aggregate", "message"),
+    [
+        ("COUNT(*)", "SQLite returned no row while checking outbox capacity"),
+        ("pending", "SQLite returned no aggregate row for outbox status"),
+    ],
+)
+async def test_missing_aggregate_result_fails_explicitly(queued_stream, monkeypatch, aggregate, message):
+    """An invalid database aggregate cannot be mistaken for an empty queue."""
+    _, stream = queued_stream
+    original_fetchone = aiosqlite.Cursor.fetchone
+
+    async def missing_aggregate_row(cursor):
+        if cursor.description[0][0] == aggregate:
+            return None
+        return await original_fetchone(cursor)
+
+    monkeypatch.setattr(aiosqlite.Cursor, "fetchone", missing_aggregate_row)
+    operation = _enqueue(stream) if aggregate == "COUNT(*)" else database.get_outbox_status()
+    with pytest.raises(RuntimeError, match=message):
+        await operation
+    monkeypatch.setattr(aiosqlite.Cursor, "fetchone", original_fetchone)
+    assert (await database.get_outbox_status())["stored"] == 0
 
 
 @pytest.mark.anyio

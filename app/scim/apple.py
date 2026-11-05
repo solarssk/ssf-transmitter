@@ -148,6 +148,24 @@ def _user_url(user_id: str) -> str:
     return f"{APPLE_SCIM_BASE}/Users/{quote(user_id, safe='')}"
 
 
+def _index_unique_user(
+    user: dict, seen_ids: set[str], by_ext_id: dict[str, dict], by_username: dict[str, dict]
+) -> None:
+    """Reject ambiguous identities before adding one listed user to the indexes."""
+    user_id = user.get("id")
+    username = user.get("userName")
+    if not _is_safe_user_id(user_id):
+        raise AppleUserListError("Apple SCIM user listing contains a user with an invalid id")
+    if not isinstance(username, str) or not username.strip():
+        raise AppleUserListError("Apple SCIM user listing contains a user without a userName")
+    external_id = str(user.get("externalId") or "").strip()
+    normalized_username = _normalize_identifier(username)
+    if user_id in seen_ids or normalized_username in by_username or (external_id and external_id in by_ext_id):
+        raise AppleUserListError("Apple SCIM user listing contains duplicate identities")
+    seen_ids.add(user_id)
+    _index_users_page({"Resources": [user]}, by_ext_id, by_username)
+
+
 async def _get_existing_users(client: httpx.AsyncClient, headers: dict) -> tuple[dict[str, dict], dict[str, dict]]:
     """Return a complete Apple user listing indexed by externalId and userName.
 
@@ -164,23 +182,7 @@ async def _get_existing_users(client: httpx.AsyncClient, headers: dict) -> tuple
         users, total = _validate_users_page(data, expected_start, expected_total)
         expected_total = total
         for user in users:
-            user_id = user.get("id")
-            username = user.get("userName")
-            if not _is_safe_user_id(user_id):
-                raise AppleUserListError("Apple SCIM user listing contains a user with an invalid id")
-            if not isinstance(username, str) or not username.strip():
-                raise AppleUserListError("Apple SCIM user listing contains a user without a userName")
-            normalized_id = user_id
-            external_id = str(user.get("externalId") or "").strip()
-            normalized_username = _normalize_identifier(username)
-            if (
-                normalized_id in seen_ids
-                or normalized_username in by_username
-                or (external_id and external_id in by_ext_id)
-            ):
-                raise AppleUserListError("Apple SCIM user listing contains duplicate identities")
-            seen_ids.add(normalized_id)
-            _index_users_page({"Resources": [user]}, by_ext_id, by_username)
+            _index_unique_user(user, seen_ids, by_ext_id, by_username)
         url = _next_users_page_url(data, expected_start=expected_start)
         expected_start += len(users)
     return by_ext_id, by_username
@@ -347,6 +349,15 @@ def _actionable_diffs(diffs: dict[str, bool], mode: str) -> dict[str, bool]:
     return {key: value for key, value in diffs.items() if key in allowed_keys}
 
 
+def _changed_name_operations(user: dict, diffs: dict[str, bool]) -> list[dict[str, Any]]:
+    """Build individual name-subattribute PATCH operations for changed fields."""
+    return [
+        {"op": "Replace", "path": f"name.{subfield}", "value": user.get("name", {}).get(subfield, "")}
+        for subfield in _MODE_FIELD_TO_DIFF_KEYS["name"]
+        if diffs.get(subfield, False)
+    ]
+
+
 def _build_update_request(
     user: dict, mode: str, apple_id: str, *, diffs: dict[str, bool]
 ) -> tuple[str, dict[str, Any], list[str]]:
@@ -368,11 +379,9 @@ def _build_update_request(
     patch_fields: list[str] = []
     for field_name in fields:
         if field_name == "name":
-            for subfield in _MODE_FIELD_TO_DIFF_KEYS["name"]:
-                if diffs.get(subfield, False):
-                    path = f"name.{subfield}"
-                    operations.append({"op": "Replace", "path": path, "value": user.get("name", {}).get(subfield, "")})
-                    patch_fields.append(path)
+            name_operations = _changed_name_operations(user, diffs)
+            operations.extend(name_operations)
+            patch_fields.extend(operation["path"] for operation in name_operations)
             continue
         if field_name == "externalId":
             value: Any = str(user.get("externalId") or "").strip()
@@ -573,6 +582,22 @@ async def _query_username_filter(
     return payload
 
 
+def _username_recovery_allowed(apple_user: dict, user: dict, result: SyncResult) -> bool:
+    """Record unsafe username matches and warn when unlinked recovery is enabled."""
+    if _can_recover_by_username(apple_user, user.get("externalId")):
+        if not str(apple_user.get("externalId") or "").strip():
+            logger.warning("Apple SCIM: username-only recovery explicitly enabled for %s", _log_user_ref(user))
+        return True
+    if not str(user.get("externalId") or "").strip():
+        reason = "Authentik user has no externalId"
+    elif str(apple_user.get("externalId") or "").strip():
+        reason = "matched Apple record has an externalId belonging to a different user"
+    else:
+        reason = "matched Apple record has no externalId; username-only recovery is disabled"
+    _record_username_conflict(result, user, reason)
+    return False
+
+
 async def _reconcile_diffs(
     client: httpx.AsyncClient,
     headers: dict,
@@ -594,17 +619,8 @@ async def _reconcile_diffs(
     sync_users() path) to derive the label from the actionable diffs and
     emit those debug logs.
     """
-    if recovered_by_username and not _can_recover_by_username(apple_user, user.get("externalId")):
-        if not str(user.get("externalId") or "").strip():
-            reason = "Authentik user has no externalId"
-        elif str(apple_user.get("externalId") or "").strip():
-            reason = "matched Apple record has an externalId belonging to a different user"
-        else:
-            reason = "matched Apple record has no externalId; username-only recovery is disabled"
-        _record_username_conflict(result, user, reason)
+    if recovered_by_username and not _username_recovery_allowed(apple_user, user, result):
         return
-    if recovered_by_username and not str(apple_user.get("externalId") or "").strip():
-        logger.warning("Apple SCIM: username-only recovery explicitly enabled for %s", _log_user_ref(user))
 
     diffs = _field_diffs(apple_user, user)
     external_id_patch_attempted = False
@@ -752,6 +768,7 @@ def _log_sync_start(scim_users: list[dict], by_ext_id: dict, by_username: dict) 
 
 
 def _log_sync_summary(result: SyncResult) -> None:
+    """Summarize sync outcomes and flag accounts needing operator review."""
     logger.info(
         "Apple SCIM: sync done — created=%d updated=%d unchanged=%d conflicts=%d "
         "errors=%d update_400_invalid_request=%d out_of_scope_diffs=%d",

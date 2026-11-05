@@ -28,6 +28,7 @@ from app.security.log_sanitize import sanitize_for_log
 logger = logging.getLogger(__name__)
 
 MAX_OUTBOX_ITEMS = 10_000
+_BEGIN_IMMEDIATE = "BEGIN IMMEDIATE"
 
 # Serializes stream mutations with each other and with outbox delivery, so
 # a completed pause, replacement, or queue discard cannot send stale items.
@@ -269,7 +270,7 @@ def prepare_stream(payload: dict[str, Any]) -> Stream:
 async def save_stream(stream: Stream) -> None:
     """Atomically replace the stored stream with an already prepared candidate."""
     async with stream_operation_lock(), aiosqlite.connect(settings.database_path) as db:
-        await db.execute("BEGIN IMMEDIATE")
+        await db.execute(_BEGIN_IMMEDIATE)
         await db.execute("DELETE FROM set_outbox WHERE status = 'pending'")
         await db.execute("DELETE FROM streams")
         await db.execute(
@@ -332,7 +333,7 @@ async def get_stream_by_id(stream_id: str) -> Stream | None:
 async def update_stream(payload: dict[str, Any]) -> Stream | None:
     """Update fields on the existing stream; returns None if no stream exists."""
     async with stream_operation_lock(), aiosqlite.connect(settings.database_path) as db:
-        await db.execute("BEGIN IMMEDIATE")
+        await db.execute(_BEGIN_IMMEDIATE)
         db.row_factory = aiosqlite.Row
         cursor = await db.execute("SELECT * FROM streams ORDER BY created_at DESC LIMIT 1")
         row = await cursor.fetchone()
@@ -414,7 +415,7 @@ async def delete_stream() -> bool:
 async def delete_stream_by_id(stream_id: str) -> bool:
     """Delete a specific stream by ID; returns True if deleted, False if not found."""
     async with stream_operation_lock(), aiosqlite.connect(settings.database_path) as db:
-        await db.execute("BEGIN IMMEDIATE")
+        await db.execute(_BEGIN_IMMEDIATE)
         cursor = await db.execute("DELETE FROM streams WHERE stream_id = ?", (stream_id,))
         if cursor.rowcount > 0:
             await db.execute("DELETE FROM set_outbox WHERE stream_id = ? AND status = 'pending'", (stream_id,))
@@ -432,7 +433,7 @@ async def enqueue_outbox(deliveries: list[tuple[Stream, dict[str, Any]]]) -> int
     now = int(time.time())
     async with aiosqlite.connect(settings.database_path) as db:
         db.row_factory = aiosqlite.Row
-        await db.execute("BEGIN IMMEDIATE")
+        await db.execute(_BEGIN_IMMEDIATE)
         for stream, _ in deliveries:
             cursor = await db.execute("SELECT * FROM streams WHERE stream_id = ?", (stream.stream_id,))
             row = await cursor.fetchone()
@@ -597,7 +598,7 @@ async def get_outbox_status() -> dict[str, int | None]:
     }
 
 
-async def decrypt_outbox_payload(item: OutboxItem) -> dict[str, Any]:
+def decrypt_outbox_payload(item: OutboxItem) -> dict[str, Any]:
     """Decrypt and parse a queued delivery payload."""
     try:
         payload = json.loads(decrypt_sensitive_data(item.payload))

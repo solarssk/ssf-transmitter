@@ -56,10 +56,10 @@ Since v0.5.9 you cannot set `status: enabled` without a valid receiver token. Su
 
 1. Check stream status is `enabled`.
 2. Check `GET /ssf/delivery/status` for pending or blocked items.
-3. Check Authentik webhook fires (test notification) and its response says `"status": "accepted"`.
+3. Check the Authentik webhook response says `"status": "accepted"` and `queued` is greater than zero. An ignored event or `"queued": 0` stores no SET.
 4. Check webhook auth: `SSF_WEBHOOK_AUTH_MODE=bearer` and Header Mapping in Authentik.
 5. Verify receiver URL still passes SSRF validation and allowlist (`SSF_ALLOWED_RECEIVER_HOSTS`).
-6. Failed deliveries retry automatically with backoff. Blocked entries require operator review; if caused by a key change, restore the original encryption key and call `POST /ssf/delivery/retry-blocked`.
+6. Failed deliveries retry indefinitely with backoff; monitor queue age and capacity. Blocked entries require operator review; if caused by a key change, restore the original encryption key and call `POST /ssf/delivery/retry-blocked`.
 
 Changing the stream endpoint, audience, receiver token, or event filter cancels pending SETs for its previous configuration. Delivery is at-least-once, so a retry may result in a duplicate if the receiver accepted a SET just before the transmitter lost its completion record.
 

@@ -195,6 +195,7 @@ async def _exchange_authorization_code(code: str) -> tuple[int, bool]:
 
 
 async def _exchange_authorization_code_locked(code: str) -> tuple[int, bool]:
+    """Exchange and persist an authorization code while the token lock is held."""
     callback_url = settings.public_url("/apple-scim/callback")
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:

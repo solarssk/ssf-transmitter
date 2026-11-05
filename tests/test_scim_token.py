@@ -192,6 +192,7 @@ async def test_get_valid_access_token_refreshes_when_expired(monkeypatch, db_pat
 
 @pytest.mark.anyio
 async def test_concurrent_expired_token_requests_refresh_only_once(monkeypatch):
+    """Concurrent callers share the first refresh and its rotated token."""
     started = asyncio.Event()
     release = asyncio.Event()
     requests = []

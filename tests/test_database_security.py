@@ -99,6 +99,7 @@ def test_token_encrypted_at_rest_in_sqlite(client: TestClient):
 def test_stream_replacement_is_verified_before_existing_stream_changes(
     client: TestClient, monkeypatch, verification_succeeds
 ):
+    """A failed candidate verification leaves the old stream and ciphertext intact."""
     import sqlite3
     from contextlib import closing
 

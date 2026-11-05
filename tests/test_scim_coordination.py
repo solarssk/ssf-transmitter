@@ -9,6 +9,7 @@ import logging
 import shlex
 import time
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import httpx
 import pytest
@@ -24,6 +25,7 @@ from app.scim.coordination import scim_operation
 
 
 def test_image_runs_one_worker_even_with_web_concurrency_set(monkeypatch):
+    """The image overrides worker-count environment settings with one worker."""
     dockerfile = Path(__file__).resolve().parents[1] / "Dockerfile"
     command = next(line.removeprefix("CMD ") for line in dockerfile.read_text().splitlines() if line.startswith("CMD "))
     shell_args = shlex.split(json.loads(command)[-1])
@@ -81,13 +83,15 @@ def _stub_sync(monkeypatch):
 
 @pytest.mark.anyio
 async def test_manual_and_scheduled_sync_do_not_overlap(monkeypatch):
+    """A scheduled sync waits for the manual sync and reloads the token."""
     started, release, calls, current_token = _stub_sync(monkeypatch)
     first = asyncio.create_task(routes.sync())
     scheduled = None
     try:
         await asyncio.wait_for(started.wait(), timeout=1)
-        with pytest.raises(HTTPException) as exc:
-            await asyncio.wait_for(routes.sync(), timeout=1)
+        async with asyncio.timeout(1):
+            with pytest.raises(HTTPException) as exc:
+                await routes.sync()
         assert exc.value.status_code == 409
 
         scheduled = asyncio.create_task(main._run_scheduled_apple_scim_sync())
@@ -113,12 +117,14 @@ async def test_manual_and_scheduled_sync_do_not_overlap(monkeypatch):
 
 @pytest.mark.anyio
 async def test_manual_sync_is_rejected_while_scheduled_sync_is_running(monkeypatch):
+    """Manual sync reports a conflict while a scheduled sync owns the connection."""
     started, release, calls, _ = _stub_sync(monkeypatch)
     scheduled = asyncio.create_task(main._run_scheduled_apple_scim_sync())
     try:
         await asyncio.wait_for(started.wait(), timeout=1)
-        with pytest.raises(HTTPException) as exc:
-            await asyncio.wait_for(routes.sync(), timeout=1)
+        async with asyncio.timeout(1):
+            with pytest.raises(HTTPException) as exc:
+                await routes.sync()
         assert exc.value.status_code == 409
         assert calls == [("token", "old-token"), ("users", None)]
     finally:
@@ -177,6 +183,47 @@ async def test_scheduled_sync_logs_incomplete_apple_listing_and_releases_gate(mo
 
 
 @pytest.mark.anyio
+async def test_scheduled_sync_logs_unexpected_error_and_releases_gate(monkeypatch, caplog):
+    """An unexpected token error is logged and cannot leave the sync gate locked."""
+    monkeypatch.setattr("app.scim.token.get_valid_access_token", AsyncMock(side_effect=RuntimeError("token failure")))
+    with caplog.at_level(logging.ERROR, logger="app.main"):
+        await main._run_scheduled_apple_scim_sync()
+
+    assert "Apple SCIM: unhandled error in sync loop" in caplog.text
+    async with scim_operation():
+        pass
+
+
+@pytest.mark.anyio
+async def test_post_authorization_sync_skips_when_token_is_unavailable(monkeypatch, caplog):
+    """Initial sync does not fetch users when no valid access token exists."""
+    get_users = AsyncMock()
+    monkeypatch.setattr(routes, "get_valid_access_token", AsyncMock(return_value=None))
+    monkeypatch.setattr(routes, "get_users", get_users)
+    with caplog.at_level(logging.WARNING, logger="app.routes.apple_scim"):
+        await routes._background_sync()
+
+    get_users.assert_not_awaited()
+    assert "initial sync skipped — no valid token" in caplog.text
+
+
+@pytest.mark.anyio
+async def test_callback_rejects_state_consumed_before_operation_starts(monkeypatch):
+    """A state consumed after its initial validation cannot exchange a code."""
+    monkeypatch.setattr(routes, "_pending_states", {})
+    routes._add_state("valid-state")
+    exchange = AsyncMock()
+    monkeypatch.setattr(routes, "_consume_state", lambda state: False)
+    monkeypatch.setattr(routes, "_exchange_authorization_code", exchange)
+
+    with pytest.raises(HTTPException) as exc:
+        await routes.callback(code="code", state="valid-state")
+
+    assert exc.value.status_code == 400
+    exchange.assert_not_awaited()
+
+
+@pytest.mark.anyio
 async def test_manual_sync_returns_http_409_when_another_sync_is_running(monkeypatch):
     started, release, calls, _ = _stub_sync(monkeypatch)
     headers = {"Authorization": f"Bearer {real_settings.ssf_management_token}"}
@@ -198,6 +245,7 @@ async def test_manual_sync_returns_http_409_when_another_sync_is_running(monkeyp
 
 @pytest.mark.anyio
 async def test_post_authorization_sync_waits_and_uses_latest_token(monkeypatch):
+    """Post-authorization sync waits for ongoing work and uses the latest token."""
     started, release, calls, current_token = _stub_sync(monkeypatch)
     manual = asyncio.create_task(routes.sync())
     background = None
@@ -278,7 +326,9 @@ async def test_busy_callback_keeps_state_for_retry_and_does_not_exchange_code(mo
 
 
 @pytest.mark.anyio
-async def test_callback_and_refresh_cannot_exchange_tokens_concurrently(monkeypatch):
+@pytest.mark.parametrize("first_grant", ["authorization_code", "refresh_token"])
+async def test_callback_and_refresh_exchange_tokens_serially(monkeypatch, first_grant):
+    """The second operation waits and uses the token saved by the first."""
     exchange_started = asyncio.Event()
     release_exchange = asyncio.Event()
     calls = []
@@ -295,80 +345,12 @@ async def test_callback_and_refresh_cannot_exchange_tokens_concurrently(monkeypa
             return False
 
         async def post(self, url, data):
-            calls.append(data["grant_type"])
-            if data["grant_type"] == "authorization_code":
+            grant = data["grant_type"]
+            calls.append(grant)
+            if grant == first_grant:
                 exchange_started.set()
                 await release_exchange.wait()
-                return httpx.Response(
-                    200,
-                    json={"access_token": "authorized-token", "refresh_token": "new-refresh", "expires_in": 3600},
-                )
-            return httpx.Response(200, json={"access_token": "refreshed-token", "expires_in": 3600})
-
-    async def load():
-        return dict(stored)
-
-    async def save(access_token, refresh_token, expires_in):
-        stored.update(
-            access_token=access_token,
-            refresh_token=refresh_token or stored["refresh_token"],
-            expires_at=int(time.time()) + expires_in,
-        )
-
-    async def users():
-        return []
-
-    async def sync_users(access_token, scim_users):
-        return SyncResult()
-
-    monkeypatch.setattr(routes.httpx, "AsyncClient", Client)
-    monkeypatch.setattr(token_mod, "load_tokens", load)
-    monkeypatch.setattr(routes, "save_tokens", save)
-    monkeypatch.setattr(token_mod, "save_tokens", save)
-    monkeypatch.setattr(routes, "get_users", users)
-    monkeypatch.setattr(routes, "sync_users", sync_users)
-    routes._add_state("valid-state")
-
-    callback = asyncio.create_task(routes.callback(code="code", state="valid-state"))
-    refresh = None
-    try:
-        await asyncio.wait_for(exchange_started.wait(), timeout=1)
-        refresh = asyncio.create_task(token_mod.get_valid_access_token())
-        await asyncio.sleep(0)
-        assert calls == ["authorization_code"]
-    finally:
-        release_exchange.set()
-        await asyncio.wait_for(callback, timeout=1)
-        if refresh is not None:
-            assert await asyncio.wait_for(refresh, timeout=1) == "authorized-token"
-        await asyncio.gather(*routes._background_tasks)
-
-    assert calls == ["authorization_code"]
-    assert stored["refresh_token"] == "new-refresh"
-
-
-@pytest.mark.anyio
-async def test_callback_waits_for_in_progress_refresh_before_exchange(monkeypatch):
-    refresh_started = asyncio.Event()
-    release_refresh = asyncio.Event()
-    calls = []
-    stored = {"access_token": "expired", "refresh_token": "old-refresh", "expires_at": 0}
-
-    class Client:
-        def __init__(self, timeout):
-            pass
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, exc_type, exc, tb):
-            return False
-
-        async def post(self, url, data):
-            calls.append(data["grant_type"])
-            if data["grant_type"] == "refresh_token":
-                refresh_started.set()
-                await release_refresh.wait()
+            if grant == "refresh_token":
                 return httpx.Response(
                     200,
                     json={"access_token": "refreshed", "refresh_token": "rotated", "expires_in": 3600},
@@ -403,21 +385,34 @@ async def test_callback_waits_for_in_progress_refresh_before_exchange(monkeypatc
     monkeypatch.setattr(routes, "sync_users", sync_users)
     routes._add_state("valid-state")
 
-    refresh = asyncio.create_task(token_mod.get_valid_access_token())
-    callback = None
+    callback_first = first_grant == "authorization_code"
+    first_coro = (
+        routes.callback(code="code", state="valid-state") if callback_first else token_mod.get_valid_access_token()
+    )
+    first = asyncio.create_task(first_coro)
+    second = None
     try:
-        await asyncio.wait_for(refresh_started.wait(), timeout=1)
-        callback = asyncio.create_task(routes.callback(code="code", state="valid-state"))
+        await asyncio.wait_for(exchange_started.wait(), timeout=1)
+        second_coro = (
+            token_mod.get_valid_access_token() if callback_first else routes.callback(code="code", state="valid-state")
+        )
+        second = asyncio.create_task(second_coro)
         await asyncio.sleep(0)
-        assert calls == ["refresh_token"]
+        assert calls == [first_grant]
     finally:
-        release_refresh.set()
-        assert await asyncio.wait_for(refresh, timeout=1) == "refreshed"
-        if callback is not None:
-            assert (await asyncio.wait_for(callback, timeout=1))["status"] == "authorized"
+        release_exchange.set()
+        first_result = await asyncio.wait_for(first, timeout=1)
+        second_result = await asyncio.wait_for(second, timeout=1) if second is not None else None
         await asyncio.gather(*routes._background_tasks)
 
-    assert calls == ["refresh_token", "authorization_code"]
+    if callback_first:
+        assert first_result["status"] == "authorized"
+        assert second_result == "authorized"
+        assert calls == ["authorization_code"]
+    else:
+        assert first_result == "refreshed"
+        assert second_result["status"] == "authorized"
+        assert calls == ["refresh_token", "authorization_code"]
     assert stored["access_token"] == "authorized"
     assert stored["refresh_token"] == "new-grant"
 

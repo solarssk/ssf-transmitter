@@ -77,6 +77,7 @@ def _payload_matches_stream(payload: dict[str, Any], stream: Stream) -> bool:
 
 
 def _valid_payload(payload: dict[str, Any]) -> bool:
+    """Reject malformed queue records before attempting delivery."""
     return (
         isinstance(payload.get("aud"), str)
         and isinstance(payload.get("endpoint_url"), str)
@@ -103,8 +104,9 @@ async def _retry(item: OutboxItem, reason: str) -> None:
 
 
 async def _deliver_item(item: OutboxItem) -> None:
+    """Validate and deliver one queued SET or record why it cannot be sent."""
     try:
-        payload = await decrypt_outbox_payload(item)
+        payload = decrypt_outbox_payload(item)
     except EncryptedDataError:
         await block_outbox_item(item.id, "payload_decryption_failed")
         logger.exception("Blocked queued SET with unreadable payload item_id=%s stream_id=%s", item.id, item.stream_id)

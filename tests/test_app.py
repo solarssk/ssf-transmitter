@@ -2,6 +2,7 @@ import hashlib
 import hmac
 import json
 from dataclasses import replace
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -156,6 +157,27 @@ def test_delivery_status_is_management_protected_and_exposes_only_counters(clien
     }
 
 
+@pytest.mark.parametrize(
+    ("method", "path", "handler", "field"),
+    [
+        ("POST", "/ssf/delivery/retry-blocked", "requeue_blocked_outbox", "requeued"),
+        ("DELETE", "/ssf/delivery/pending", "delete_pending_outbox", "discarded"),
+        ("DELETE", "/ssf/delivery/blocked", "delete_blocked_outbox", "discarded"),
+    ],
+)
+def test_delivery_actions_require_management_auth_and_report_counts(client, monkeypatch, method, path, handler, field):
+    """Queue mutations require management auth and report the affected count."""
+    operation = AsyncMock(return_value=2)
+    monkeypatch.setattr(f"app.routes.streams.{handler}", operation)
+
+    assert client.request(method, path).status_code == 401
+    response = client.request(method, path, headers=MGMT_HEADERS)
+
+    assert response.status_code == 200
+    assert response.json() == {field: 2}
+    operation.assert_awaited_once_with()
+
+
 def test_webhook_rejects_unsigned_request_by_default(client: TestClient):
     """Unsigned webhook requests are rejected with 401 (fail-closed by default)."""
     response = client.post(
@@ -247,6 +269,27 @@ def test_webhook_durably_queues_mapped_event(client: TestClient, monkeypatch):
             "receiver-secret-token",
         )
     ]
+
+
+def test_webhook_reports_zero_when_stream_filters_all_events(client: TestClient, monkeypatch):
+    """A filtered event returns accepted with no SET signed or stored."""
+    create_stream(client)
+    monkeypatch.setattr("app.events.outbox.sign_set", lambda **kwargs: pytest.fail("unexpected signing"))
+    body = json.dumps(
+        {
+            "body": {
+                "action": "authentik.core.user.write",
+                "user": {"email": "user@example.com"},
+                "context": {"changed_fields": ["password"]},
+            }
+        }
+    ).encode()
+
+    response = client.post("/webhook/authentik", content=body, headers=signed_headers(body))
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "accepted", "queued": 0}
+    assert client.get("/ssf/delivery/status", headers=MGMT_HEADERS).json()["pending"] == 0
 
 
 def test_webhook_returns_retryable_error_if_stream_changes_during_queueing(client: TestClient, monkeypatch):

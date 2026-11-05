@@ -67,6 +67,7 @@ def test_authentik_url_none_when_unset(monkeypatch):
 
 @pytest.mark.parametrize(("value", "expected"), [(None, False), ("false", False), (" true ", True)])
 def test_username_recovery_requires_explicit_opt_in(monkeypatch, value, expected):
+    """Unlinked account recovery is disabled unless explicitly enabled."""
     if value is None:
         monkeypatch.delenv("APPLE_SCIM_ALLOW_USERNAME_RECOVERY", raising=False)
     else:

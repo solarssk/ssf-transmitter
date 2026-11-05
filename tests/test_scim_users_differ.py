@@ -639,6 +639,7 @@ async def test_sync_existing_same_email_different_case_is_unchanged(monkeypatch)
 
 @pytest.mark.anyio
 async def test_sync_existing_changed_email_updates_once(monkeypatch):
+    """A changed email is patched once and remains unchanged on the next sync."""
     from app.scim import apple
 
     holder = _install_fake_apple_client(
@@ -667,6 +668,7 @@ async def test_sync_existing_changed_email_updates_once(monkeypatch):
 )
 @pytest.mark.anyio
 async def test_sync_changed_name_updates_only_changed_subattributes(monkeypatch, name_changes, expected_paths):
+    """Name patches leave unrelated Apple name subattributes untouched."""
     existing = _apple_existing()
     existing["name"]["middleName"] = "Example"
     existing["name"]["formatted"] = "John Example Doe"
@@ -693,6 +695,7 @@ async def test_sync_changed_name_updates_only_changed_subattributes(monkeypatch,
 
 @pytest.mark.anyio
 async def test_sync_reports_rejected_name_update_without_claiming_success(monkeypatch):
+    """Rejected name updates count as errors rather than successful writes."""
     holder = _install_fake_apple_client(
         monkeypatch, apple_users=[_apple_existing()], reject_name_patch=True, fail_patch=True, fail_patch_status=400
     )
@@ -710,6 +713,7 @@ async def test_sync_reports_rejected_name_update_without_claiming_success(monkey
 
 @pytest.mark.anyio
 async def test_sync_skips_username_match_with_different_external_id(monkeypatch):
+    """A username owned by a different external ID cannot be adopted."""
     from app.scim import apple
 
     holder = _install_fake_apple_client(monkeypatch, apple_users=[_apple_existing(external_id="99")])
@@ -725,6 +729,7 @@ async def test_sync_skips_username_match_with_different_external_id(monkeypatch)
 
 @pytest.mark.anyio
 async def test_sync_unlinked_username_match_is_a_conflict_by_default(monkeypatch):
+    """Unlinked username matches are not modified without an explicit opt-in."""
     existing = _apple_existing(external_id=None, email="stale@example.com")
     holder = _install_fake_apple_client(monkeypatch, apple_users=[existing])
 
@@ -742,6 +747,7 @@ async def test_sync_unlinked_username_match_is_a_conflict_by_default(monkeypatch
 async def test_sync_rejects_username_already_owned_by_another_apple_user(
     monkeypatch, other_external_id, allow_recovery
 ):
+    """A linked user's new username cannot take over a different Apple account."""
     monkeypatch.setattr(
         apple, "settings", dataclasses.replace(real_settings, apple_scim_allow_username_recovery=allow_recovery)
     )
@@ -761,6 +767,7 @@ async def test_sync_rejects_username_already_owned_by_another_apple_user(
 async def test_sync_recovered_by_username_missing_external_id_patches_once_then_unchanged(
     monkeypatch, allow_username_recovery
 ):
+    """An opted-in identity repair is verified and not repeated on the next sync."""
     from app.scim import apple
 
     holder = _install_fake_apple_client(monkeypatch, apple_users=[_apple_existing(external_id=None)])
@@ -993,6 +1000,7 @@ async def test_handle_409_failed_external_id_repair_is_not_also_counted_unchange
 @pytest.mark.parametrize("mode", ["patch_all", "replace_all"])
 @pytest.mark.anyio
 async def test_failed_identity_link_does_not_update_other_fields(monkeypatch, mode):
+    """A failed identity repair blocks subsequent updates in both write modes."""
     scoped_settings = dataclasses.replace(
         real_settings, apple_scim_update_mode=mode, apple_scim_allow_username_recovery=True
     )
@@ -1014,6 +1022,7 @@ async def test_failed_identity_link_does_not_update_other_fields(monkeypatch, mo
 @pytest.mark.parametrize("failure", ["ignored", "network", "non_200", "bad_json", "mismatch", "malformed_name"])
 @pytest.mark.anyio
 async def test_unverified_identity_link_does_not_update_other_fields(monkeypatch, allow_username_recovery, failure):
+    """Unverified identity repairs never authorize unrelated account updates."""
     existing = _apple_existing(external_id=None, email="old@example.com")
     holder = _install_fake_apple_client(
         monkeypatch,
@@ -1034,6 +1043,7 @@ async def test_unverified_identity_link_does_not_update_other_fields(monkeypatch
 
 @pytest.mark.anyio
 async def test_identity_link_uses_verified_user_for_subsequent_diffs(allow_username_recovery):
+    """Post-repair diffs use the verified Apple record, not its stale listing."""
     listed_user = _apple_existing(external_id=None, email="old@example.com")
     current_user = _apple_existing(external_id=None, email="new@example.com")
     fake_client = _FakeAppleClient(30.0, apple_users=[current_user])
@@ -1051,6 +1061,31 @@ async def test_identity_link_uses_verified_user_for_subsequent_diffs(allow_usern
     assert result.updated == 1
     assert result.errors == 0
     assert [method for method, _, _ in fake_client.requests] == ["PATCH", "GET"]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("has_username", [True, False])
+async def test_username_recovery_rejects_missing_authentik_external_id(has_username):
+    """A username match cannot be adopted without a stable Authentik identity."""
+    fake_client = _FakeAppleClient(30.0)
+    result = apple.SyncResult()
+    user = _authentik_scim(external_id="")
+    if not has_username:
+        user.pop("userName")
+
+    await apple._reconcile_diffs(
+        fake_client,
+        {},
+        _apple_existing(external_id=None),
+        user,
+        result,
+        recovered_by_username=True,
+    )
+
+    assert result.conflicts == 1
+    assert result.conflict_usernames == ([user["userName"]] if has_username else [])
+    assert result.updated == result.errors == 0
+    assert fake_client.requests == []
 
 
 # ---------------------------------------------------------------------------
@@ -1104,6 +1139,7 @@ async def test_get_existing_users_non_json_response_fails(caplog):
     ],
 )
 async def test_incomplete_apple_listing_aborts_without_writes(monkeypatch, after_first_page, failure):
+    """Invalid or unavailable pages abort the entire sync before any writes."""
     first_user = _apple_existing()
     start = 2 if after_first_page else 1
     page = {"Resources": [_apple_existing(external_id="2")], "totalResults": 2, "startIndex": start, "itemsPerPage": 1}
@@ -1150,8 +1186,9 @@ async def test_incomplete_apple_listing_aborts_without_writes(monkeypatch, after
     pages.append(failed_page)
     holder = _install_fake_apple_client(monkeypatch, list_pages=pages)
 
+    users = [_authentik_scim(), _authentik_scim(external_id="2")]
     with pytest.raises(apple.AppleUserListError):
-        await apple.sync_users("token", [_authentik_scim(), _authentik_scim(external_id="2")])
+        await apple.sync_users("token", users)
 
     assert len(holder["client"].requests) == (2 if after_first_page else 1)
     assert all(method == "GET" for method, _, _ in holder["client"].requests)
@@ -1160,6 +1197,7 @@ async def test_incomplete_apple_listing_aborts_without_writes(monkeypatch, after
 @pytest.mark.anyio
 @pytest.mark.parametrize("failure", ["duplicate_id", "duplicate_external_id", "duplicate_username", "total_changed"])
 async def test_inconsistent_apple_pages_abort_without_writes(monkeypatch, failure):
+    """Duplicate identities or changing totals invalidate the whole listing."""
     first = _apple_existing()
     second = _apple_existing(external_id="2", username="second@example.com")
     second["id"] = "apple-2"
@@ -1178,14 +1216,16 @@ async def test_inconsistent_apple_pages_abort_without_writes(monkeypatch, failur
         ],
     )
 
+    users = [_authentik_scim()]
     with pytest.raises(apple.AppleUserListError):
-        await apple.sync_users("token", [_authentik_scim()])
+        await apple.sync_users("token", users)
 
     assert [method for method, _, _ in holder["client"].requests] == ["GET", "GET"]
 
 
 @pytest.mark.anyio
 async def test_complete_apple_listing_uses_all_pages_before_writing(monkeypatch):
+    """Every Apple page is indexed before reconciling any Authentik user."""
     first = _apple_existing()
     second = _apple_existing(external_id="2", username="second@example.com", email="second@example.com")
     second["id"] = "apple-2"
@@ -1232,6 +1272,7 @@ async def test_complete_listing_accepts_missing_optional_pagination_metadata():
 
 @pytest.mark.anyio
 async def test_empty_listing_without_resources_can_create_a_user(monkeypatch):
+    """A valid empty Apple listing permits creation of a new user."""
     holder = _install_fake_apple_client(monkeypatch, list_pages=[_FakeResponse(200, {"totalResults": 0})])
 
     result = await apple.sync_users("token", [_authentik_scim()])
@@ -1326,6 +1367,7 @@ async def test_handle_409_matched_record_belongs_to_different_user_is_a_conflict
 
 @pytest.mark.anyio
 async def test_handle_409_unlinked_username_match_is_a_conflict_by_default():
+    """Create-conflict recovery refuses unlinked matches unless opted in."""
     fake_client = _FakeAppleClient(30.0, apple_users=[_apple_existing(external_id=None)])
     result = apple.SyncResult()
 
@@ -1338,6 +1380,7 @@ async def test_handle_409_unlinked_username_match_is_a_conflict_by_default():
 
 @pytest.mark.anyio
 async def test_handle_409_opt_in_verifies_link_before_updating(allow_username_recovery):
+    """Opted-in recovery verifies the identity link before updating fields."""
     found = _apple_existing(external_id=None, email="old@example.com")
     fake_client = _FakeAppleClient(30.0, apple_users=[found])
     result = apple.SyncResult()
@@ -1353,6 +1396,7 @@ async def test_handle_409_opt_in_verifies_link_before_updating(allow_username_re
 
 @pytest.mark.anyio
 async def test_handle_409_failed_link_does_not_update_other_fields(allow_username_recovery):
+    """A failed 409-recovery link cannot trigger a follow-up account update."""
     found = _apple_existing(external_id=None, email="old@example.com")
     fake_client = _FakeAppleClient(30.0, apple_users=[found], fail_external_id_patch=True)
     result = apple.SyncResult()
@@ -1380,6 +1424,8 @@ async def test_handle_409_failed_link_does_not_update_other_fields(allow_usernam
 )
 @pytest.mark.anyio
 async def test_handle_409_rejects_ambiguous_or_invalid_filter_results(payload, expected_conflicts):
+    """Ambiguous or malformed filtered results never trigger Apple writes."""
+
     class FilterClient(_FakeAppleClient):
         async def get(self, url, headers):
             self.requests.append(("GET", url, None))

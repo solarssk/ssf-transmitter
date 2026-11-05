@@ -283,14 +283,15 @@ Receives event notifications from Authentik. Called by Authentik, not by SSF rec
 | `hmac` (legacy) | `X-Authentik-Signature: sha256=<hex>` | Verified against `SSF_WEBHOOK_SECRET` |
 | `unsigned` | None | Dev/lab only — never use in production |
 
-**Response** `200 OK` — the delivery has been encrypted and committed to the
-durable queue. This does not mean the receiver has accepted the SET; delivery
-and retries happen asynchronously.
+**Response** `200 OK` — `queued` is the number of matching SETs encrypted and
+committed to the durable queue. It can be `0` when the stream filters out every
+mapped event. This does not mean the receiver has accepted a SET; delivery and
+retries happen asynchronously.
 ```json
 { "status": "accepted", "queued": 1 }
 ```
 
-Possible `status` values when no SET is delivered:
+Ignored events also return `200 OK` without queueing a SET:
 
 | status | reason | Meaning |
 |---|---|---|

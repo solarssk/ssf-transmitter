@@ -148,9 +148,10 @@ async def authentik_webhook(request: Request) -> dict:
     """Receive an Authentik webhook event, verify authentication, and push
     matching Security Event Tokens to the durable delivery queue.
 
-    A successful response means matching SETs were encrypted and committed to
-    SQLite; receiver delivery happens asynchronously. Non-fatal conditions
-    (no stream, unmapped event) return ``{"status": "ignored", "reason": "..."}``.
+    An ``accepted`` response reports how many SETs were encrypted and committed
+    to SQLite; the count can be zero when all events are filtered. Receiver
+    delivery happens asynchronously. Non-fatal conditions (no stream,
+    unmapped event) return ``{"status": "ignored", "reason": "..."}``.
     """
     raw_body = await _read_body_within_limit(request)
     _authenticate_webhook(request, raw_body)

@@ -77,7 +77,7 @@ A logout or password change in Authentik fires a webhook; the payload is mapped 
 | 🛠️ | **Stream management API** | Create, read, update, and delete the single active SSF stream over a management Bearer token. |
 | 🪝 | **Flexible webhook auth** | Bearer token (recommended) or legacy HMAC-SHA256 signature for the Authentik webhook. |
 | 🗺️ | **CAEP event mapping** | Logout and password-change Authentik events map to `session-revoked` and `credential-change` SETs. |
-| ✍️ | **Durable RS256-signed SET delivery** | Webhooks are encrypted in SQLite before acknowledgement, then delivered with retry and SSRF/DNS-rebinding checks. |
+| ✍️ | **Durable RS256-signed SET delivery** | Matching SETs are encrypted in SQLite before acknowledgement, then delivered with retry and SSRF/DNS-rebinding checks. |
 | 🚦 | **Defense in depth** | Receiver hostname allowlist, in-app rate limiting, and standard HTTP security headers on every response. |
 | 🔒 | **Encrypted delivery data** | Queued signed SETs and receiver tokens are Fernet-encrypted at rest in SQLite; management and webhook tokens never touch disk. |
 | 🕵️ | **PII masked by default** | Email addresses are pseudonymised in logs unless explicitly opted out. |
