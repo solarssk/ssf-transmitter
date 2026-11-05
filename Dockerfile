@@ -1,3 +1,5 @@
+FROM ghcr.io/astral-sh/uv:0.11.26@sha256:3d868e555f8f1dbc324afa005066cd11e1053fc4743b9808ca8025283e65efa5 AS uv
+
 # Pin to an immutable digest for reproducible builds and predictable CVE surface.
 # To update: docker pull python:3.14-slim-bookworm && docker inspect --format='{{index .RepoDigests 0}}'
 # Dependabot will propose digest bumps automatically when a new image is published.
@@ -23,19 +25,14 @@ RUN apt-get update && \
 RUN groupadd --system --gid 10001 appuser && \
     useradd --system --uid 10001 --gid 10001 --no-create-home appuser
 
-COPY requirements.txt .
-# Install only pre-built wheels (--only-binary :all:, no setup.py execution)
-# whose hash matches requirements.txt (--require-hashes, tamper-evident
-# supply chain — it's pip-compile output from requirements.in, see its
-# header for how to regenerate). Then strip pip/setuptools/wheel and
-# ensurepip's bundled pip wheel — none are needed at runtime (the app
-# never imports or shells out to pip), and removing them drops pip's
-# internally vendored copies of msgpack/setuptools (which even the latest
-# pip release ships at versions with known CVEs) from the image entirely,
-# instead of just suppressing the scanner finding.
-RUN pip install --no-cache-dir --only-binary :all: --require-hashes -r requirements.txt && \
+COPY pyproject.toml uv.lock ./
+# Export the runtime closure from the same lock used by CI. The uv binary
+# is mounted only for this step and is not included in the runtime image.
+RUN --mount=from=uv,source=/uv,target=/usr/local/bin/uv \
+    uv export --locked --no-dev --no-emit-project -o /tmp/requirements.txt && \
+    pip install --no-cache-dir --only-binary :all: --require-hashes -r /tmp/requirements.txt && \
     pip uninstall --yes --no-input pip setuptools wheel && \
-    rm -rf /usr/local/lib/python3.14/ensurepip
+    rm -rf /usr/local/lib/python3.14/ensurepip /root/.cache /tmp/requirements.txt /app/pyproject.toml /app/uv.lock
 
 COPY app/ ./app/
 

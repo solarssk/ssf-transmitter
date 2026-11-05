@@ -43,57 +43,18 @@ jobs:
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: "3.14"
-          cache: "pip"
-          cache-dependency-path: |
-            requirements.txt
-            requirements-test.txt
-            requirements-lint.txt
-            requirements-typecheck.txt
-            requirements-security.txt
-            pyproject.toml
 
-      # requirements.txt is pip-compile output (hash-pinned) from
-      # pyproject.toml's [project.dependencies] — exactly what the Docker
-      # image installs, so CI tests the shipped versions. --only-binary
-      # :all: rules out arbitrary setup.py execution; --require-hashes
-      # verifies every downloaded artifact. No separate `pip install
-      # --upgrade pip` first — that installs pip itself without a
-      # version/hash pin, which is exactly what this step exists to avoid;
-      # actions/setup-python's bundled pip already supports
-      # --require-hashes (a long-stable flag).
-      - name: Install runtime dependencies (hash-locked)
-        run: |
-          pip install --no-cache-dir --only-binary :all: --require-hashes -r requirements.txt
+      - name: Set up uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9  # v9.0.0
+        with:
+          version: "0.11.26"
+          enable-cache: false
 
-      # requirements-{test,lint,typecheck,security}.txt are pip-compile
-      # output from pyproject.toml's matching extras — same hash-pinning
-      # discipline as the runtime lock above, one lockfile per concern
-      # (matching mail-autodiscover's layout) rather than one combined "dev"
-      # lock: pip-compile can model a bare extra like `--extra lint`
-      # directly, but `dev`'s own definition self-references
-      # `ssf-transmitter[test,lint,typecheck,security]`, which forces
-      # pip-compile to emit an unhashable, machine-local `file://` install
-      # line for the package itself — compiling the four leaf extras
-      # instead avoids that entirely. Each is compiled constrained against
-      # requirements.txt plus every extra compiled before it (see
-      # dev-dependency-lock) — both the runtime packages every extra
-      # independently re-resolves (installing "ssf-transmitter[lint]"
-      # implies its own [project.dependencies] too) and any non-runtime
-      # package two extras happen to share transitively stay pinned to one
-      # exact version/hash across all four. Without that, combining
-      # multiple independently-compiled lockfiles in one `pip install`
-      # risks two conflicting exact pins for the same package
-      # (`ResolutionImpossible`), which is exactly what an earlier version
-      # of this step's release-smoke.yml sibling hit, for fastapi.
-      # ssf-transmitter itself still can't be hash-pinned (it's this
-      # checkout, not a downloadable archive), so it installs separately,
-      # --no-deps since its dependencies are already satisfied by the four
-      # lockfiles above.
-      - name: Install dev tooling (hash-locked)
+      - name: Install dependencies from the shared lock (hash-locked)
         run: |
-          pip install --no-cache-dir --only-binary :all: --require-hashes \
-            -r requirements-test.txt -r requirements-lint.txt -r requirements-typecheck.txt -r requirements-security.txt
-          pip install --no-cache-dir --no-deps -e .
+          uv export --locked --no-dev --all-extras --no-emit-project -o /tmp/requirements-ci.txt
+          pip install --no-cache-dir --only-binary :all: --require-hashes -r /tmp/requirements-ci.txt
+          uv export --locked --no-dev --no-emit-project -o /tmp/requirements-runtime.txt
 
       - name: Lint
         run: ruff check .
@@ -172,7 +133,7 @@ jobs:
       # Audits the hash-pinned runtime set — what the Docker image actually
       # installs — rather than the loose ranges in pyproject.toml.
       - name: Audit dependencies for known vulnerabilities
-        run: pip-audit -r requirements.txt
+        run: pip-audit -r /tmp/requirements-runtime.txt
 
       - name: Build Docker image
         run: docker build -t ssf-transmitter:ci .
@@ -274,9 +235,9 @@ jobs:
           [ -n "$ok" ] || { echo "::error::container did not become healthy"; exit 1; }
 
   dependency-lock:
-    name: Verify requirements.txt matches pyproject.toml
+    name: Verify uv.lock matches pyproject.toml
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 5
     permissions:
       contents: read
     steps:
@@ -285,92 +246,16 @@ jobs:
         with:
           persist-credentials: false
 
-      # Must match the Dockerfile's base image Python version (3.14):
-      # pip-compile resolves environment-marker-conditional transitive
-      # dependencies using the interpreter it runs under, so a different
-      # version here can reproduce a spuriously different lockfile even
-      # when pyproject.toml hasn't changed.
       - name: Set up Python
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: "3.14"
-          cache: "pip"
 
-      - name: Install pip-tools (hash-locked)
-        run: |
-          pip install --no-cache-dir --only-binary :all: --require-hashes -r requirements-pip-tools.txt
-
-      # pip-compile keeps existing pins from requirements.txt while they
-      # still satisfy pyproject.toml, so re-running it without --upgrade
-      # reproduces the same file unless pyproject.toml's constraints changed
-      # without regenerating the lock to match.
-      - name: Verify requirements.txt matches pyproject.toml
-        run: |
-          pip-compile --generate-hashes --allow-unsafe -o requirements.txt pyproject.toml
-          git diff --exit-code requirements.txt
-
-  dev-dependency-lock:
-    name: Verify requirements-*.txt matches pyproject.toml
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    permissions:
-      contents: read
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - name: Set up uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9  # v9.0.0
         with:
-          persist-credentials: false
+          version: "0.11.26"
+          enable-cache: false
 
-      # Must match the Dockerfile's base image Python version (3.14), same
-      # reasoning as the dependency-lock job above: pip-compile resolves
-      # marker-conditional dependencies using whatever interpreter runs it,
-      # and this job calls pip-compile five times.
-      - name: Set up Python
-        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
-        with:
-          python-version: "3.14"
-          cache: "pip"
-
-      - name: Install pip-tools (hash-locked)
-        run: |
-          pip install --no-cache-dir --only-binary :all: --require-hashes -r requirements-pip-tools.txt
-
-      - name: Verify requirements-pip-tools.txt matches requirements-pip-tools.in
-        run: |
-          pip-compile --generate-hashes --allow-unsafe -o requirements-pip-tools.txt requirements-pip-tools.in
-          git diff --exit-code requirements-pip-tools.txt
-
-      # Each `--extra <name>` is one of pyproject.toml's leaf extras (test,
-      # lint, typecheck, security) — never `dev`, whose own definition
-      # self-references `ssf-transmitter[test,lint,typecheck,security]` and
-      # would force pip-compile to emit an unhashable, checkout-local
-      # `file://` line for the package itself (see ci.yml's "Install dev
-      # tooling" step for the full explanation).
-      #
-      # Each `-c` constrains a package this run has already pinned to that
-      # exact version and hash: `requirements.txt` for the runtime closure
-      # every extra independently re-resolves too (installing
-      # "ssf-transmitter[lint]" implies its own [project.dependencies]), and
-      # every *prior* extra in this loop for whatever they happen to share
-      # with this one that isn't a runtime package — e.g. `pytest` (test)
-      # and `pip-audit` (security) both pull in `pygments` transitively,
-      # with no runtime pin to anchor it. Constraining only against
-      # requirements.txt isn't enough: without also chaining the extras
-      # together, a Dependabot PR that bumps just one extra's range can
-      # re-resolve a shared non-runtime package to a new version there
-      # while the others' unchanged pins stay put — installing all four
-      # together (ci.yml's "Install dev tooling" step) would then hit the
-      # exact `ResolutionImpossible` this chain exists to prevent, just for
-      # a different package than the fastapi one that motivated it
-      # originally.
-      - name: Verify requirements-*.txt matches pyproject.toml
-        run: |
-          set -euo pipefail
-          constraints=(-c requirements.txt)
-          for extra in test lint typecheck security; do
-            pip-compile --extra "$extra" --generate-hashes --allow-unsafe \
-              "${constraints[@]}" -o "requirements-${extra}.txt" pyproject.toml
-            constraints+=(-c "requirements-${extra}.txt")
-          done
-          git diff --exit-code requirements-test.txt requirements-lint.txt \
-            requirements-typecheck.txt requirements-security.txt
+      - name: Verify the shared lock
+        run: uv lock --check
