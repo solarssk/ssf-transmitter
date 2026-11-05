@@ -9,6 +9,10 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Changed
+- Replace six independently maintained pip-tools lockfiles with one native `uv.lock` shared by runtime and tooling. Dependabot now updates the root `uv` ecosystem; CI, Docker, release smoke tests, and dependency snapshots export from that lock with hash verification and binary-only installs. No operator configuration or database changes.
+- Update FastAPI to 0.161.0, Hypothesis to 6.170.5, Ruff to 0.17.2, and Zizmor to 1.31.1.
+
 ---
 
 ## [0.5.16] — 2026-10-27 — Dependency updates and tooling security fixes

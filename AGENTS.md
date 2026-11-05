@@ -101,16 +101,17 @@ When changing auth, tokens, streams, or outbound HTTP, add or extend tests in `t
 ## Development commands
 
 ```bash
-python3.14 -m venv .venv && . .venv/bin/activate
-pip install -e ".[dev]"
-ruff check .
-pytest
-deptry .
+uv sync --locked --all-extras
+uv run --no-sync ruff check .
+uv run --no-sync pytest
+uv run --no-sync deptry .
 ```
 
 Copy [`.env.example`](.env.example) for local env vars. Tests use defaults from `tests/conftest.py` (`.testdata/` for keys + DB).
 
-Dependencies are declared as loose ranges in `pyproject.toml`: `[project.dependencies]` for runtime, `[project.optional-dependencies]` extras (`test`, `lint`, `typecheck`, `security`, `dev`) for tooling — the same layout as the other repos and the Playbook's [hash-pinned lockfile recipe](https://github.com/solarssk/playbook/blob/main/docs/ci-cookbook.md#14-hash-pinned-dependency-lockfile-python-pip-compile). CI hash-pins every *declared* dependency it installs, runtime and dev tooling alike (the one gap: `pip install --no-deps -e .` still builds `ssf-transmitter` itself in an isolated build environment that fetches `hatchling` — `[build-system].requires` — unpinned; pre-existing, not something this lockfile work changed). `requirements.txt` locks `[project.dependencies]` (what the Dockerfile and CI's runtime install use), and `requirements-test.txt` / `requirements-lint.txt` / `requirements-typecheck.txt` / `requirements-security.txt` each lock one leaf extra (matching mail-autodiscover's layout — never the `dev` extra directly, since its own definition self-references `ssf-transmitter[test,lint,typecheck,security]`, which would force pip-compile to emit an unhashable, checkout-local `file://` line for the package itself). Each of the four is compiled with `-c requirements.txt` **plus** `-c` on every extra compiled before it in `test`/`lint`/`typecheck`/`security` order: installing e.g. `ssf-transmitter[lint]` implies installing its own `[project.dependencies]` too, so without the `requirements.txt` constraint each extra's independent resolution of the shared runtime packages can drift from `requirements.txt`'s — passing two independently-compiled lockfiles with different exact pins for the same package to one `pip install` fails outright (`ResolutionImpossible`), which is exactly what an early version of this hash-pinning work did, for `fastapi`. The same failure mode reaches non-runtime packages too if only `requirements.txt` constrains the four — `pytest` (`test`) and `pip-audit` (`security`) both pull in `pygments` transitively, with nothing runtime-side to anchor it — so each extra also constrains against every extra compiled before it, chaining all four into mutual agreement. `requirements-pip-tools.txt` (from `requirements-pip-tools.in`) hash-pins the `pip-tools` bootstrap itself, so regenerating any lockfile in CI never runs an unverified install. Local dev setup above still floats within `dev`'s ranges, for iteration speed. Dependabot bumps the ranges in `pyproject.toml` and regenerates all six lockfiles itself. To regenerate manually, use the pinned `pip-tools==7.6.1` under Python 3.14 (it must match the Dockerfile's base image: `pip-compile` resolves marker-conditional dependencies using whatever interpreter runs it): `pip-compile --generate-hashes --allow-unsafe -o requirements.txt pyproject.toml`, then for each of `test`/`lint`/`typecheck`/`security` in that order, `pip-compile --extra <name> --generate-hashes --allow-unsafe -c requirements.txt -c requirements-<previous>.txt ... -o requirements-<name>.txt pyproject.toml` (accumulating one more `-c` per extra already regenerated — `ci.yml`'s `dev-dependency-lock` job builds this list in a loop rather than spelling out four fixed commands). CI's `dependency-lock` and `dev-dependency-lock` jobs fail if any of the six drift apart from `pyproject.toml` / `requirements-pip-tools.in`.
+Dependencies are declared as ranges in `pyproject.toml`. **`uv.lock` is the single committed resolution for runtime and all tooling extras** (`test`, `lint`, `typecheck`, `security`, `dev`). Use uv 0.11.26 and Python 3.14, matching CI and the Docker export stage. Run `uv lock` after editing dependencies; use `uv lock --upgrade-package <name>` for a targeted update or `uv lock --upgrade` for an intentional full refresh. Commit `pyproject.toml` and `uv.lock` together. Dependabot uses the native `uv` ecosystem at the repository root; `.clusterfuzzlite` retains its independent pip lock and Python compatibility rules.
+
+CI checks `uv lock --check`. CI, release smoke tests, the dependency snapshot, and Docker export their required subset directly with `uv export --locked --no-dev --no-emit-project` (plus `--all-extras` or `--extra test` for tooling). They install the exported requirements with `pip --only-binary :all: --require-hashes`. Do not commit those exports or restore the old six pip-tools lockfiles: that recreates independent sources of truth. The service imports `app` directly from the checkout/image, so these paths do not need an editable project installation or an unpinned isolated hatchling build. The standalone `uv sync` developer setup may build the local project.
 
 ---
 
@@ -154,7 +155,7 @@ Prefer **focused regression tests** over broad mocks. Security fixes should incl
 | Calling `push_verification_set` without mocking in tests | Flaky CI / real network calls |
 | Returning `endpoint_url_token` in stream GET responses | Token leak |
 | Using `logger.error` for quarantine/warning paths | Startup uses ✅/⚠️/❌ semantics; warnings should be `logger.warning` |
-| Editing `[project.dependencies]` in `pyproject.toml` without regenerating `requirements.txt` | The Dockerfile and CI's runtime install use the hash-pinned `requirements.txt` (`pip install --require-hashes`), not the ranges. If the previously-pinned version still satisfies the new range, the install **succeeds silently on the stale pin**: no error. Regenerate with the `pip-compile` command above (CI's `dependency-lock` job catches drift either way) |
+| Editing dependencies without updating `uv.lock` | Run `uv lock` and commit it with `pyproject.toml`; CI and Docker use locked exports and reject stale metadata. |
 
 ---
 

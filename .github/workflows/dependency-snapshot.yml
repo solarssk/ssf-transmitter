@@ -37,15 +37,17 @@ jobs:
         with:
           persist-credentials: false
 
-      # Trivy's pip analyzer only recognizes a file literally named
-      # requirements.txt, which is exactly what the hash-pinned runtime lock
-      # is called — copied to an otherwise empty directory so the scan sees
-      # just the resolved runtime dependency set (the dev tooling floats and
-      # isn't part of the shipped image).
+      - name: Set up uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9  # v9.0.0
+        with:
+          version: "0.11.26"
+          enable-cache: false
+
+      # Submit only the runtime closure used by the image.
       - name: Prepare resolved dependency manifest
         run: |
           mkdir -p /tmp/dependency-snapshot-src
-          cp requirements.txt /tmp/dependency-snapshot-src/requirements.txt
+          uv export --locked --no-dev --no-emit-project -o /tmp/dependency-snapshot-src/requirements.txt
 
       - name: Submit dependency snapshot
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
