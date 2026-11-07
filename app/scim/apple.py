@@ -205,6 +205,7 @@ def _apple_single_page(data: dict, requested_count: int) -> list[dict] | None:
 
 
 def _index_user_list(users: list[dict]) -> tuple[dict[str, dict], dict[str, dict]]:
+    """Build unique externalId and userName indexes for an Apple listing."""
     by_ext_id: dict[str, dict] = {}
     by_username: dict[str, dict] = {}
     seen_ids: set[str] = set()
@@ -239,8 +240,8 @@ async def _get_existing_users(client: httpx.AsyncClient, headers: dict) -> tuple
     return by_ext_id, by_username
 
 
-def _validate_filtered_user(data: dict, attribute: str, expected: str) -> dict | None:
-    """Validate an exact-match response before using it as identity evidence."""
+def _filtered_resources(data: dict) -> list[dict]:
+    """Validate filtered response metadata and return at most one resource."""
     total = data.get("totalResults")
     if type(total) is not int or total < 0:
         raise AppleUserListError("Apple SCIM filtered lookup has an invalid totalResults")
@@ -255,7 +256,13 @@ def _validate_filtered_user(data: dict, attribute: str, expected: str) -> dict |
         raise AppleUserListError("Apple SCIM filtered lookup has inconsistent result counts")
     if total > 1:
         raise AppleUserListError("Apple SCIM filtered lookup returned multiple matching users")
-    if total == 0:
+    return resources
+
+
+def _validate_filtered_user(data: dict, attribute: str, expected: str) -> dict | None:
+    """Validate an exact-match response before using it as identity evidence."""
+    resources = _filtered_resources(data)
+    if not resources:
         return None
 
     user = resources[0]
@@ -307,6 +314,7 @@ def _source_identities(scim_users: list[dict]) -> list[tuple[str, str]]:
 async def _lookup_filtered_user(
     client: httpx.AsyncClient, headers: dict, attribute: str, value: str, sampled: dict | None
 ) -> dict | None:
+    """Look up one identity and reject disagreement with the initial sample."""
     literal = quote(json.dumps(value, ensure_ascii=False), safe="")
     url = f"{APPLE_SCIM_BASE}/Users?filter={attribute}%20eq%20{literal}&count={_FILTER_LOOKUP_COUNT}"
     data = await _fetch_users_page(client, headers, url)
@@ -317,6 +325,7 @@ async def _lookup_filtered_user(
 
 
 def _record_filtered_identity(by_id: dict[str, dict], found: dict | None) -> None:
+    """Reject inconsistent filter results that claim the same Apple user ID."""
     if found is None:
         return
     previous = by_id.get(found["id"])
@@ -934,6 +943,7 @@ def _match_apple_user(
 
 
 async def _verify_created_user(client: httpx.AsyncClient, headers: dict, user: dict, response: httpx.Response) -> bool:
+    """Check a created user against both identity filters and a direct read."""
     try:
         created = response.json()
     except ValueError:
@@ -995,6 +1005,7 @@ async def _create_user(
 
 
 def _log_sync_start(scim_users: list[dict], by_ext_id: dict, by_username: dict, *, filtered: bool = False) -> None:
+    """Log source and matched-user counts without exposing individual identities."""
     # Count users that will be recovered via userName fallback — mirrors the
     # sync loop condition exactly: externalId miss AND username match has no
     # externalId of its own (so we won't overwrite an unrelated record).
