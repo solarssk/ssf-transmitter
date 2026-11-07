@@ -9,6 +9,9 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Fixed
+- Handle the observed Apple SCIM listing and filter metadata using preflighted individual identity lookups, without assuming the Apple listing is complete. Exact-filter completeness remains an Apple API dependency.
+
 ---
 
 ## [0.5.17] — 2026-11-05 — Apple SCIM safety and reliable SET delivery

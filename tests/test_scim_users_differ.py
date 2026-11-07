@@ -551,6 +551,73 @@ class _FakeAppleClient:
         return _FakeResponse(404, {})
 
 
+class _FilterResponseClient(_FakeAppleClient):
+    """Fake Apple client with a specific filtered lookup response."""
+
+    def __init__(self, payload, **kwargs):
+        super().__init__(30.0, **kwargs)
+        self.payload = payload
+
+    async def get(self, url, headers):
+        """Return the preset filter response and delegate other requests."""
+        if "filter=" in url:
+            self.requests.append(("GET", url, None))
+            return _FakeResponse(200, self.payload)
+        return await super().get(url, headers)
+
+
+class _ObservedAppleClient(_FakeAppleClient):
+    """Fake the Apple listing and exact-filter formats observed in production."""
+
+    def __init__(self, *, apple_users=None, sample_users=None, filter_overrides=None, appearing_user=None, **kwargs):
+        super().__init__(30.0, apple_users=apple_users, **kwargs)
+        self.sample_users = sample_users
+        self.filter_overrides = filter_overrides or {}
+        self.appearing_user = appearing_user
+
+    async def get(self, url, headers):
+        """Simulate Apple's listing and filter metadata or return a direct user."""
+        if "/Users/" in url and "filter=" not in url:
+            return await super().get(url, headers)
+        if "filter=" in url:
+            self.requests.append(("GET", url, None))
+            query = parse_qs(urlsplit(url).query)
+            attribute, literal = query["filter"][0].split(" eq ", 1)
+            value = json.loads(literal)
+            assert query["count"] == ["2"]
+            override = self.filter_overrides.get((attribute, value))
+            if isinstance(override, httpx.HTTPError):
+                raise override
+            if override is not None:
+                return override
+            users = [
+                user
+                for user in self.apple_users
+                if (
+                    apple._normalize_identifier(user.get(attribute)) == apple._normalize_identifier(value)
+                    if attribute == "userName"
+                    else str(user.get(attribute) or "").strip() == value
+                )
+            ]
+            payload = {"totalResults": len(users), "startIndex": 0, "itemsPerPage": len(users)}
+            if users:
+                payload["Resources"] = users
+            return _FakeResponse(200, payload)
+
+        self.requests.append(("GET", url, None))
+        users = self.apple_users[:200] if self.sample_users is None else self.sample_users
+        return _FakeResponse(
+            200, {"Resources": users, "totalResults": len(users), "startIndex": len(users) + 1, "itemsPerPage": 200}
+        )
+
+    async def post(self, url, json, headers):
+        """Simulate an account appearing between preflight and a create conflict."""
+        response = await super().post(url, json, headers)
+        if response.status_code == 409 and self.appearing_user is not None:
+            self.apple_users.append(self.appearing_user)
+        return response
+
+
 def _install_fake_apple_client(
     monkeypatch,
     *,
@@ -600,6 +667,17 @@ def _apple_existing(external_id="1", username="user@example.com", email="user@ex
     if external_id is not None:
         user["externalId"] = external_id
     return user
+
+
+def _apple_user_list(count: int) -> list[dict]:
+    """Build distinct Apple identities for listing and pagination tests."""
+    users = []
+    for index in range(1, count + 1):
+        username = f"user{index}@example.com"
+        user = _apple_existing(external_id=str(index), username=username, email=username)
+        user["id"] = f"apple-{index}"
+        users.append(user)
+    return users
 
 
 def _authentik_scim(external_id="1", username="user@example.com", email="user@example.com"):
@@ -1271,6 +1349,464 @@ async def test_complete_listing_accepts_missing_optional_pagination_metadata():
 
 
 @pytest.mark.anyio
+async def test_sync_accepts_observed_apple_single_page_metadata(monkeypatch):
+    """A count-relative Apple listing triggers verified individual lookups."""
+    users = _apple_user_list(7)
+    client = _ObservedAppleClient(apple_users=users)
+    monkeypatch.setattr(apple.httpx, "AsyncClient", lambda timeout: client)
+
+    result = await apple.sync_users(
+        "token",
+        [_authentik_scim(external_id="7", username="user7@example.com", email="user7@example.com")],
+    )
+
+    assert result.unchanged == 1
+    assert result.created == result.updated == result.errors == result.conflicts == 0
+    assert [method for method, _, _ in client.requests] == ["GET"] * 4
+    assert client.requests[0][1].endswith("/Users?count=200")
+    assert "externalId%20eq%20" in client.requests[1][1]
+    assert "userName%20eq%20" in client.requests[2][1]
+    assert client.requests[3][1].endswith("/Users/apple-7")
+
+
+@pytest.mark.anyio
+async def test_apple_empty_single_page_metadata_can_create_user(monkeypatch):
+    """Creation requires empty responses to both individual filters."""
+    client = _ObservedAppleClient()
+    monkeypatch.setattr(apple.httpx, "AsyncClient", lambda timeout: client)
+
+    result = await apple.sync_users("token", [_authentik_scim()])
+
+    assert result.created == 1
+    assert [method for method, _, _ in client.requests] == ["GET", "GET", "GET", "POST", "GET", "GET", "GET"]
+
+
+@pytest.mark.anyio
+async def test_apple_single_page_finds_user_beyond_200(monkeypatch):
+    """A full Apple sample does not hide a matching user outside the sample."""
+    users = _apple_user_list(201)
+    client = _ObservedAppleClient(apple_users=users)
+    monkeypatch.setattr(apple.httpx, "AsyncClient", lambda timeout: client)
+
+    result = await apple.sync_users(
+        "token",
+        [_authentik_scim(external_id="201", username="user201@example.com", email="user201@example.com")],
+    )
+
+    assert result.unchanged == 1
+    assert [method for method, _, _ in client.requests] == ["GET"] * 4
+    assert client.requests[-1][1].endswith("/Users/apple-201")
+
+
+@pytest.mark.anyio
+async def test_standard_pagination_accepts_a_full_first_page(monkeypatch):
+    """The Apple compatibility limit does not replace standard multi-page validation."""
+    users = _apple_user_list(201)
+    holder = _install_fake_apple_client(
+        monkeypatch,
+        list_pages=[
+            _FakeResponse(200, {"Resources": users[:200], "totalResults": 201, "startIndex": 1, "itemsPerPage": 200}),
+            _FakeResponse(200, {"Resources": users[200:], "totalResults": 201, "startIndex": 201, "itemsPerPage": 1}),
+        ],
+    )
+
+    result = await apple.sync_users(
+        "token",
+        [_authentik_scim(external_id="201", username="user201@example.com", email="user201@example.com")],
+    )
+
+    assert result.unchanged == 1
+    assert [method for method, _, _ in holder["client"].requests] == ["GET", "GET"]
+    assert holder["client"].requests[1][1].endswith("/Users?count=200&startIndex=201")
+
+
+@pytest.mark.anyio
+async def test_apple_single_page_uses_confirmed_user_attributes(monkeypatch):
+    """The exact GET is used when non-identity fields changed since the sample."""
+    first = _apple_existing(email="old@example.com")
+    confirmed = _apple_existing(email="user@example.com")
+    client = _ObservedAppleClient(apple_users=[confirmed], sample_users=[first])
+    monkeypatch.setattr(apple.httpx, "AsyncClient", lambda timeout: client)
+
+    result = await apple.sync_users("token", [_authentik_scim()])
+
+    assert result.unchanged == 1
+    assert [method for method, _, _ in client.requests] == ["GET"] * 4
+
+
+@pytest.mark.anyio
+async def test_hidden_lower_listing_limit_does_not_create_duplicate(monkeypatch):
+    """A user missing from the first listing is found via both filters."""
+    first, target = _apple_user_list(2)
+    target["emails"][0]["value"] = "stale@example.com"
+    client = _ObservedAppleClient(apple_users=[first, target], sample_users=[first])
+    monkeypatch.setattr(apple.httpx, "AsyncClient", lambda timeout: client)
+
+    result = await apple.sync_users(
+        "token",
+        [_authentik_scim(external_id="2", username="user2@example.com", email="user2@example.com")],
+    )
+
+    assert result.updated == 1
+    assert result.created == result.errors == result.conflicts == 0
+    assert [method for method, _, _ in client.requests] == ["GET", "GET", "GET", "GET", "PATCH"]
+    assert client.requests[-1][1].endswith("/Users/apple-2")
+
+
+@pytest.mark.anyio
+async def test_filtered_external_id_preserves_link_after_username_change(monkeypatch):
+    """A stable externalId keeps the original Apple account linked after a rename."""
+    existing = _apple_existing(username="old@example.com", email="old@example.com")
+    client = _ObservedAppleClient(apple_users=[existing])
+    monkeypatch.setattr(apple.httpx, "AsyncClient", lambda timeout: client)
+
+    result = await apple.sync_users("token", [_authentik_scim(username="new@example.com", email="new@example.com")])
+
+    assert result.updated == 1
+    assert result.created == result.conflicts == result.errors == 0
+    assert existing["userName"] == "new@example.com"
+    assert existing["externalId"] == "1"
+    assert all(method != "POST" for method, _, _ in client.requests)
+
+
+@pytest.mark.anyio
+async def test_filtered_lookup_detects_username_owned_by_different_user(monkeypatch):
+    """A username owned by another Apple account cannot be reassigned."""
+    first = _apple_existing(external_id="1", username="old@example.com")
+    second = _apple_existing(external_id="2", username="new@example.com")
+    second["id"] = "apple-2"
+    client = _ObservedAppleClient(apple_users=[first, second])
+    monkeypatch.setattr(apple.httpx, "AsyncClient", lambda timeout: client)
+
+    result = await apple.sync_users("token", [_authentik_scim(external_id="1", username="new@example.com")])
+
+    assert result.conflicts == 1
+    assert result.created == result.updated == result.errors == 0
+    assert all(method == "GET" for method, _, _ in client.requests)
+
+
+@pytest.mark.anyio
+async def test_filtered_lookup_does_not_automatically_adopt_unlinked_account(monkeypatch):
+    """An unlinked Apple account remains untouched without recovery opt-in."""
+    existing = _apple_existing(external_id=None)
+    client = _ObservedAppleClient(apple_users=[existing])
+    monkeypatch.setattr(apple.httpx, "AsyncClient", lambda timeout: client)
+
+    result = await apple.sync_users("token", [_authentik_scim()])
+
+    assert result.conflicts == 1
+    assert result.created == result.updated == result.errors == 0
+    assert all(method == "GET" for method, _, _ in client.requests)
+
+
+@pytest.mark.anyio
+async def test_filtered_lookup_opt_in_verifies_unlinked_account(monkeypatch, allow_username_recovery):
+    """Opted-in username recovery links and reads back the unlinked account."""
+    existing = _apple_existing(external_id=None)
+    client = _ObservedAppleClient(apple_users=[existing])
+    monkeypatch.setattr(apple.httpx, "AsyncClient", lambda timeout: client)
+
+    result = await apple.sync_users("token", [_authentik_scim()])
+
+    assert result.updated == 1
+    assert result.conflicts == result.created == result.errors == 0
+    assert existing["externalId"] == "1"
+    assert [method for method, _, _ in client.requests] == ["GET", "GET", "GET", "GET", "PATCH", "GET"]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("failure", ["network", "non_200", "bad_json", "mismatch", "malformed_name"])
+async def test_filtered_exact_user_verification_failure_aborts_before_writes(monkeypatch, failure):
+    """A failed direct user read aborts the sync before any Apple writes."""
+    existing = _apple_existing(email="stale@example.com")
+    user = _authentik_scim()
+    client = _ObservedAppleClient(apple_users=[existing], verification_failure=failure)
+    monkeypatch.setattr(apple.httpx, "AsyncClient", lambda timeout: client)
+
+    with pytest.raises(apple.AppleUserListError):
+        await apple.sync_users("token", [user])
+
+    assert [method for method, _, _ in client.requests] == ["GET"] * 4
+
+
+@pytest.mark.anyio
+async def test_filtered_lookups_disagreeing_about_same_id_abort(monkeypatch):
+    """Filters cannot associate the same Apple ID with different externalIds."""
+    existing = _apple_existing()
+    user = _authentik_scim()
+    conflicting = {**existing, "externalId": "other"}
+    override = _FakeResponse(200, {"Resources": [conflicting], "totalResults": 1, "startIndex": 0, "itemsPerPage": 1})
+    client = _ObservedAppleClient(
+        apple_users=[existing], sample_users=[], filter_overrides={("userName", "user@example.com"): override}
+    )
+    monkeypatch.setattr(apple.httpx, "AsyncClient", lambda timeout: client)
+
+    with pytest.raises(apple.AppleUserListError, match="disagree"):
+        await apple.sync_users("token", [user])
+
+    assert [method for method, _, _ in client.requests] == ["GET"] * 3
+
+
+@pytest.mark.anyio
+async def test_filtered_negative_conflicting_with_verified_user_aborts(monkeypatch):
+    """A negative username lookup cannot contradict the externalId match."""
+    existing = _apple_existing()
+    user = _authentik_scim()
+    empty = _FakeResponse(200, {"totalResults": 0, "startIndex": 0, "itemsPerPage": 0})
+    client = _ObservedAppleClient(
+        apple_users=[existing], sample_users=[], filter_overrides={("userName", "user@example.com"): empty}
+    )
+    monkeypatch.setattr(apple.httpx, "AsyncClient", lambda timeout: client)
+
+    with pytest.raises(apple.AppleUserListError, match="inconsistent identities"):
+        await apple.sync_users("token", [user])
+
+    assert [method for method, _, _ in client.requests] == ["GET"] * 4
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("invalid", ["missing_external_id", "missing_username", "non_string_username"])
+async def test_filtered_preflight_rejects_invalid_source_identity(monkeypatch, invalid):
+    """Invalid source identities stop preflight before lookups or writes."""
+    user = _authentik_scim()
+    if invalid == "missing_external_id":
+        user["externalId"] = ""
+    elif invalid == "missing_username":
+        user["userName"] = " "
+    else:
+        user["userName"] = None
+    client = _ObservedAppleClient()
+    monkeypatch.setattr(apple.httpx, "AsyncClient", lambda timeout: client)
+
+    with pytest.raises(apple.AppleUserListError, match="invalid identity"):
+        await apple.sync_users("token", [user])
+
+    assert [method for method, _, _ in client.requests] == ["GET"]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("duplicate", ["external_id", "username"])
+async def test_filtered_preflight_rejects_duplicate_source_identities(monkeypatch, duplicate):
+    """Duplicate source IDs or case-insensitive usernames stop preflight."""
+    first = _authentik_scim()
+    second = _authentik_scim(external_id="2", username="second@example.com")
+    if duplicate == "external_id":
+        second["externalId"] = "1"
+    else:
+        second["userName"] = "USER@example.com"
+    client = _ObservedAppleClient()
+    monkeypatch.setattr(apple.httpx, "AsyncClient", lambda timeout: client)
+
+    with pytest.raises(apple.AppleUserListError, match="duplicate identities"):
+        await apple.sync_users("token", [first, second])
+
+    assert [method for method, _, _ in client.requests] == ["GET"]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("bad_response", ["missing_id", "wrong_id", "filter_failure", "bad_json"])
+async def test_filtered_create_never_reports_unverified_success(monkeypatch, caplog, bad_response):
+    """A possibly successful create is not counted until identity verification succeeds."""
+
+    class Client(_ObservedAppleClient):
+        async def post(self, url, json, headers):
+            """Inject an unverifiable create response or subsequent filter failure."""
+            response = await super().post(url, json, headers)
+            if bad_response == "filter_failure":
+                self.filter_overrides[("externalId", "1")] = _FakeResponse(500)
+            elif bad_response == "missing_id":
+                return _FakeResponse(201, {})
+            elif bad_response == "bad_json":
+                return _FakeResponse(201, bad_json=True)
+            else:
+                return _FakeResponse(201, {"id": "wrong-id"})
+            return response
+
+    client = Client()
+    monkeypatch.setattr(apple.httpx, "AsyncClient", lambda timeout: client)
+
+    result = await apple.sync_users("token", [_authentik_scim()])
+
+    assert result.errors == 1
+    assert result.created == result.updated == result.conflicts == 0
+    assert [method for method, _, _ in client.requests].count("POST") == 1
+    assert "create may have succeeded" in caplog.text
+    assert "user@example.com" not in caplog.text
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("attribute", ["externalId", "userName"])
+async def test_individual_filter_escapes_scim_string_literal(attribute):
+    """Quotes and backslashes remain inside one exact-match filter literal."""
+    value = 'a"\\name@example.com'
+    client = _ObservedAppleClient()
+
+    assert await apple._lookup_filtered_user(client, {}, attribute, value, None) is None
+
+    query = parse_qs(urlsplit(client.requests[0][1]).query)
+    encoded_literal = query["filter"][0].removeprefix(f"{attribute} eq ")
+    assert json.loads(encoded_literal) == value
+    assert query["count"] == ["2"]
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"totalResults": True, "Resources": []},
+        {"totalResults": -1, "Resources": []},
+        {"totalResults": 0, "Resources": None},
+        {"totalResults": 1},
+        {"totalResults": 1, "startIndex": False, "Resources": [_apple_existing()]},
+        {"totalResults": 1, "itemsPerPage": True, "Resources": [_apple_existing()]},
+        {"totalResults": 1, "Resources": ["invalid"]},
+        {"totalResults": 1, "Resources": [{**_apple_existing(), "id": "../other"}]},
+        {"totalResults": 1, "Resources": [{**_apple_existing(), "userName": ""}]},
+    ],
+)
+def test_filtered_lookup_rejects_invalid_identity_or_metadata(payload):
+    """Malformed metadata and unsafe user identities cannot become match evidence."""
+    with pytest.raises(apple.AppleUserListError):
+        apple._validate_filtered_user(payload, "externalId", "1")
+
+
+def test_filtered_lookup_accepts_observed_empty_apple_response():
+    """Apple may omit Resources for an empty zero-based filter result."""
+    payload = {"totalResults": 0, "startIndex": 0, "itemsPerPage": 0}
+    assert apple._validate_filtered_user(payload, "externalId", "missing") is None
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "failure",
+    [
+        "http_error",
+        "network",
+        "bad_json",
+        "wrong_metadata",
+        "missing_user",
+        "changed_id",
+        "changed_username",
+        "changed_external_id",
+        "duplicate_identity",
+        "invalid_name",
+        "null_resources",
+        "inconsistent_count",
+    ],
+)
+async def test_apple_filtered_lookup_failure_aborts_all_writes(monkeypatch, failure):
+    """Failure on a later identity stops earlier accounts from being updated."""
+    first = _apple_existing(email="stale@example.com")
+    second = _apple_existing(external_id="2", username="second@example.com", email="second@example.com")
+    second["id"] = "apple-2"
+    found = dict(second)
+    users = [found]
+    if failure == "missing_user":
+        users = []
+    elif failure == "changed_id":
+        found["id"] = "apple-3"
+    elif failure == "changed_username":
+        found["userName"] = "other@example.com"
+    elif failure == "changed_external_id":
+        found["externalId"] = "3"
+    elif failure == "duplicate_identity":
+        users.append({**found, "id": "apple-3", "userName": "other@example.com"})
+    elif failure == "invalid_name":
+        found["name"] = None
+
+    payload = {
+        "Resources": users,
+        "totalResults": len(users),
+        "startIndex": 9 if failure == "wrong_metadata" else 0,
+        "itemsPerPage": len(users),
+    }
+    if failure == "null_resources":
+        payload.update(Resources=None, totalResults=0, itemsPerPage=0)
+    elif failure == "inconsistent_count":
+        payload["totalResults"] = 2
+    if failure == "network":
+        response = httpx.ConnectError("connection refused")
+    elif failure == "http_error":
+        response = _FakeResponse(500)
+    elif failure == "bad_json":
+        response = _FakeResponse(200, bad_json=True)
+    else:
+        response = _FakeResponse(200, payload)
+    client = _ObservedAppleClient(
+        apple_users=[first, second],
+        filter_overrides={("externalId", "2"): response},
+    )
+    monkeypatch.setattr(apple.httpx, "AsyncClient", lambda timeout: client)
+    source_users = [
+        _authentik_scim(email="fresh@example.com"),
+        _authentik_scim(external_id="2", username="second@example.com", email="second@example.com"),
+    ]
+
+    with pytest.raises(apple.AppleUserListError):
+        await apple.sync_users("token", source_users)
+
+    assert [method for method, _, _ in client.requests] == ["GET"] * 4
+
+
+@pytest.mark.anyio
+async def test_apple_single_page_exceeding_requested_count_aborts_before_writes(monkeypatch):
+    """A page-local response cannot contain more users than requested."""
+    users = _apple_user_list(201)
+    user = _authentik_scim()
+    page = {"Resources": users, "totalResults": 201, "startIndex": 202, "itemsPerPage": 200}
+    holder = _install_fake_apple_client(monkeypatch, list_pages=[_FakeResponse(200, page)])
+
+    with pytest.raises(apple.AppleUserListError, match="exceeds the requested count"):
+        await apple.sync_users("token", [user])
+
+    assert [method for method, _, _ in holder["client"].requests] == ["GET"]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "wrong_start",
+        "wrong_total",
+        "wrong_count",
+        "bool_total",
+        "bool_start",
+        "bool_count",
+        "duplicate_id",
+        "invalid_resource",
+    ],
+)
+async def test_invalid_apple_single_page_metadata_aborts_before_writes(monkeypatch, mutation):
+    """The compatibility path still rejects malformed or ambiguous listings."""
+    first = _apple_existing()
+    second = _apple_existing(external_id="2", username="second@example.com")
+    user = _authentik_scim()
+    second["id"] = "apple-2"
+    page = {"Resources": [first, second], "totalResults": 2, "startIndex": 3, "itemsPerPage": 200}
+    if mutation == "wrong_start":
+        page["startIndex"] = 4
+    elif mutation == "wrong_total":
+        page["totalResults"] = 3
+    elif mutation == "wrong_count":
+        page["itemsPerPage"] = 199
+    elif mutation == "bool_total":
+        page["totalResults"] = True
+    elif mutation == "bool_start":
+        page["startIndex"] = True
+    elif mutation == "bool_count":
+        page["itemsPerPage"] = True
+    elif mutation == "duplicate_id":
+        second["id"] = first["id"]
+    else:
+        page["Resources"] = [first, "not a user"]
+    holder = _install_fake_apple_client(monkeypatch, list_pages=[_FakeResponse(200, page)])
+
+    with pytest.raises(apple.AppleUserListError):
+        await apple.sync_users("token", [user])
+
+    assert [method for method, _, _ in holder["client"].requests] == ["GET"]
+
+
+@pytest.mark.anyio
 async def test_empty_listing_without_resources_can_create_a_user(monkeypatch):
     """A valid empty Apple listing permits creation of a new user."""
     holder = _install_fake_apple_client(monkeypatch, list_pages=[_FakeResponse(200, {"totalResults": 0})])
@@ -1395,6 +1931,146 @@ async def test_handle_409_opt_in_verifies_link_before_updating(allow_username_re
 
 
 @pytest.mark.anyio
+async def test_handle_409_accepts_observed_zero_based_filter_metadata(allow_username_recovery):
+    """Apple's zero-based filter result still requires a verified identity repair."""
+    found = _apple_existing(external_id=None, email="old@example.com")
+    payload = {"Resources": [found], "totalResults": 1, "startIndex": 0, "itemsPerPage": 1}
+    fake_client = _FilterResponseClient(payload, apple_users=[found])
+    result = apple.SyncResult()
+
+    await apple._handle_409(fake_client, {}, _authentik_scim(email="new@example.com"), result)
+
+    assert result.updated == 2
+    assert result.errors == result.conflicts == 0
+    assert [method for method, _, _ in fake_client.requests] == ["GET", "GET", "PATCH", "GET", "PATCH"]
+    assert found["externalId"] == "1"
+    assert parse_qs(urlsplit(fake_client.requests[0][1]).query)["count"] == ["2"]
+
+
+@pytest.mark.anyio
+async def test_sync_handles_both_observed_apple_metadata_formats(monkeypatch, allow_username_recovery):
+    """An account appearing after the initial listing is verified before 409 recovery."""
+    found = _apple_existing(external_id=None, email="old@example.com")
+    other = _apple_existing(external_id="2", username="other@example.com", email="other@example.com")
+    other["id"] = "apple-2"
+    fake_client = _ObservedAppleClient(apple_users=[other], appearing_user=found, simulate_409=True)
+    monkeypatch.setattr(apple.httpx, "AsyncClient", lambda timeout: fake_client)
+
+    result = await apple.sync_users("token", [_authentik_scim(email="new@example.com")])
+
+    assert result.updated == 2
+    assert result.created == result.errors == result.conflicts == 0
+    assert [method for method, _, _ in fake_client.requests] == [
+        "GET",
+        "GET",
+        "GET",
+        "POST",
+        "GET",
+        "GET",
+        "GET",
+        "GET",
+        "GET",
+        "PATCH",
+        "GET",
+        "PATCH",
+    ]
+    assert found["externalId"] == "1"
+    assert found["emails"][0]["value"] == "new@example.com"
+
+
+@pytest.mark.anyio
+async def test_zero_based_filter_does_not_enable_username_only_recovery():
+    """A verified unlinked account still needs the operator's explicit opt-in."""
+    found = _apple_existing(external_id=None)
+    payload = {"Resources": [found], "totalResults": 1, "startIndex": 0, "itemsPerPage": 1}
+    fake_client = _FilterResponseClient(payload, apple_users=[found])
+    result = apple.SyncResult()
+
+    await apple._handle_409(fake_client, {}, _authentik_scim(), result)
+
+    assert result.conflicts == 1
+    assert result.errors == result.updated == 0
+    assert [method for method, _, _ in fake_client.requests] == ["GET", "GET"]
+
+
+@pytest.mark.anyio
+async def test_zero_based_filter_uses_latest_verified_attributes():
+    """Reconciliation uses the fresh listing, not stale filtered attributes."""
+    filtered = _apple_existing(email="old@example.com")
+    listed = _apple_existing(email="user@example.com")
+    payload = {"Resources": [filtered], "totalResults": 1, "startIndex": 0, "itemsPerPage": 1}
+    fake_client = _FilterResponseClient(payload, apple_users=[listed])
+    result = apple.SyncResult()
+
+    await apple._handle_409(fake_client, {}, _authentik_scim(), result)
+
+    assert result.unchanged == 1
+    assert result.updated == result.errors == result.conflicts == 0
+    assert [method for method, _, _ in fake_client.requests] == ["GET", "GET"]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("failure", ["missing", "different_id", "different_external_id", "duplicate", "list_error"])
+async def test_zero_based_filter_must_agree_with_full_listing(allow_username_recovery, failure):
+    """A singleton filter response cannot hide a missing, different, or duplicate account."""
+    found = _apple_existing(external_id=None, email="old@example.com")
+    listed = dict(found)
+    users = [] if failure == "missing" else [listed]
+    if failure == "different_id":
+        listed["id"] = "apple-2"
+    elif failure == "different_external_id":
+        listed["externalId"] = "2"
+    elif failure == "duplicate":
+        users.append({**listed, "id": "apple-2"})
+
+    payload = {"Resources": [found], "totalResults": 1, "startIndex": 0, "itemsPerPage": 1}
+    fake_client = _FilterResponseClient(
+        payload, apple_users=users, list_failure="network" if failure == "list_error" else None
+    )
+    result = apple.SyncResult()
+
+    await apple._handle_409(fake_client, {}, _authentik_scim(email="new@example.com"), result)
+
+    assert result.errors == 1
+    assert result.conflicts == result.updated == 0
+    assert [method for method, _, _ in fake_client.requests] == ["GET", "GET"]
+    assert "externalId" not in found
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("payload", "expected_conflicts"),
+    [
+        ({"Resources": [], "totalResults": 0, "startIndex": 0, "itemsPerPage": 0}, 1),
+        (
+            {
+                "Resources": [_apple_existing(), _apple_existing()],
+                "totalResults": 2,
+                "startIndex": 0,
+                "itemsPerPage": 2,
+            },
+            1,
+        ),
+        ({"Resources": [_apple_existing()], "totalResults": 2, "startIndex": 0, "itemsPerPage": 1}, 1),
+        ({"Resources": [_apple_existing(username="other@example.com")], "totalResults": 1, "startIndex": 0}, 0),
+        ({"Resources": [_apple_existing()], "totalResults": 1, "startIndex": 0, "itemsPerPage": 2}, 0),
+        ({"Resources": [_apple_existing()], "totalResults": 1, "startIndex": False, "itemsPerPage": 1}, 0),
+    ],
+)
+async def test_zero_based_filter_rejects_missing_ambiguous_or_invalid_results(payload, expected_conflicts):
+    """Zero-based lookups cannot authorize writes for unsafe or ambiguous results."""
+    fake_client = _FilterResponseClient(payload)
+    result = apple.SyncResult()
+
+    await apple._handle_409(fake_client, {}, _authentik_scim(), result)
+
+    assert result.conflicts == expected_conflicts
+    assert result.errors == 1 - expected_conflicts
+    assert result.updated == 0
+    assert [method for method, _, _ in fake_client.requests] == ["GET"]
+
+
+@pytest.mark.anyio
 async def test_handle_409_failed_link_does_not_update_other_fields(allow_username_recovery):
     """A failed 409-recovery link cannot trigger a follow-up account update."""
     found = _apple_existing(external_id=None, email="old@example.com")
@@ -1425,13 +2101,7 @@ async def test_handle_409_failed_link_does_not_update_other_fields(allow_usernam
 @pytest.mark.anyio
 async def test_handle_409_rejects_ambiguous_or_invalid_filter_results(payload, expected_conflicts):
     """Ambiguous or malformed filtered results never trigger Apple writes."""
-
-    class FilterClient(_FakeAppleClient):
-        async def get(self, url, headers):
-            self.requests.append(("GET", url, None))
-            return _FakeResponse(200, payload)
-
-    fake_client = FilterClient(30.0, apple_users=[_apple_existing(email="stale@example.com")])
+    fake_client = _FilterResponseClient(payload, apple_users=[_apple_existing(email="stale@example.com")])
     result = apple.SyncResult()
     await apple._handle_409(fake_client, {}, _authentik_scim(), result)
 
@@ -1451,6 +2121,7 @@ async def test_username_filter_escapes_scim_string_literal():
     query = parse_qs(urlsplit(fake_client.requests[0][1]).query)
     encoded_literal = query["filter"][0].removeprefix("userName eq ")
     assert json.loads(encoded_literal) == username
+    assert query["count"] == ["2"]
 
 
 def test_user_id_is_encoded_as_one_url_segment():

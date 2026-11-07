@@ -7,14 +7,18 @@ userName match without externalId requires an explicit operator opt-in.
 Apple SCIM base URL: https://federation.apple.com/feeds/business/scim
 Note: Apple's SCIM endpoint does not include /v2 in the public URL.
 
-Sync strategy (Authentik pattern):
-1. GET all existing Apple users → index by externalId (primary) and userName (fallback)
+Sync strategy:
+1. Read a complete standard SCIM listing, or preflight individual externalId
+   and userName lookups when Apple returns its observed page-local metadata.
 2. For each Authentik user:
    - Found (by either key), unchanged → skip (unchanged)
    - Found (by either key), changed  → PATCH changed attributes while preserving externalId
    - Not found → POST; on 409 → query by userName and reconcile only a safe match
 3. Users present in Apple but absent from Authentik are left untouched;
    deactivate them in Authentik first (active=false propagates on next sync).
+
+Individual lookups depend on Apple returning all matches to exact filters.
+Apple's observed metadata cannot establish that guarantee.
 """
 
 from __future__ import annotations
@@ -35,10 +39,21 @@ logger = logging.getLogger(__name__)
 
 APPLE_SCIM_BASE = "https://federation.apple.com/feeds/business/scim"
 ABM_ACTIVITY_URL = "https://business.apple.com/main/activity"
+_USER_LIST_COUNT = 200
+_FILTER_LOOKUP_COUNT = 2
 
 
 class AppleUserListError(Exception):
     """Apple's user listing could not be read completely and safely."""
+
+
+class _AppleFilteredLookupRequired(AppleUserListError):
+    """Apple's observed list metadata cannot establish directory completeness."""
+
+    def __init__(self, by_external_id: dict[str, dict], by_username: dict[str, dict]) -> None:
+        super().__init__("Apple SCIM listing requires individual identity lookups")
+        self.by_external_id = by_external_id
+        self.by_username = by_username
 
 
 @dataclass
@@ -106,7 +121,7 @@ def _next_users_page_url(data: dict, *, expected_start: int = 1) -> str | None:
             raise AppleUserListError("Apple SCIM user listing ended before all users were returned")
         return None
     if start + per_page - 1 < total:
-        return f"{APPLE_SCIM_BASE}/Users?count=200&startIndex={start + per_page}"
+        return f"{APPLE_SCIM_BASE}/Users?count={_USER_LIST_COUNT}&startIndex={start + per_page}"
     return None
 
 
@@ -166,19 +181,56 @@ def _index_unique_user(
     _index_users_page({"Resources": [user]}, by_ext_id, by_username)
 
 
-async def _get_existing_users(client: httpx.AsyncClient, headers: dict) -> tuple[dict[str, dict], dict[str, dict]]:
-    """Return a complete Apple user listing indexed by externalId and userName.
+def _apple_single_page(data: dict, requested_count: int) -> list[dict] | None:
+    """Recognize Apple's observed count-relative index and requested-count metadata."""
+    resources = data.get("Resources")
+    total = data.get("totalResults")
+    start = data.get("startIndex")
+    per_page = data.get("itemsPerPage")
+    if (
+        not isinstance(resources, list)
+        or type(total) is not int
+        or type(start) is not int
+        or type(per_page) is not int
+        or total != len(resources)
+        or start != len(resources) + 1
+        or per_page != requested_count
+    ):
+        return None
+    if len(resources) > requested_count:
+        raise AppleUserListError("Apple SCIM user listing exceeds the requested count")
+    normalized = {**data, "startIndex": 1, "itemsPerPage": len(resources)}
+    users, _ = _validate_users_page(normalized, expected_start=1, expected_total=None)
+    return users
 
-    Raise AppleUserListError instead of returning a partial index on failure.
+
+def _index_user_list(users: list[dict]) -> tuple[dict[str, dict], dict[str, dict]]:
+    """Build unique externalId and userName indexes for an Apple listing."""
+    by_ext_id: dict[str, dict] = {}
+    by_username: dict[str, dict] = {}
+    seen_ids: set[str] = set()
+    for user in users:
+        _index_unique_user(user, seen_ids, by_ext_id, by_username)
+    return by_ext_id, by_username
+
+
+async def _get_existing_users(client: httpx.AsyncClient, headers: dict) -> tuple[dict[str, dict], dict[str, dict]]:
+    """Return an Apple user listing indexed by externalId and userName.
+
+    Raise AppleUserListError when an incomplete or inconsistent listing is detected.
     """
     by_ext_id: dict[str, dict] = {}
     by_username: dict[str, dict] = {}
     seen_ids: set[str] = set()
     expected_start = 1
     expected_total: int | None = None
-    url: str | None = f"{APPLE_SCIM_BASE}/Users?count=200"
+    url: str | None = f"{APPLE_SCIM_BASE}/Users?count={_USER_LIST_COUNT}"
     while url:
         data = await _fetch_users_page(client, headers, url)
+        if expected_total is None:
+            apple_users = _apple_single_page(data, _USER_LIST_COUNT)
+            if apple_users is not None:
+                raise _AppleFilteredLookupRequired(*_index_user_list(apple_users))
         users, total = _validate_users_page(data, expected_start, expected_total)
         expected_total = total
         for user in users:
@@ -186,6 +238,137 @@ async def _get_existing_users(client: httpx.AsyncClient, headers: dict) -> tuple
         url = _next_users_page_url(data, expected_start=expected_start)
         expected_start += len(users)
     return by_ext_id, by_username
+
+
+def _filtered_resources(data: dict) -> list[dict]:
+    """Validate filtered response metadata and return at most one resource."""
+    total = data.get("totalResults")
+    if type(total) is not int or total < 0:
+        raise AppleUserListError("Apple SCIM filtered lookup has an invalid totalResults")
+    start = data.get("startIndex", 1)
+    if type(start) is not int or start not in (0, 1):
+        raise AppleUserListError("Apple SCIM filtered lookup has an invalid startIndex")
+    resources = data.get("Resources", [] if total == 0 else None)
+    if not isinstance(resources, list) or not all(isinstance(item, dict) for item in resources):
+        raise AppleUserListError("Apple SCIM filtered lookup has invalid Resources")
+    per_page = data.get("itemsPerPage", len(resources))
+    if type(per_page) is not int or per_page != len(resources) or total != len(resources):
+        raise AppleUserListError("Apple SCIM filtered lookup has inconsistent result counts")
+    if total > 1:
+        raise AppleUserListError("Apple SCIM filtered lookup returned multiple matching users")
+    return resources
+
+
+def _validate_filtered_user(data: dict, attribute: str, expected: str) -> dict | None:
+    """Validate an exact-match response before using it as identity evidence."""
+    resources = _filtered_resources(data)
+    if not resources:
+        return None
+
+    user = resources[0]
+    if not _is_safe_user_id(user.get("id")):
+        raise AppleUserListError("Apple SCIM filtered lookup has an invalid user id")
+    username = user.get("userName")
+    if not isinstance(username, str) or not username.strip() or not isinstance(user.get("name", {}), dict):
+        raise AppleUserListError("Apple SCIM filtered lookup has invalid user attributes")
+    actual = user.get(attribute)
+    if attribute == "userName":
+        matches = _normalize_identifier(actual) == _normalize_identifier(expected)
+    else:
+        matches = str(actual or "").strip() == expected
+    if not matches:
+        raise AppleUserListError("Apple SCIM filtered lookup returned a mismatched identity")
+    return user
+
+
+def _same_identity(first: dict | None, second: dict | None) -> bool:
+    """Compare only stable identity fields, not mutable profile attributes."""
+    if first is None or second is None:
+        return first is second
+    return (
+        first.get("id") == second.get("id")
+        and _normalize_identifier(first.get("userName")) == _normalize_identifier(second.get("userName"))
+        and str(first.get("externalId") or "").strip() == str(second.get("externalId") or "").strip()
+    )
+
+
+def _source_identities(scim_users: list[dict]) -> list[tuple[str, str]]:
+    """Validate source identities before looking up or modifying Apple users."""
+    identities: list[tuple[str, str]] = []
+    seen_external_ids: set[str] = set()
+    seen_usernames: set[str] = set()
+    for user in scim_users:
+        external_id = str(user.get("externalId") or "").strip()
+        username = user.get("userName")
+        if not external_id or not isinstance(username, str) or not username.strip():
+            raise AppleUserListError("Authentik SCIM user has an invalid identity")
+        normalized_username = _normalize_identifier(username)
+        if external_id in seen_external_ids or normalized_username in seen_usernames:
+            raise AppleUserListError("Authentik SCIM users contain duplicate identities")
+        seen_external_ids.add(external_id)
+        seen_usernames.add(normalized_username)
+        identities.append((external_id, username))
+    return identities
+
+
+async def _lookup_filtered_user(
+    client: httpx.AsyncClient, headers: dict, attribute: str, value: str, sampled: dict | None
+) -> dict | None:
+    """Look up one identity and reject disagreement with the initial sample."""
+    literal = quote(json.dumps(value, ensure_ascii=False), safe="")
+    url = f"{APPLE_SCIM_BASE}/Users?filter={attribute}%20eq%20{literal}&count={_FILTER_LOOKUP_COUNT}"
+    data = await _fetch_users_page(client, headers, url)
+    found = _validate_filtered_user(data, attribute, value)
+    if sampled is not None and not _same_identity(sampled, found):
+        raise AppleUserListError("Apple SCIM filtered lookup disagrees with the initial listing")
+    return found
+
+
+def _record_filtered_identity(by_id: dict[str, dict], found: dict | None) -> None:
+    """Reject inconsistent filter results that claim the same Apple user ID."""
+    if found is None:
+        return
+    previous = by_id.get(found["id"])
+    if previous is not None and not _same_identity(previous, found):
+        raise AppleUserListError("Apple SCIM filtered lookups disagree about a user")
+    by_id[found["id"]] = found
+
+
+async def _get_existing_users_by_filter(
+    client: httpx.AsyncClient,
+    headers: dict,
+    scim_users: list[dict],
+    sample: _AppleFilteredLookupRequired,
+) -> tuple[dict[str, dict], dict[str, dict]]:
+    """Preflight every source identity before making any Apple user writes."""
+    by_id: dict[str, dict] = {}
+    results: list[tuple[str, str, dict | None, dict | None]] = []
+    for external_id, username in _source_identities(scim_users):
+        external_match = await _lookup_filtered_user(
+            client, headers, "externalId", external_id, sample.by_external_id.get(external_id)
+        )
+        username_match = await _lookup_filtered_user(
+            client, headers, "userName", username, sample.by_username.get(_normalize_identifier(username))
+        )
+        _record_filtered_identity(by_id, external_match)
+        _record_filtered_identity(by_id, username_match)
+        results.append((external_id, username, external_match, username_match))
+
+    by_external_id: dict[str, dict] = {}
+    by_username: dict[str, dict] = {}
+    seen_ids: set[str] = set()
+    for user_id, filtered in by_id.items():
+        verified = await _fetch_users_page(client, headers, _user_url(user_id))
+        if not _same_identity(filtered, verified) or not isinstance(verified.get("name", {}), dict):
+            raise AppleUserListError("Apple SCIM user identity changed during lookup verification")
+        _index_unique_user(verified, seen_ids, by_external_id, by_username)
+
+    for external_id, username, external_match, username_match in results:
+        if not _same_identity(external_match, by_external_id.get(external_id)) or not _same_identity(
+            username_match, by_username.get(_normalize_identifier(username))
+        ):
+            raise AppleUserListError("Apple SCIM filtered lookups returned inconsistent identities")
+    return by_external_id, by_username
 
 
 def _normalize_identifier(value: object) -> str:
@@ -557,7 +740,7 @@ async def _query_username_filter(
     """Query Apple SCIM for filter=userName eq "...". Return the JSON payload, or None on any failure (logged)."""
     # SCIM RFC 7644 filter literals use double quotes (not single quotes from repr())
     scim_filter = quote(json.dumps(username, ensure_ascii=False), safe="")
-    filter_url = f"{APPLE_SCIM_BASE}/Users?filter=userName%20eq%20{scim_filter}"
+    filter_url = f"{APPLE_SCIM_BASE}/Users?filter=userName%20eq%20{scim_filter}&count={_FILTER_LOOKUP_COUNT}"
     try:
         resp = await client.get(filter_url, headers=headers)
     except httpx.HTTPError:
@@ -665,6 +848,29 @@ async def _reconcile_diffs(
             logger.debug("Apple SCIM: unchanged %s", _log_user_ref(user))
 
 
+async def _verified_filtered_user(
+    client: httpx.AsyncClient, headers: dict, username: str, found: dict, user: dict
+) -> dict | None:
+    """Return a freshly verified user when it agrees with the filter result."""
+    try:
+        try:
+            _, listed_by_username = await _get_existing_users(client, headers)
+        except _AppleFilteredLookupRequired as sample:
+            _, listed_by_username = await _get_existing_users_by_filter(client, headers, [user], sample)
+    except AppleUserListError as exc:
+        logger.warning("Apple SCIM: 409-recovery could not verify the user identity: %s", exc)
+        return None
+    listed = listed_by_username.get(_normalize_identifier(username))
+    if (
+        listed is None
+        or listed["id"] != found["id"]
+        or str(listed.get("externalId") or "").strip() != str(found.get("externalId") or "").strip()
+    ):
+        logger.warning("Apple SCIM: 409-recovery identity disagrees with the verified user")
+        return None
+    return listed
+
+
 async def _handle_409(
     client: httpx.AsyncClient,
     headers: dict,
@@ -682,6 +888,9 @@ async def _handle_409(
     if payload is None:
         result.errors += 1
         return
+    zero_based = type(payload.get("startIndex")) is int and payload["startIndex"] == 0
+    if zero_based:
+        payload = {**payload, "startIndex": 1}
     try:
         resources, total = _validate_users_page(payload, expected_start=1, expected_total=None)
     except AppleUserListError:
@@ -707,6 +916,12 @@ async def _handle_409(
         result.errors += 1
         logger.warning("Apple SCIM: 409-recovery filter returned an invalid or mismatched identity")
         return
+    if zero_based:
+        verified = await _verified_filtered_user(client, headers, username, found, user)
+        if verified is None:
+            result.errors += 1
+            return
+        found = verified
     await _reconcile_diffs(client, headers, found, user, result, recovered_by_username=True, patch_label="409-recovery")
 
 
@@ -727,10 +942,53 @@ def _match_apple_user(
     return None, False, False
 
 
-async def _create_user(client: httpx.AsyncClient, headers: dict, user: dict, result: SyncResult) -> None:
+async def _verify_created_user(client: httpx.AsyncClient, headers: dict, user: dict, response: httpx.Response) -> bool:
+    """Check a created user against both identity filters and a direct read."""
+    try:
+        created = response.json()
+    except ValueError:
+        created = None
+    created_id = created.get("id") if isinstance(created, dict) else None
+    if not _is_safe_user_id(created_id):
+        logger.warning(
+            "Apple SCIM: create may have succeeded for %s but returned no verifiable user id", _log_user_ref(user)
+        )
+        return False
+    try:
+        by_external_id, by_username = await _get_existing_users_by_filter(
+            client, headers, [user], _AppleFilteredLookupRequired({}, {})
+        )
+    except AppleUserListError as exc:
+        logger.warning(
+            "Apple SCIM: create may have succeeded for %s but identity verification failed: %s",
+            _log_user_ref(user),
+            exc,
+        )
+        return False
+    external_match = by_external_id.get(str(user["externalId"]).strip())
+    username_match = by_username.get(_normalize_identifier(user.get("userName")))
+    if (
+        external_match is None
+        or not _same_identity(external_match, username_match)
+        or external_match["id"] != created_id
+    ):
+        logger.warning(
+            "Apple SCIM: create may have succeeded for %s but the returned identity could not be verified",
+            _log_user_ref(user),
+        )
+        return False
+    return True
+
+
+async def _create_user(
+    client: httpx.AsyncClient, headers: dict, user: dict, result: SyncResult, *, verify_identity: bool = False
+) -> None:
     """POST a brand-new user to Apple SCIM, delegating 409s to the userName-recovery path."""
     resp = await client.post(f"{APPLE_SCIM_BASE}/Users", json=user, headers=headers)
     if resp.status_code in (200, 201):
+        if verify_identity and not await _verify_created_user(client, headers, user, resp):
+            result.errors += 1
+            return
         result.created += 1
         logger.info("Apple SCIM: created %s", _log_user_ref(user))
     elif resp.status_code == 409:
@@ -746,7 +1004,8 @@ async def _create_user(client: httpx.AsyncClient, headers: dict, user: dict, res
         )
 
 
-def _log_sync_start(scim_users: list[dict], by_ext_id: dict, by_username: dict) -> None:
+def _log_sync_start(scim_users: list[dict], by_ext_id: dict, by_username: dict, *, filtered: bool = False) -> None:
+    """Log source and matched-user counts without exposing individual identities."""
     # Count users that will be recovered via userName fallback — mirrors the
     # sync loop condition exactly: externalId miss AND username match has no
     # externalId of its own (so we won't overwrite an unrelated record).
@@ -758,7 +1017,8 @@ def _log_sync_start(scim_users: list[dict], by_ext_id: dict, by_username: dict) 
         and _can_recover_by_username(m, u["externalId"])
     )
     logger.info(
-        "Apple SCIM: sync start — apple=%d linked_by_external_id=%d email_recovery=%d authentik=%d update_mode=%s",
+        "Apple SCIM: sync start — %s=%d linked_by_external_id=%d email_recovery=%d authentik=%d update_mode=%s",
+        "apple_matched" if filtered else "apple",
         len(by_username),
         len(by_ext_id),
         recovered,
@@ -805,8 +1065,13 @@ async def sync_users(access_token: str, scim_users: list[dict]) -> SyncResult:
     }
 
     async with httpx.AsyncClient(timeout=30.0) as client:
-        by_ext_id, by_username = await _get_existing_users(client, headers)
-        _log_sync_start(scim_users, by_ext_id, by_username)
+        filtered = False
+        try:
+            by_ext_id, by_username = await _get_existing_users(client, headers)
+        except _AppleFilteredLookupRequired as sample:
+            by_ext_id, by_username = await _get_existing_users_by_filter(client, headers, scim_users, sample)
+            filtered = True
+        _log_sync_start(scim_users, by_ext_id, by_username, filtered=filtered)
 
         for user in scim_users:
             ext_id = user["externalId"]
@@ -817,7 +1082,7 @@ async def sync_users(access_token: str, scim_users: list[dict]) -> SyncResult:
 
             try:
                 if apple_user is None:
-                    await _create_user(client, headers, user, result)
+                    await _create_user(client, headers, user, result, verify_identity=filtered)
                 else:
                     await _reconcile_diffs(
                         client, headers, apple_user, user, result, recovered_by_username=recovered_by_username

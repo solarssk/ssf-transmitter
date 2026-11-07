@@ -121,6 +121,22 @@ Check `SSF_ROOT_PATH` matches nginx location (`/shared-signals`) and `SSF_BASE_U
 
 All of `APPLE_SCIM_CLIENT_ID`, `APPLE_SCIM_CLIENT_SECRET`, `AUTHENTIK_URL`, `AUTHENTIK_TOKEN` must be set.
 
+### Apple user listing or identity lookup rejected
+
+An invalid initial Apple listing stops the sync before modifying any users.
+A manual sync returns `502`; the automatic sync logs the error and retries
+on the next cycle. With Apple's observed page-local metadata, invalid,
+ambiguous, or inconsistent individual identity lookups also stop the sync
+before user writes. Check the Apple directory for duplicate identities and
+review the error before resuming. Do not share usernames, tokens, or complete
+user records when reporting the issue. See
+[Apple-SCIM-Sync.md](Apple-SCIM-Sync.md#admin-endpoints-v059) for the
+limitations of the filtered lookups.
+
+If a create reports that identity verification failed, Apple may already
+have created the account. Check the account and its `externalId` in Apple
+before retrying rather than assuming the create failed.
+
 ### HTTP 409: another SCIM operation is running
 
 A manual sync or OAuth callback returns `409` if a sync or authorization is
