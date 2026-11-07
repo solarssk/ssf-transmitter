@@ -135,8 +135,44 @@ The sync first reads the Apple user listing. If a page fails, has malformed
 pagination or identity metadata, or cannot be reconciled with the other
 pages, the sync stops without creating or updating Apple users. Manual sync
 returns `502`; automatic sync logs the failure and tries again on the next
-scheduled cycle. These checks do not guarantee a consistent snapshot if
-another actor changes the Apple directory while pages are being read.
+scheduled cycle.
+
+In one Apple directory, `startIndex` was one more than the number of returned
+users, `itemsPerPage` echoed the requested `count`, and `totalResults` was the
+returned count. Changing the requested `startIndex` did not advance the
+tested results. For that observed response format, the client does not assume
+the initial listing is complete. Before writing any user, it queries Apple
+separately for every Authentik `externalId` and `userName`, checks the results
+against the initial sample, and reads each matched Apple user by ID. Duplicate
+source identities, inconsistent lookup responses, failed preflight requests,
+or multiple returned matches stop the sync before user writes. An ownership
+conflict is reported and skipped for that account; other accounts may still
+sync. The normal SCIM multi-page path is unchanged.
+
+This fallback makes two filtered requests per Authentik user and one request
+per distinct matched Apple ID, so larger syncs can take longer. A successful
+create also needs follow-up lookups.
+
+The Apple `externalId` retains the Authentik identifier between syncs; the
+service does not store a separate local user-to-user mapping. Newly created
+users are read back and checked against both filters and the ID returned by
+Apple. If this verification fails, the sync reports an error even though Apple
+may already have created the account.
+
+**Limitation:** individual lookups rely on Apple returning all matches to each
+exact filter. If Apple silently hides a duplicate or an existing match, the
+client cannot detect that from the observed metadata alone. The behavior was
+checked in a seven-user directory, not a larger one; queries combining multiple
+values were rejected, so duplicate-filter behavior has not been verified.
+Review the Apple directory for duplicate `externalId` values before enabling
+sync. Another actor can also change the directory between reads and writes.
+
+When Apple returns a zero-based username-filter response after a create
+conflict, the client checks the candidate against a fresh verified lookup
+before considering any account update. Existing `externalId` ownership and
+username-recovery rules still apply. Accounts present only in Apple remain
+untouched.
+
 An HTTP `200` sync response can still report nonzero `conflicts` or `errors`:
 identity mismatches and unlinked accounts requiring review count as conflicts;
 failed lookups or unverified links count as errors. Account names are omitted
