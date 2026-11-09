@@ -1,11 +1,18 @@
 # Upgrading
 
-## v0.5.17 — Apple SCIM safety and reliable SET delivery (from 0.5.16)
+## v0.5.18 — Apple SCIM pagination compatibility (from 0.5.17)
 
-Release notes: [v0.5.17](https://github.com/solarssk/ssf-transmitter/releases/tag/v0.5.17)
+Release notes: [v0.5.18](https://github.com/solarssk/ssf-transmitter/releases/tag/v0.5.18)
 
-1. Back up `/app/data` (SQLite) and `/app/keys` (signing key), and securely retain the existing environment secrets. **Do not add or rotate `SSF_TOKEN_ENCRYPTION_KEY` on a working installation as part of this upgrade.** If it is unset, keep the same `SSF_MANAGEMENT_TOKEN`: it is the encryption-key source.
-2. Update the image tag to `0.5.17`, pull and restart the service:
+This release has no configuration or database migration. It handles the
+nonstandard Apple SCIM listing metadata observed in one directory by
+preflighting individual identity lookups rather than assuming the initial
+listing is complete. The fallback can make two filtered requests per
+Authentik user plus reads for matched Apple IDs, so syncs can take longer.
+Exact-filter completeness remains dependent on Apple's API.
+
+1. Back up `/app/data` (SQLite) and `/app/keys` (signing key), and retain the existing environment secrets and encryption-key configuration. **Do not add or rotate `SSF_TOKEN_ENCRYPTION_KEY` on a working installation as part of this upgrade.** If it is unset, keep the same `SSF_MANAGEMENT_TOKEN`: it is the encryption-key source. If upgrading from a version before v0.5.17, also follow the v0.5.17 outbox and stream-upgrade cautions in [CHANGELOG.md](../CHANGELOG.md#0517--2026-11-05--apple-scim-safety-and-reliable-set-delivery).
+2. Update the image tag to `0.5.18`, pull and restart the service:
 
 ```bash
 docker compose pull ssf-transmitter
@@ -19,7 +26,14 @@ docker compose logs ssf-transmitter --tail 50
 
 Queued SETs contain subject email addresses and are encrypted at rest with the receiver-token key. Pausing a stream holds pending deliveries; replacing or deleting it, or changing its audience, endpoint, token, or event filter, cancels pending deliveries for the old configuration. These operations wait for any in-flight delivery to finish. During graceful shutdown the worker finishes an in-flight push or its 30-second delivery deadline; if the container runtime stops it sooner, queued work is retried on restart and may be delivered more than once. See [API.md](API.md) for status and explicit retry/discard controls.
 
-Apple SCIM username-only recovery is now disabled by default. Existing `externalId`-linked accounts are unaffected. Set `APPLE_SCIM_ALLOW_USERNAME_RECOVERY=true` only after verifying ownership of **all** matching unlinked Apple accounts in the configured sync scope. An incomplete Apple listing aborts a sync, and a concurrent manual sync or OAuth callback returns `409`. Run only one container for the same Apple integration: coordination is process-local.
+Apple SCIM username-only recovery remains disabled by default. Existing
+`externalId`-linked accounts are unaffected. Set
+`APPLE_SCIM_ALLOW_USERNAME_RECOVERY=true` only after verifying ownership of
+**all** matching unlinked Apple accounts in the configured sync scope. Failed,
+ambiguous, or inconsistent individual identity lookups stop the sync before
+user writes; exact filters can still miss results if Apple omits them. A
+concurrent manual sync or OAuth callback returns `409`. Run only one container
+for the same Apple integration: coordination is process-local.
 
 ## v0.5.15 — Dependency security refresh (from 0.5.14)
 
@@ -199,11 +213,11 @@ docker compose up -d ssf-transmitter
 docker compose logs ssf-transmitter --tail 50
 ```
 
-Pin to a version tag (`0.5.17`) in production; use `:latest` only if you accept automatic updates on redeploy.
+Pin to a version tag (`0.5.18`) in production; use `:latest` only if you accept automatic updates on redeploy.
 
 ## Rolling back
 
-1. Before rolling back from `0.5.17`, drain the outbox if possible and verify `/ssf/delivery/status`: older versions do not deliver queued SETs.
+1. Before rolling back from `0.5.18` to a version older than `0.5.17`, drain the outbox if possible and verify `/ssf/delivery/status`: those versions do not deliver queued SETs.
 2. Stop the container and back up the current `/app/keys`, `/app/data`, and encryption-key configuration. Restoring an older database backup discards any queued events created after that backup.
-3. Deploy the previous image tag (e.g. `0.5.16`). Preserve the newer database and original key if blocked or pending SETs need to be recovered by returning to `0.5.17`.
+3. Deploy the previous image tag (e.g. `0.5.17`). Preserve the newer database and original key if blocked or pending SETs need to be recovered by returning to `0.5.18`.
 4. Test rollback in a lab first when changing DB format or encryption settings.

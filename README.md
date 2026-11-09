@@ -109,11 +109,10 @@ A **stream** is the receiver configuration stored in SQLite: receiver URL, beare
 
 ## Upgrading
 
-**Upgrading from v0.5.16?** See [docs/Upgrading.md](docs/Upgrading.md#v0517--apple-scim-safety-and-reliable-set-delivery-from-0516):
+**Upgrading from v0.5.17?** See [docs/Upgrading.md](docs/Upgrading.md#v0518--apple-scim-pagination-compatibility-from-0517):
 
-- Back up the data and keys volumes and retain the existing encryption-key configuration; do **not** add `SSF_TOKEN_ENCRYPTION_KEY` to a working install.
-- SET delivery is now queued and at-least-once. Monitor `/ssf/delivery/status`; changing a stream's delivery configuration cancels its pending SETs.
-- Apple SCIM username-only recovery is disabled by default; enable it only after verifying all matching unlinked accounts in scope.
+- No new environment variables or database migration; keep the existing encryption-key configuration unchanged.
+- Apple SCIM handles the observed nonstandard pagination metadata using preflighted identity lookups. Syncs may take longer, and exact-filter completeness remains an Apple API dependency.
 
 ## Public endpoints
 

@@ -18,4 +18,4 @@ These files are the **source of truth** for operator documentation. Copy or sync
 | Threat model | [../SECURITY.md](../SECURITY.md) |
 | Changelog | [../CHANGELOG.md](../CHANGELOG.md) |
 
-**Current stable release:** `v0.5.17` — [Apple SCIM safety and reliable SET delivery](https://github.com/solarssk/ssf-transmitter/releases/tag/v0.5.17)
+**Current stable release:** `v0.5.18` — [Apple SCIM pagination compatibility](https://github.com/solarssk/ssf-transmitter/releases/tag/v0.5.18)

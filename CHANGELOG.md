@@ -9,6 +9,10 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+---
+
+## [0.5.18] — 2026-11-09 — Apple SCIM pagination compatibility
+
 ### Fixed
 - Handle the observed Apple SCIM listing and filter metadata using preflighted individual identity lookups, without assuming the Apple listing is complete. Exact-filter completeness remains an Apple API dependency.
 
