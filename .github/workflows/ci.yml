@@ -106,13 +106,15 @@ jobs:
       # success()) so this still uploads when pytest itself failed.
       - name: Upload test results to Codecov
         if: ${{ !cancelled() && env.CODECOV_TOKEN != '' }}
-        uses: codecov/test-results-action@0fa95f0e1eeaafde2c782583b36b28ad0d8c77d3  # v1.2.1
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5  # v7.1.1
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
         with:
           token: ${{ env.CODECOV_TOKEN }}
           files: junit.xml
           flags: backend
+          report_type: test_results
+          fail_ci_if_error: false
 
       # CI-based analysis (sonar-project.properties), not SonarCloud's
       # Automatic Analysis — the two are mutually exclusive; Automatic
