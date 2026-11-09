@@ -83,6 +83,51 @@ ssf-transmitter is currently a single-maintainer project: @solarssk reviews
 and merges every PR, including their own, once CI is green — there's no one
 else to hand it to yet. Branches are deleted automatically on merge.
 
+## Merge protection and the engineering standard
+
+This repository follows [playbook v0.3.0](https://github.com/solarssk/playbook/tree/v0.3.0)
+at Tier 2. The reusable verifier is pinned to that release's full commit SHA.
+A green verifier result covers automated checks only; its assessment remains
+partial, and repository settings are not checked on the PR path. Do not pass
+an administrative token to a pull-request workflow.
+
+The active [SSF main protection ruleset](https://github.com/solarssk/ssf-transmitter/rules/26756303)
+has no bypass actors, including administrators. It requires a pull request,
+resolved review conversations and an up-to-date branch; force pushes and branch
+deletion are blocked. The existing classic protection remains enabled alongside
+it. Required approvals stay at **0** for the solo maintainer; revisit this choice
+when a second maintainer gets write access.
+
+These exact check contexts are required, all bound to the GitHub Actions app
+(integration ID `15368`):
+
+| Required check | Purpose |
+|---|---|
+| `Test and lint` | Tests, lint, types, workflow audits, dependency audit and image checks |
+| `Analyze (python)` | Python CodeQL analysis |
+| `Analyze (actions)` | GitHub Actions CodeQL analysis |
+| `Dependency review` | Newly introduced dependency vulnerabilities |
+| `Verify uv.lock matches pyproject.toml` | Shared lock consistency |
+| `verify / verify` | Playbook automated tier checks |
+
+Keep GitHub's required-check settings in sync with workflow job names. Confirm
+the exact contexts and source app on a real PR before changing the settings;
+adding or renaming workflow files alone does not update merge enforcement.
+These contexts were verified on [PR #210](https://github.com/solarssk/ssf-transmitter/pull/210).
+After the ruleset rollout, use the next real PR to confirm successful merging
+and rejection of a failing required check; an API settings inspection alone
+does not test that behaviour.
+
+Scorecard remains a report, not a PR gate. The separate `CodeQL` report and
+CodeRabbit, Codecov and SonarCloud checks are not required merge contexts.
+Codecov coverage upload errors still fail CI when its token is available;
+JUnit Test Analytics uses `codecov/codecov-action` with `report_type: test_results`,
+retains uploads after failed tests and does not fail CI on upload errors.
+Fork and Dependabot runs without the token still skip these uploads.
+
+These changes affect repository maintenance only: deployed containers need no
+new environment variables, tokens or database migrations.
+
 ## Questions
 
 Open a GitHub issue, or reach **@solarssk**.
