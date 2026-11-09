@@ -159,7 +159,7 @@ If `SSF_HOST_PORT` changes, update the Nginx Proxy Manager port too.
 
 ## Upgrading from 0.5.17
 
-This release has no configuration or database migration. Before changing the image to `0.5.18`, retain the existing secrets and encryption-key configuration: do not add `SSF_TOKEN_ENCRYPTION_KEY` to a working install. If upgrading from a version before `0.5.17`, follow the v0.5.17 outbox and stream-upgrade cautions in [CHANGELOG.md](../CHANGELOG.md#0517--apple-scim-safety-and-reliable-set-delivery).
+This release has no configuration or database migration. Before changing the image to `0.5.18`, back up `ssf-data` and `ssf-keys`, and retain the existing secrets and encryption-key configuration: do not add `SSF_TOKEN_ENCRYPTION_KEY` to a working install. If upgrading from a version before `0.5.17`, follow the v0.5.17 outbox and stream-upgrade cautions in [CHANGELOG.md](../CHANGELOG.md#0517--2026-11-05--apple-scim-safety-and-reliable-set-delivery).
 
 Apple SCIM handles the observed nonstandard listing metadata by preflighting individual identity lookups. This fallback may make syncs take longer; exact-filter completeness remains an Apple API dependency. Failed or ambiguous lookups stop the sync before user writes. Username-only recovery remains disabled by default; enable `APPLE_SCIM_ALLOW_USERNAME_RECOVERY` only after verifying all matching unlinked accounts in scope. Run one container for the integration. Full procedure and rollback precautions: [Upgrading.md](Upgrading.md).
 

@@ -11,7 +11,7 @@ listing is complete. The fallback can make two filtered requests per
 Authentik user plus reads for matched Apple IDs, so syncs can take longer.
 Exact-filter completeness remains dependent on Apple's API.
 
-1. Back up `/app/data` (SQLite) and `/app/keys` (signing key), and retain the existing environment secrets and encryption-key configuration. **Do not add or rotate `SSF_TOKEN_ENCRYPTION_KEY` on a working installation as part of this upgrade.** If it is unset, keep the same `SSF_MANAGEMENT_TOKEN`: it is the encryption-key source. If upgrading from a version before v0.5.17, also follow the v0.5.17 outbox and stream-upgrade cautions in [CHANGELOG.md](../CHANGELOG.md#0517--apple-scim-safety-and-reliable-set-delivery).
+1. Back up `/app/data` (SQLite) and `/app/keys` (signing key), and retain the existing environment secrets and encryption-key configuration. **Do not add or rotate `SSF_TOKEN_ENCRYPTION_KEY` on a working installation as part of this upgrade.** If it is unset, keep the same `SSF_MANAGEMENT_TOKEN`: it is the encryption-key source. If upgrading from a version before v0.5.17, also follow the v0.5.17 outbox and stream-upgrade cautions in [CHANGELOG.md](../CHANGELOG.md#0517--2026-11-05--apple-scim-safety-and-reliable-set-delivery).
 2. Update the image tag to `0.5.18`, pull and restart the service:
 
 ```bash
