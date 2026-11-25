@@ -1,7 +1,8 @@
 name: PR-Agent
 
 on:
-  issue_comment:
+  # Only trusted PR commenters can start the job. It never checks out PR code.
+  issue_comment: # zizmor: ignore[dangerous-triggers]
     types: [created]
 
 # Keep commands for the same pull request from running concurrently.
