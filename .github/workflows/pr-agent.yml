@@ -1,0 +1,40 @@
+name: PR-Agent
+
+on:
+  # Only trusted PR commenters can start the job. It never checks out PR code.
+  issue_comment: # zizmor: ignore[dangerous-triggers]
+    types: [created]
+
+# Keep commands for the same pull request from running concurrently.
+concurrency:
+  group: pr-agent-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  pr_agent:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    if: >-
+      ${{
+        github.event.sender.type != 'Bot' &&
+        github.event.issue.pull_request &&
+        contains(fromJSON('["COLLABORATOR","MEMBER","OWNER"]'), github.event.comment.author_association) &&
+        (
+          startsWith(github.event.comment.body, '/review') ||
+          startsWith(github.event.comment.body, '/describe') ||
+          startsWith(github.event.comment.body, '/improve') ||
+          startsWith(github.event.comment.body, '/ask')
+        )
+      }}
+    steps:
+      - uses: The-PR-Agent/pr-agent@e673a02076ce09a4726c3d0c3cc85780e59ca52b  # v0.50.0
+        env:
+          ANTHROPIC__KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          config__model: "anthropic/claude-sonnet-4-6"
+          config__fallback_models: '["anthropic/claude-sonnet-4-6"]'

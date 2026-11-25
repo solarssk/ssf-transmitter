@@ -5,3 +5,4 @@
 reviews:
   auto_review:
     enabled: false
+  review_status: false

@@ -83,6 +83,14 @@ ssf-transmitter is currently a single-maintainer project: @solarssk reviews
 and merges every PR, including their own, once CI is green — there's no one
 else to hand it to yet. Branches are deleted automatically on merge.
 
+Maintainers and collaborators can request PR-Agent feedback by commenting
+`/review`, `/describe`, `/improve`, or `/ask` on a pull request. The workflow
+uses Anthropic and needs the `ANTHROPIC_API_KEY` Actions secret available to
+this repository. Codex (`@codex review`) and CodeRabbit (`@coderabbitai review`)
+are also available on demand. CodeRabbit suppresses skip notices.
+Address or resolve any review threads before merging. OpenSSF Scorecard's Code-Review check counts independent
+human review; CodeRabbit feedback is advisory.
+
 ## Merge protection and the engineering standard
 
 This repository follows [playbook v0.3.0](https://github.com/solarssk/playbook/tree/v0.3.0)
