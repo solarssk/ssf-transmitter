@@ -1,5 +1,23 @@
 # Upgrading
 
+## v0.5.19 — Stop retrying rejected SETs (from 0.5.18)
+
+[Release notes for v0.5.19](https://github.com/solarssk/ssf-transmitter/releases/tag/v0.5.19)
+
+1. Back up `/app/data` and `/app/keys`. Retain the current environment secrets and encryption settings.
+2. Change the image tag to `0.5.19`, pull it, and restart the service.
+
+   ```bash
+   docker compose pull ssf-transmitter
+   docker compose up -d ssf-transmitter
+   docker compose logs ssf-transmitter --tail 50
+   ```
+
+3. Check `GET /ssf/delivery/status` with the management token. A queued event moves to `blocked` when its next delivery gets HTTP 400. Timeouts, HTTP 429 and 5xx still retry.
+4. Inspect the warning log for the receiver error code and response hash. After correcting a receiver-side issue, `POST /ssf/delivery/retry-blocked` sends the original signed SET. If its signed claims were rejected, verify the corrected configuration by generating a fresh event. Blocked events count toward the queue limit.
+
+This upgrade needs no database migration or new environment variables. For an earlier starting version, also review the relevant upgrade notes below.
+
 ## v0.5.18 — Apple SCIM pagination compatibility (from 0.5.17)
 
 Release notes: [v0.5.18](https://github.com/solarssk/ssf-transmitter/releases/tag/v0.5.18)

@@ -109,10 +109,10 @@ A **stream** is the receiver configuration stored in SQLite: receiver URL, beare
 
 ## Upgrading
 
-**Upgrading from v0.5.17?** See [docs/Upgrading.md](docs/Upgrading.md#v0518--apple-scim-pagination-compatibility-from-0517):
+**Upgrading from v0.5.18?** See [docs/Upgrading.md](docs/Upgrading.md#v0519--stop-retrying-rejected-sets-from-0518).
 
-- No new environment variables or database migration; keep the existing encryption-key configuration unchanged.
-- Apple SCIM handles the observed nonstandard pagination metadata using preflighted identity lookups. Syncs may take longer, and exact-filter completeness remains an Apple API dependency.
+- Keep the existing SQLite volume, signing keys, and encryption settings.
+- Check `GET /ssf/delivery/status` after redeploying. A receiver HTTP 400 now moves the event to `blocked`. The warning log shows the response hash and any recognized receiver error code.
 
 ## Public endpoints
 

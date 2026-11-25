@@ -9,6 +9,12 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+---
+
+## [0.5.19] — 2026-11-25 — Stop retrying rejected SETs
+
+HTTP 400 responses now move SETs to the encrypted outbox's blocked state. Operators can review the rejection in the logs and requeue the original SET after correcting a receiver-side issue. Upgrades from v0.5.18 require no new settings or database migration.
+
 ### Fixed
 - Block SETs rejected with HTTP 400, including Apple responses without a recognized RFC 8935 error code. Report recognized codes when present. Keep rejected events in the encrypted outbox for operator review.
 
