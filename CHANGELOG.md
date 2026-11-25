@@ -12,6 +12,7 @@ Versioning: [Semantic Versioning](https://semver.org/)
 ### Fixed
 - Validate Authentik source identities before Apple SCIM writes in both listing modes, rejecting duplicate external IDs and case-insensitive usernames.
 - Stop Apple SCIM synchronization after upstream 401/403/429 responses and honor a shared in-process `Retry-After` cooldown. Report partial/failed outcomes, skipped accounts, and stop reasons instead of always returning `status: ok`. No new settings or database migration; monitoring clients should inspect the response status and counters.
+- Avoid retrying an unsupported Apple SCIM email update when Apple omits `emails` and the mapped address is managed through `userName`.
 
 ---
 

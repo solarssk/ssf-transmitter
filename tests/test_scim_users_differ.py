@@ -212,6 +212,23 @@ class TestCanRecoverByUsername:
         assert _can_recover_by_username(apple_user, "42") is False
 
 
+def test_apple_omitting_emails_uses_managed_username_for_email_changes():
+    from app.scim.apple import _field_diffs
+
+    desired = {"userName": "new@example.com", "emails": [{"value": "new@example.com", "primary": True}]}
+    existing = {"userName": "new@example.com"}
+
+    assert not any(_field_diffs(existing, desired).values())
+
+    existing["userName"] = "old@example.com"
+    diffs = _field_diffs(existing, desired)
+    assert diffs["userName"]
+    assert not diffs["email"]
+
+    desired["emails"] = [{"value": "separate@example.com", "primary": True}]
+    assert _field_diffs(existing, desired)["email"]
+
+
 class TestBuildUpdateRequest:
     def test_patch_all_mode_builds_patch_operations(self):
         user = _authentik_user()
