@@ -57,8 +57,11 @@ and the persisted files contained neither a plaintext subject email nor the
 receiver bearer token. The production stream and settings were unchanged by
 that isolated test.
 
-HTTP 202 proves protocol acceptance, not that an already signed-in Apple
-device ended its session. Test that device behavior separately if required.
+A subsequent dedicated-account test on 2026-11-25 confirmed that an iPhone
+requested reauthentication after Apple accepted a `session-revoked` SET.
+The operator reported that iCloud.com retained its browser session. This
+evidence covers device reauthentication, not immediate revocation of every
+Apple session. HTTP 202 alone still proves only protocol acceptance.
 Do not send logout tests for ordinary production users.
 
 ## Existing blocked SETs retain their original issuer
