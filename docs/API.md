@@ -226,7 +226,11 @@ tokens.
 }
 ```
 
-`blocked` deliveries need operator attention. Pending deliveries pause while
+`blocked` deliveries need operator attention. The queue blocks a SET when the
+receiver returns HTTP 400 with an RFC 8935 error code of `invalid_request`,
+`invalid_issuer`, or `invalid_audience`. The warning log records the recognized
+code. Unclassified responses, HTTP 429 and 5xx, and network failures continue
+to retry. Pending deliveries pause while
 their stream is paused; replacing or deleting a stream, or changing its
 audience, endpoint, token, or event filter, cancels deliveries for the old
 configuration. The queue is capped at 10,000 stored items; a full queue causes
@@ -238,7 +242,9 @@ receiver cannot be recalled.
 ### `POST /ssf/delivery/retry-blocked`
 
 Returns `{"requeued": N}` and retries all blocked deliveries. Use after
-restoring the at-rest encryption key if queued payloads became unreadable.
+restoring the at-rest encryption key if queued payloads became unreadable,
+or after correcting a receiver-side configuration problem. Retrying a blocked
+delivery sends the same signed SET, so it cannot repair its signed claims.
 
 ### `DELETE /ssf/delivery/pending`
 

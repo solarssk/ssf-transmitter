@@ -9,6 +9,9 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Fixed
+- Report recognized RFC 8935 receiver error codes and block SETs explicitly rejected for an invalid request, issuer, or audience. Keep rejected events in the encrypted outbox for operator review.
+
 ---
 
 ## [0.5.18] — 2026-11-09 — Apple SCIM pagination compatibility

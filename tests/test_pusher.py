@@ -459,3 +459,33 @@ async def test_push_set_sanitizes_control_characters_in_logged_claims(monkeypatc
     # ...but the rest of the value still shows up, de-fanged, on the same line.
     assert "aud=receiverFAKE LOG LINE aud" in caplog.text
     assert "txn=txn-1FAKE LOG LINE txn" in caplog.text
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("status", "body", "code", "blocked"),
+    [
+        (400, '{"err":"invalid_request","description":"private diagnostic"}', "invalid_request", True),
+        (400, '{"err":"invalid_issuer"}', "invalid_issuer", True),
+        (400, '{"err":"invalid_audience"}', "invalid_audience", True),
+        (400, '{"err":"invalid_key"}', "invalid_key", False),
+        (400, '{"err":"unknown private diagnostic"}', "unclassified", False),
+        (400, '{"err":[]}', "unclassified", False),
+        (429, '{"err":"invalid_request"}', "unclassified", False),
+        (503, '{"err":"invalid_request"}', "unclassified", False),
+    ],
+)
+async def test_signed_set_classifies_receiver_rejections(monkeypatch, stream, caplog, status, body, code, blocked):
+    monkeypatch.setattr(FakeAsyncClient, "requests", [])
+    monkeypatch.setattr(FakeAsyncClient, "status_code", status)
+    monkeypatch.setattr(FakeAsyncClient, "response_text", body)
+    monkeypatch.setattr(pusher.httpx, "AsyncClient", FakeAsyncClient)
+
+    if blocked:
+        with pytest.raises(pusher.ReceiverRejectedSET, match=code):
+            await pusher.push_signed_set(stream, "signed.jwt", SESSION_REVOKED)
+    else:
+        assert await pusher.push_signed_set(stream, "signed.jwt", SESSION_REVOKED) is False
+
+    assert f"receiver_error={code}" in caplog.text
+    assert "private diagnostic" not in caplog.text
