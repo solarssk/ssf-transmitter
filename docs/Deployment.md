@@ -18,6 +18,10 @@ GHCR's package is private — `docker pull ghcr.io/...` requires `docker login g
 
 ## Minimal compose service
 
+Before deploying to an Apple custom IdP connection, verify the expected issuer
+using [Apple issuer validation](Apple-SSF-Validation.md). A healthy container
+and reachable JWKS do not prove Apple accepts its SETs.
+
 See [docker-compose.snippet.yml](../docker-compose.snippet.yml) in the repository root.
 
 ```yaml

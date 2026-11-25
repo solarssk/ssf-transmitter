@@ -38,6 +38,11 @@ Two options, same image:
 
 ## `stack.env`
 
+The generic example uses the transmitter URL as issuer. For an Apple custom
+IdP connection, first follow [Apple issuer validation](Apple-SSF-Validation.md):
+the tested connection required its Authentik OIDC issuer instead. Preserve
+`SSF_BASE_URL` and proxy paths when adjusting `SSF_ISSUER`.
+
 ```env
 # ── Required ──
 SSF_ISSUER=https://idp.example.com/shared-signals
