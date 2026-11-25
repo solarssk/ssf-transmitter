@@ -109,10 +109,11 @@ A **stream** is the receiver configuration stored in SQLite: receiver URL, beare
 
 ## Upgrading
 
-**Upgrading from v0.5.18?** See [docs/Upgrading.md](docs/Upgrading.md#v0519--stop-retrying-rejected-sets-from-0518).
+**Upgrading from v0.5.19?** See [docs/Upgrading.md](docs/Upgrading.md).
 
-- Keep the existing SQLite volume, signing keys, and encryption settings.
-- Check `GET /ssf/delivery/status` after redeploying. A receiver HTTP 400 now moves the event to `blocked`. The warning log shows the response hash and any recognized receiver error code.
+- Pin `0.6.0` and preserve SQLite data, signing keys, and encryption settings.
+- Check SCIM partial/failed results and delivery queue health after redeploying.
+- Validate Apple's expected issuer before changing it. Device reauthentication was tested; immediate iCloud.com browser logout is not confirmed.
 
 ## Public endpoints
 

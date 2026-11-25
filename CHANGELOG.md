@@ -9,6 +9,12 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+---
+
+## [0.6.0] — 2026-11-25 — Validated Apple SCIM and SSF integration
+
+Improves Apple SCIM identity validation and failure reporting. Live tests confirmed profile updates, successful no-change syncs, Apple SET acceptance, and a reauthentication prompt on a test iPhone. Immediate iCloud.com browser-session revocation is not confirmed. No database migration or new required settings.
+
 ### Fixed
 - Validate Authentik source identities before Apple SCIM writes in both listing modes, rejecting duplicate external IDs and case-insensitive usernames.
 - Stop Apple SCIM synchronization after upstream 401/403/429 responses and honor a shared in-process `Retry-After` cooldown. Report partial/failed outcomes, skipped accounts, and stop reasons instead of always returning `status: ok`. No new settings or database migration; monitoring clients should inspect the response status and counters.
