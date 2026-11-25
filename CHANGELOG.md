@@ -14,6 +14,9 @@ Versioning: [Semantic Versioning](https://semver.org/)
 - Stop Apple SCIM synchronization after upstream 401/403/429 responses and honor a shared in-process `Retry-After` cooldown. Report partial/failed outcomes, skipped accounts, and stop reasons instead of always returning `status: ok`. No new settings or database migration; monitoring clients should inspect the response status and counters.
 - Avoid retrying an unsupported Apple SCIM email update when Apple omits `emails` and the mapped address is managed through `userName`.
 
+### Documentation
+- Correct issuer guidance for Apple custom IdP connections: validate the receiver's expected issuer, preserve public SSF routes, and distinguish new token signing from retries of already signed blocked SETs. Record live profile-field and SET-acceptance validation limits.
+
 ---
 
 ## [0.5.19] — 2026-11-25 — Stop retrying rejected SETs

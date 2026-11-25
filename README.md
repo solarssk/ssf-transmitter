@@ -99,7 +99,7 @@ A logout or password change in Authentik fires a webhook; the payload is mapped 
 ## Quick start
 
 1. Copy [`.env.example`](.env.example) to `stack.env` and set:
-   - `SSF_ISSUER`, `SSF_BASE_URL` (`SSF_ISSUER` should normally be the same URL as `SSF_BASE_URL`)
+   - `SSF_ISSUER`, `SSF_BASE_URL` (the issuer must match the receiver’s expected value; see [Apple issuer validation](docs/Apple-SSF-Validation.md) for custom IdP connections)
    - `SSF_MANAGEMENT_TOKEN`, `SSF_WEBHOOK_TOKEN`
    - `SSF_FORWARDED_ALLOW_IPS` (your reverse proxy subnet if behind NPM/Caddy)
 2. Add the service to Docker Compose. See [docs/Deployment.md](docs/Deployment.md) or [Synology guide](docs/synology-authentik-compose.md)

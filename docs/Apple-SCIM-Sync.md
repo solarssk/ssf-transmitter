@@ -69,12 +69,15 @@ separate `externalId` repair in **every** mode, including the narrow modes.
 These modes describe the requests the transmitter attempts, not a fully
 verified Apple contract. Apple has rejected a `PATCH` to the whole `name`
 attribute, so the default mode sends only changed `name.givenName` and
-`name.familyName` subattributes. In a limited live test on one account,
-Apple accepted no-op updates to both paths and stored and restored a changed
-`givenName`. It also stored and restored a changed `familyName` in a
-two-operation request that resent the unchanged `givenName`. Empty values,
-multiple changed values in one request, and combinations with other fields
-have not yet been verified. The tested Apple tenant did not advertise ETag
+`name.familyName` subattributes. In live validation on a dedicated account on 2026-11-25, Apple accepted and
+stored changes to each name separately, both changed names in one PATCH,
+`userName`, `active` (deactivation and reactivation), and a combined given-name
+and active-state change. Each test included GET verification and restoration;
+two subsequent full syncs of the five-user source scope reported unchanged
+accounts and no errors. This is evidence for that tenant and account, not a
+complete Apple compatibility guarantee. Empty values, account creation,
+externalId reassignment, independent email attributes, and full PUT were not
+validated by these tests. The tested Apple tenant did not advertise ETag
 support, so a concurrent change to the same field can be overwritten between
 the sync's read and write. A `PATCH` to `emails` replaces the whole email
 array and may remove additional addresses; `replace_all` can also overwrite
