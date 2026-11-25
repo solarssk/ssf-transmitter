@@ -1281,9 +1281,15 @@ async def test_incomplete_apple_listing_aborts_without_writes(monkeypatch, after
     pages.append(failed_page)
     holder = _install_fake_apple_client(monkeypatch, list_pages=pages)
 
-    users = [_authentik_scim(), _authentik_scim(external_id="2")]
-    with pytest.raises(apple.AppleUserListError):
-        await apple.sync_users("token", users)
+    users = [_authentik_scim(), _authentik_scim(external_id="2", username="second@example.com")]
+    if failure == "429":
+        result = await apple.sync_users("token", users)
+        assert result.stopped_reason == "rate_limited"
+        assert result.errors == 1
+        assert result.skipped == 2
+    else:
+        with pytest.raises(apple.AppleUserListError):
+            await apple.sync_users("token", users)
 
     assert len(holder["client"].requests) == (2 if after_first_page else 1)
     assert all(method == "GET" for method, _, _ in holder["client"].requests)
@@ -1598,7 +1604,7 @@ async def test_filtered_preflight_rejects_invalid_source_identity(monkeypatch, i
     with pytest.raises(apple.AppleUserListError, match="invalid identity"):
         await apple.sync_users("token", [user])
 
-    assert [method for method, _, _ in client.requests] == ["GET"]
+    assert [method for method, _, _ in client.requests] == []
 
 
 @pytest.mark.anyio
@@ -1617,7 +1623,7 @@ async def test_filtered_preflight_rejects_duplicate_source_identities(monkeypatc
     with pytest.raises(apple.AppleUserListError, match="duplicate identities"):
         await apple.sync_users("token", [first, second])
 
-    assert [method for method, _, _ in client.requests] == ["GET"]
+    assert [method for method, _, _ in client.requests] == []
 
 
 @pytest.mark.anyio

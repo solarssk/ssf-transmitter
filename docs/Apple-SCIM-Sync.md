@@ -177,10 +177,39 @@ before considering any account update. Existing `externalId` ownership and
 username-recovery rules still apply. Accounts present only in Apple remain
 untouched.
 
+Before any Apple directory request, both listing modes reject missing source
+identities, repeated `externalId` values, and usernames that match after
+trimming and case normalization. The entire sync stops before writes; correct
+the source identities rather than choosing one account arbitrarily.
+
 An HTTP `200` sync response can still report nonzero `conflicts` or `errors`:
 identity mismatches and unlinked accounts requiring review count as conflicts;
 failed lookups or unverified links count as errors. Account names are omitted
 from the response and masked in logs unless PII logging is explicitly enabled.
+The body reports `status: ok` for a complete outcome, `partial` when some
+accounts succeeded or were unchanged but problems remain, and `failed` when
+none completed successfully. Conflicts and out-of-scope differences also
+prevent an `ok` outcome. Monitoring should inspect this status and counters,
+rather than HTTP 200 alone.
+
+Apple HTTP 401 or 403 stops the current cycle immediately with
+`stopped_reason: authorization_failed`; no later accounts are touched. Check
+the Apple connection and permissions. There is no automatic replay of the
+failed write or forced refresh loop. HTTP 429 stops with `rate_limited` and
+shares a directory cooldown between manual, scheduled, and post-authorization
+syncs in the single worker. `Retry-After` accepts seconds or an HTTP date;
+missing or invalid values use 60 seconds. Calls during the cooldown perform
+no Apple directory requests. The cooldown is in memory and resets on restart.
+`retry_after_seconds` reports the remaining delay, and `skipped` counts users
+whose reconciliation was not attempted (excluding the user whose request
+failed). The scheduler retains its configured interval and skips a cycle if
+the cooldown has not expired.
+
+Other per-account errors, including timeouts and 5xx responses, retain earlier
+successes and are counted without automatically replaying writes. A timeout
+can mean the write reached Apple; inspect the next directory read before
+retrying. Live validation of profile fields still requires an isolated test
+account and read-after-write verification as described above.
 
 ## Group filtering (recommended)
 

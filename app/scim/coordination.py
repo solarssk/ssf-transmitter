@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import math
+import time
 from collections.abc import AsyncIterator
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 
@@ -17,6 +19,7 @@ class _Coordinator:
         self._idle = asyncio.Event()
         self._idle.set()
         self.token_lock = asyncio.Lock()
+        self.retry_not_before = 0.0
 
     @asynccontextmanager
     async def operation(self, *, wait: bool = False) -> AsyncIterator[None]:
@@ -56,3 +59,14 @@ def scim_operation(*, wait: bool = False) -> AbstractAsyncContextManager[None]:
 def token_lock() -> asyncio.Lock:
     """Serialize token refresh and authorization-code exchange/save."""
     return _get_coordinator().token_lock
+
+
+def defer_sync(seconds: int) -> None:
+    """Share Apple's rate-limit cooldown across syncs in this worker."""
+    coordinator = _get_coordinator()
+    coordinator.retry_not_before = max(coordinator.retry_not_before, time.monotonic() + seconds)
+
+
+def sync_retry_after() -> int:
+    """Return the seconds left before another Apple directory request is allowed."""
+    return max(0, math.ceil(_get_coordinator().retry_not_before - time.monotonic()))

@@ -517,7 +517,7 @@ def test_sync_502_when_apple_users_list_fails_with_network_error(client, monkeyp
     resp = client.post("/apple-scim/sync", headers=MGMT_HEADERS)
 
     assert resp.status_code == 502
-    assert "Could not reach Apple Business Manager" in resp.json()["detail"]
+    assert "Could not read or validate" in resp.json()["detail"]
 
 
 def test_sync_502_when_apple_users_list_is_incomplete(client, monkeypatch):
@@ -542,6 +542,31 @@ def test_sync_502_when_apple_users_list_is_incomplete(client, monkeypatch):
 
     assert resp.status_code == 502
     assert "Could not" in resp.json()["detail"]
+
+
+def test_sync_502_when_source_identities_are_duplicated(client, monkeypatch):
+    from app.scim.apple import sync_users
+
+    monkeypatch.setattr(scim_routes, "settings", _configured_settings())
+    monkeypatch.setattr(scim_routes, "sync_users", sync_users)
+
+    async def token():
+        return "valid-token"
+
+    async def users():
+        return [
+            {"externalId": "1", "userName": "user@example.test"},
+            {"externalId": "2", "userName": "USER@example.test"},
+        ]
+
+    monkeypatch.setattr(scim_routes, "get_valid_access_token", token)
+    monkeypatch.setattr(scim_routes, "get_users", users)
+
+    response = client.post("/apple-scim/sync", headers=MGMT_HEADERS)
+
+    assert response.status_code == 502
+    assert "read or validate" in response.json()["detail"]
+    assert "user@example.test" not in response.text
 
 
 def test_sync_success_returns_result_summary(client, monkeypatch):
@@ -575,7 +600,7 @@ def test_sync_success_returns_result_summary(client, monkeypatch):
     assert resp.status_code == 200
     body = resp.json()
     assert body == {
-        "status": "ok",
+        "status": "partial",
         "created": 1,
         "updated": 2,
         "unchanged": 3,
@@ -583,7 +608,43 @@ def test_sync_success_returns_result_summary(client, monkeypatch):
         "errors": 0,
         "update_400_invalid_request": 0,
         "out_of_scope_diffs": 1,
+        "skipped": 0,
+        "stopped_reason": None,
+        "retry_after_seconds": None,
         "update_mode": "patch_all",
     }
     # conflict_usernames must never appear in the API response (PII).
     assert "conflict_usernames" not in body
+
+
+@pytest.mark.parametrize(
+    "result, expected",
+    [
+        (SyncResult(unchanged=1), "ok"),
+        (SyncResult(errors=1), "failed"),
+        (SyncResult(updated=1, errors=1), "partial"),
+        (SyncResult(conflicts=1), "failed"),
+        (SyncResult(unchanged=1, out_of_scope_diffs=1), "partial"),
+        (SyncResult(skipped=2, stopped_reason="rate_limited", retry_after_seconds=120), "failed"),
+    ],
+)
+def test_sync_reports_incomplete_outcomes(client, monkeypatch, result, expected):
+    monkeypatch.setattr(scim_routes, "settings", _configured_settings())
+
+    async def token():
+        return "valid-token"
+
+    async def sync_result(access_token, users):
+        return result
+
+    monkeypatch.setattr(scim_routes, "get_valid_access_token", token)
+    monkeypatch.setattr(scim_routes, "get_users", _noop_get_users)
+    monkeypatch.setattr(scim_routes, "sync_users", sync_result)
+
+    response = client.post("/apple-scim/sync", headers=MGMT_HEADERS)
+
+    assert response.status_code == 200
+    assert response.json()["status"] == expected
+    assert response.json()["skipped"] == result.skipped
+    assert response.json()["stopped_reason"] == result.stopped_reason
+    assert response.json()["retry_after_seconds"] == result.retry_after_seconds

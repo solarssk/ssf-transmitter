@@ -25,13 +25,17 @@ from __future__ import annotations
 
 import json
 import logging
+import math
+import time
 from dataclasses import dataclass, field
+from email.utils import parsedate_to_datetime
 from typing import Any, TypeGuard
 from urllib.parse import quote
 
 import httpx
 
 from app.config import settings
+from app.scim.coordination import defer_sync, sync_retry_after
 from app.security.http_logging import response_metadata, safe_response_body_text
 from app.security.pii import mask_email
 
@@ -45,6 +49,42 @@ _FILTER_LOOKUP_COUNT = 2
 
 class AppleUserListError(Exception):
     """Apple's user listing could not be read completely and safely."""
+
+
+class _AppleSyncStopped(Exception):
+    """Apple rejected connection-wide authorization or rate-limited the sync."""
+
+    def __init__(self, reason: str, retry_after: int | None = None) -> None:
+        self.reason = reason
+        self.retry_after = retry_after
+        super().__init__(reason)
+
+
+def _retry_after_seconds(value: str | None) -> int:
+    """Accept Retry-After delay-seconds or an HTTP date; default to one minute."""
+    if value is not None:
+        try:
+            if value.strip().isascii() and value.strip().isdigit():
+                seconds = int(value)
+                # The deadline uses a floating-point monotonic clock.
+                float(seconds)
+                return seconds
+            date = parsedate_to_datetime(value)
+            if date.tzinfo is not None:
+                return max(0, math.ceil(date.timestamp() - time.time()))
+        except ValueError, TypeError, OverflowError:
+            pass
+    return 60
+
+
+def _check_sync_response(response: httpx.Response) -> None:
+    """Stop before another account is touched after a connection-wide failure."""
+    if response.status_code in (401, 403):
+        raise _AppleSyncStopped("authorization_failed")
+    if response.status_code == 429:
+        seconds = _retry_after_seconds(response.headers.get("Retry-After"))
+        defer_sync(seconds)
+        raise _AppleSyncStopped("rate_limited", seconds)
 
 
 class _AppleFilteredLookupRequired(AppleUserListError):
@@ -76,6 +116,16 @@ class SyncResult:
     # with both an email and a name change).
     out_of_scope_diffs: int = 0
     conflict_usernames: list[str] = field(default_factory=list)
+    skipped: int = 0
+    stopped_reason: str | None = None
+    retry_after_seconds: int | None = None
+
+    @property
+    def status(self) -> str:
+        """Distinguish complete, partial, and unsuccessful sync outcomes."""
+        if not (self.errors or self.conflicts or self.out_of_scope_diffs or self.stopped_reason):
+            return "ok"
+        return "partial" if self.created or self.updated or self.unchanged else "failed"
 
 
 async def _fetch_users_page(client: httpx.AsyncClient, headers: dict, url: str) -> dict:
@@ -84,6 +134,7 @@ async def _fetch_users_page(client: httpx.AsyncClient, headers: dict, url: str) 
         resp = await client.get(url, headers=headers)
     except httpx.HTTPError as exc:
         raise AppleUserListError("Network error listing Apple SCIM users") from exc
+    _check_sync_response(resp)
     if resp.status_code != 200:
         logger.error("Apple SCIM list users failed response=%s", response_metadata(resp))
         raise AppleUserListError(f"Apple SCIM user listing returned HTTP {resp.status_code}")
@@ -642,6 +693,7 @@ async def _patch_user(
         resp = await client.put(_user_url(apple_id), json=update_body, headers=headers)
     else:
         resp = await client.patch(_user_url(apple_id), json=update_body, headers=headers)
+    _check_sync_response(resp)
     if resp.status_code in (200, 204):
         result.updated += 1
         logger.info(
@@ -680,9 +732,11 @@ async def _patch_external_id(
         "Operations": [{"op": "Replace", "path": "externalId", "value": external_id}],
     }
     resp = await client.patch(_user_url(apple_id), json=body, headers=headers)
+    _check_sync_response(resp)
     if resp.status_code in (200, 204):
         try:
             verification = await client.get(_user_url(apple_id), headers=headers)
+            _check_sync_response(verification)
         except httpx.HTTPError as exc:
             result.errors += 1
             logger.warning(
@@ -749,6 +803,7 @@ async def _query_username_filter(
     except httpx.HTTPError:
         logger.warning("Apple SCIM: 409-recovery network error for userName=%s", safe_username)
         return None
+    _check_sync_response(resp)
     if resp.status_code != 200:
         logger.warning(
             "Apple SCIM: 409-recovery filter query failed status=%s userName=%s", resp.status_code, safe_username
@@ -988,6 +1043,7 @@ async def _create_user(
 ) -> None:
     """POST a brand-new user to Apple SCIM, delegating 409s to the userName-recovery path."""
     resp = await client.post(f"{APPLE_SCIM_BASE}/Users", json=user, headers=headers)
+    _check_sync_response(resp)
     if resp.status_code in (200, 201):
         if verify_identity and not await _verify_created_user(client, headers, user, resp):
             result.errors += 1
@@ -1034,7 +1090,7 @@ def _log_sync_summary(result: SyncResult) -> None:
     """Summarize sync outcomes and flag accounts needing operator review."""
     logger.info(
         "Apple SCIM: sync done — created=%d updated=%d unchanged=%d conflicts=%d "
-        "errors=%d update_400_invalid_request=%d out_of_scope_diffs=%d",
+        "errors=%d update_400_invalid_request=%d out_of_scope_diffs=%d status=%s skipped=%d stopped_reason=%s",
         result.created,
         result.updated,
         result.unchanged,
@@ -1042,6 +1098,9 @@ def _log_sync_summary(result: SyncResult) -> None:
         result.errors,
         result.update_400_invalid_request,
         result.out_of_scope_diffs,
+        result.status,
+        result.skipped,
+        result.stopped_reason,
     )
     if result.conflicts > 0:
         logger.warning(
@@ -1060,7 +1119,26 @@ def _log_sync_summary(result: SyncResult) -> None:
 
 async def sync_users(access_token: str, scim_users: list[dict]) -> SyncResult:
     """Upsert Authentik users into Apple Business Manager."""
-    result = SyncResult()
+    _source_identities(scim_users)
+    result = SyncResult(skipped=len(scim_users))
+    retry_after = sync_retry_after()
+    if retry_after:
+        result.stopped_reason = "rate_limited"
+        result.retry_after_seconds = retry_after
+    else:
+        try:
+            await _sync_users(access_token, scim_users, result)
+        except _AppleSyncStopped as exc:
+            result.errors += 1
+            result.stopped_reason = exc.reason
+            result.retry_after_seconds = exc.retry_after
+            logger.warning("Apple SCIM: sync stopped reason=%s retry_after_seconds=%s", exc.reason, exc.retry_after)
+    _log_sync_summary(result)
+    return result
+
+
+async def _sync_users(access_token: str, scim_users: list[dict], result: SyncResult) -> None:
+    """Read the directory and reconcile users until a connection-wide failure."""
     headers = {
         "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/scim+json",
@@ -1077,6 +1155,7 @@ async def sync_users(access_token: str, scim_users: list[dict]) -> SyncResult:
         _log_sync_start(scim_users, by_ext_id, by_username, filtered=filtered)
 
         for user in scim_users:
+            result.skipped -= 1
             ext_id = user["externalId"]
             apple_user, recovered_by_username, username_conflict = _match_apple_user(user, by_ext_id, by_username)
             if username_conflict:
@@ -1093,6 +1172,3 @@ async def sync_users(access_token: str, scim_users: list[dict]) -> SyncResult:
             except httpx.HTTPError:
                 result.errors += 1
                 logger.exception("Apple SCIM: network error for externalId=%s", ext_id)
-
-    _log_sync_summary(result)
-    return result
