@@ -9,6 +9,9 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Fixed
+- Avoid retrying an unsupported Apple SCIM email update when Apple omits `emails` and the mapped address is managed through `userName`.
+
 ---
 
 ## [0.5.19] — 2026-11-25 — Stop retrying rejected SETs

@@ -47,6 +47,10 @@ lookup is reported rather than used to select the first result.
 
 ### `APPLE_SCIM_UPDATE_MODE`
 
+When Apple omits `emails` from its response and the mapped email matches the mapped
+`userName`, the sync manages that address through `userName`. Fields returned by Apple
+and separately mapped email addresses are still compared independently.
+
 Controls which user fields a sync is allowed to write to Apple. Leave this at
 the default unless you have a specific reason to narrow it (e.g. isolating
 which field an Apple `400` response is coming from).

@@ -453,6 +453,9 @@ def _primary_email(user: dict) -> str | None:
 
 def _field_diffs(existing: dict, new: dict, *, include_external_id: bool = True) -> dict[str, bool]:
     """Return normalized syncable-field differences between Apple and Authentik users."""
+    new_email = _normalize_email(_primary_email(new))
+    # Apple can omit emails entirely while retaining the managed address in userName.
+    email_managed_by_username = "emails" not in existing and new_email == _normalize_email(new.get("userName"))
     diffs = {
         "userName": _normalize_identifier(existing.get("userName")) != _normalize_identifier(new.get("userName")),
         "givenName": str(existing.get("name", {}).get("givenName") or "").strip()
@@ -460,7 +463,7 @@ def _field_diffs(existing: dict, new: dict, *, include_external_id: bool = True)
         "familyName": str(existing.get("name", {}).get("familyName") or "").strip()
         != str(new.get("name", {}).get("familyName") or "").strip(),
         "active": bool(existing.get("active", True)) != bool(new.get("active", True)),
-        "email": _normalize_email(_primary_email(existing)) != _normalize_email(_primary_email(new)),
+        "email": not email_managed_by_username and _normalize_email(_primary_email(existing)) != new_email,
     }
     if include_external_id:
         diffs["externalId"] = str(existing.get("externalId") or "").strip() != str(new.get("externalId") or "").strip()
