@@ -306,7 +306,7 @@ async def status() -> dict:
     responses={
         401: {"description": "No valid Apple access token — visit /apple-scim/authorize"},
         409: {"description": "Another Apple SCIM sync or authorization is in progress"},
-        502: {"description": "Could not fetch users from Authentik or a complete Apple users list"},
+        502: {"description": "Could not read or validate Authentik identities or a complete Apple users list"},
         503: {"description": "Apple SCIM sync is not configured"},
     },
 )
@@ -336,14 +336,14 @@ async def sync() -> dict:
         logger.info("Apple SCIM: manual sync rejected — another sync or authorization is in progress")
         raise HTTPException(status_code=409, detail="Another Apple SCIM operation is in progress") from exc
     except AppleUserListError, httpx.HTTPError:
-        logger.exception("Apple SCIM: sync failed — could not list existing Apple users")
+        logger.exception("Apple SCIM: sync failed — could not read or validate source and Apple user directories")
         raise HTTPException(
             status_code=502,
-            detail="Could not reach Apple Business Manager or obtain a complete user list",
+            detail="Could not read or validate the Authentik and Apple user directories",
         ) from None
 
     return {
-        "status": "ok",
+        "status": result.status,
         "created": result.created,
         "updated": result.updated,
         "unchanged": result.unchanged,
@@ -354,5 +354,8 @@ async def sync() -> dict:
         "errors": result.errors,
         "update_400_invalid_request": result.update_400_invalid_request,
         "out_of_scope_diffs": result.out_of_scope_diffs,
+        "skipped": result.skipped,
+        "stopped_reason": result.stopped_reason,
+        "retry_after_seconds": result.retry_after_seconds,
         "update_mode": settings.apple_scim_update_mode,
     }

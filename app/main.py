@@ -87,7 +87,9 @@ async def _run_scheduled_apple_scim_sync() -> None:
             if users is not None:
                 await sync_users(token, users)
     except AppleUserListError:
-        logger.exception("Apple SCIM: scheduled sync aborted — incomplete Apple user listing")
+        logger.exception(
+            "Apple SCIM: scheduled sync aborted — invalid source identities or incomplete Apple user listing"
+        )
     except Exception:
         logger.exception("Apple SCIM: unhandled error in sync loop")
 

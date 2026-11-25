@@ -328,10 +328,19 @@ Requires management authentication and runs a full sync. A successful
 response includes counts for `created`, `updated`, `unchanged`, `conflicts`,
 `errors`, `update_400_invalid_request`, and `out_of_scope_diffs`.
 
-**Response** `200 OK` — sync completed; inspect `conflicts` and `errors`.
+**Response** `200 OK` — sync returned an outcome; this does not guarantee every account was synchronized.
+The body `status` is `ok` only when there are no errors, conflicts, out-of-scope
+differences, or stop reason. It is `partial` when some operations succeeded or
+accounts were already unchanged but problems remain, and `failed` when none
+completed successfully. Inspect the counters as well as `skipped` (accounts
+not attempted), `stopped_reason` (`authorization_failed`, `rate_limited`, or
+`null`), and `retry_after_seconds` (remaining directory cooldown, or `null`).
+Apple HTTP 401/403/429 stops the cycle, including during directory reads;
+these upstream statuses are reported in this outcome, not as management-auth
+failures. Other incomplete directory reads still return `502`.
 **Response** `401 Unauthorized` — management authentication failed or no valid Apple token is available.
 **Response** `409 Conflict` — another Apple sync or authorization is running; no new sync was started.
-**Response** `502 Bad Gateway` — Authentik or the complete Apple user listing could not be fetched.
+**Response** `502 Bad Gateway` — source identities are invalid or duplicated, or Authentik or the complete Apple user listing could not be fetched.
 **Response** `503 Service Unavailable` — Apple SCIM is not configured.
 
 ### `GET /apple-scim/callback`
