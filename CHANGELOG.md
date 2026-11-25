@@ -10,7 +10,7 @@ Versioning: [Semantic Versioning](https://semver.org/)
 ## [Unreleased]
 
 ### Fixed
-- Report recognized RFC 8935 receiver error codes and block SETs explicitly rejected for an invalid request, issuer, or audience. Keep rejected events in the encrypted outbox for operator review.
+- Block SETs rejected with HTTP 400, including Apple responses without a recognized RFC 8935 error code. Report recognized codes when present. Keep rejected events in the encrypted outbox for operator review.
 
 ---
 

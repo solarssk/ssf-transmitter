@@ -463,26 +463,27 @@ async def test_push_set_sanitizes_control_characters_in_logged_claims(monkeypatc
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    ("status", "body", "code", "blocked"),
+    ("status", "body", "code", "rejection"),
     [
-        (400, '{"err":"invalid_request","description":"private diagnostic"}', "invalid_request", True),
-        (400, '{"err":"invalid_issuer"}', "invalid_issuer", True),
-        (400, '{"err":"invalid_audience"}', "invalid_audience", True),
-        (400, '{"err":"invalid_key"}', "invalid_key", False),
-        (400, '{"err":"unknown private diagnostic"}', "unclassified", False),
-        (400, '{"err":[]}', "unclassified", False),
-        (429, '{"err":"invalid_request"}', "unclassified", False),
-        (503, '{"err":"invalid_request"}', "unclassified", False),
+        (400, '{"err":"invalid_request","description":"private diagnostic"}', "invalid_request", "invalid_request"),
+        (400, '{"err":"invalid_issuer"}', "invalid_issuer", "invalid_issuer"),
+        (400, '{"err":"invalid_audience"}', "invalid_audience", "invalid_audience"),
+        (400, '{"err":"invalid_key"}', "invalid_key", "invalid_key"),
+        (400, '{"err":"unknown private diagnostic"}', "unclassified", "http_400"),
+        (400, '{"err":[]}', "unclassified", "http_400"),
+        (400, "private diagnostic", "unclassified", "http_400"),
+        (429, '{"err":"invalid_request"}', "unclassified", None),
+        (503, '{"err":"invalid_request"}', "unclassified", None),
     ],
 )
-async def test_signed_set_classifies_receiver_rejections(monkeypatch, stream, caplog, status, body, code, blocked):
+async def test_signed_set_classifies_receiver_rejections(monkeypatch, stream, caplog, status, body, code, rejection):
     monkeypatch.setattr(FakeAsyncClient, "requests", [])
     monkeypatch.setattr(FakeAsyncClient, "status_code", status)
     monkeypatch.setattr(FakeAsyncClient, "response_text", body)
     monkeypatch.setattr(pusher.httpx, "AsyncClient", FakeAsyncClient)
 
-    if blocked:
-        with pytest.raises(pusher.ReceiverRejectedSET, match=code):
+    if rejection is not None:
+        with pytest.raises(pusher.ReceiverRejectedSET, match=rejection):
             await pusher.push_signed_set(stream, "signed.jwt", SESSION_REVOKED)
     else:
         assert await pusher.push_signed_set(stream, "signed.jwt", SESSION_REVOKED) is False

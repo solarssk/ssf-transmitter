@@ -28,7 +28,6 @@ _SET_ERROR_CODES = frozenset(
         "access_denied",
     }
 )
-_NON_RETRYABLE_SET_ERRORS = frozenset({"invalid_request", "invalid_issuer", "invalid_audience"})
 
 
 class ReceiverRejectedSET(Exception):
@@ -194,8 +193,8 @@ async def push_signed_set(stream: Stream, token: str, event_uri: str) -> bool:
             )
         elif logger.isEnabledFor(logging.DEBUG):
             logger.debug("Receiver error body_hash=%s body_len=%d", body_hash, len(response.content))
-        if error_code in _NON_RETRYABLE_SET_ERRORS:
-            raise ReceiverRejectedSET(error_code)
+        if response.status_code == 400:
+            raise ReceiverRejectedSET(error_code or "http_400")
         return False
 
     logger.info(
