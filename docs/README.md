@@ -18,4 +18,4 @@ These files are the **source of truth** for operator documentation. Copy or sync
 | Threat model | [../SECURITY.md](../SECURITY.md) |
 | Changelog | [../CHANGELOG.md](../CHANGELOG.md) |
 
-**Current stable release:** `v0.5.18` — [Apple SCIM pagination compatibility](https://github.com/solarssk/ssf-transmitter/releases/tag/v0.5.18)
+**Current stable release:** `v0.5.19` — [Stop retrying rejected SETs](https://github.com/solarssk/ssf-transmitter/releases/tag/v0.5.19)
