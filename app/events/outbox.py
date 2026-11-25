@@ -24,7 +24,7 @@ from app.database import (
     stream_operation_lock,
 )
 from app.events.mapper import MappedEvent
-from app.events.pusher import push_signed_set
+from app.events.pusher import ReceiverRejectedSET, push_signed_set
 
 logger = logging.getLogger(__name__)
 
@@ -136,6 +136,15 @@ async def _deliver_item(item: OutboxItem) -> None:
             push_signed_set(stream, payload["token"], payload["event_uri"]),
             timeout=_DELIVERY_DEADLINE_SECONDS,
         )
+    except ReceiverRejectedSET as exc:
+        await block_outbox_item(item.id, f"receiver_{exc}")
+        logger.warning(
+            "Blocked queued SET rejected by receiver item_id=%s stream_id=%s receiver_error=%s",
+            item.id,
+            item.stream_id,
+            exc,
+        )
+        return
     except TimeoutError:
         logger.warning("Queued SET delivery timed out item_id=%s stream_id=%s", item.id, item.stream_id)
         await _retry(item, "delivery_timeout")

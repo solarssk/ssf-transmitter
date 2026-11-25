@@ -9,6 +9,9 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Fixed
+- Block SETs rejected with HTTP 400, including Apple responses without a recognized RFC 8935 error code. Report recognized codes when present. Keep rejected events in the encrypted outbox for operator review.
+
 ---
 
 ## [0.5.18] — 2026-11-09 — Apple SCIM pagination compatibility

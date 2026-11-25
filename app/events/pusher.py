@@ -2,6 +2,7 @@
 
 import asyncio
 import hashlib
+import json
 import logging
 from urllib.parse import urlparse
 
@@ -15,6 +16,34 @@ from app.security.log_sanitize import sanitize_for_log
 from app.security.url_validation import _is_blocked_ip, _resolve_host, receiver_host_allowed, safe_hostname
 
 logger = logging.getLogger(__name__)
+
+
+_SET_ERROR_CODES = frozenset(
+    {
+        "invalid_request",
+        "invalid_key",
+        "invalid_issuer",
+        "invalid_audience",
+        "authentication_failed",
+        "access_denied",
+    }
+)
+
+
+class ReceiverRejectedSET(Exception):
+    """The receiver explicitly rejected the queued SET or its stream configuration."""
+
+
+def _receiver_error_code(status_code: int, content: bytes) -> str | None:
+    """Extract only a known RFC 8935 code, never receiver-supplied free text."""
+    if status_code != 400 or len(content) > 4096:
+        return None
+    try:
+        error = json.loads(content)
+    except ValueError, RecursionError:
+        return None
+    code = error.get("err") if isinstance(error, dict) else None
+    return code if isinstance(code, str) and code in _SET_ERROR_CODES else None
 
 
 def _safe_host(url: str) -> str:
@@ -111,11 +140,14 @@ async def push_set(stream: Stream, event: MappedEvent, email: str) -> bool | Non
             event.payload,
         )
 
-    return await push_signed_set(stream, token, event.uri)
+    try:
+        return await push_signed_set(stream, token, event.uri)
+    except ReceiverRejectedSET:
+        return False
 
 
 async def push_signed_set(stream: Stream, token: str, event_uri: str) -> bool:
-    """Push a previously signed SET; returns False for validation or delivery failures."""
+    """Push a signed SET, raising for explicit rejections that require intervention."""
     if not await asyncio.to_thread(_revalidate_endpoint, stream.endpoint_url):
         return False
 
@@ -139,14 +171,17 @@ async def push_signed_set(stream: Stream, token: str, event_uri: str) -> bool:
         return False
 
     if not (200 <= response.status_code < 300):
+        error_code = _receiver_error_code(response.status_code, response.content)
         body_hash = hashlib.sha256(response.content).hexdigest()[:8]
         logger.warning(
-            "Receiver returned error for SET event_uri=%s aud=%s endpoint_host=%s status_code=%s body_hash=%s",
+            "Receiver returned error for SET event_uri=%s aud=%s endpoint_host=%s status_code=%s "
+            "body_hash=%s receiver_error=%s",
             event_uri,
             sanitize_for_log(stream.aud),
             _safe_host(stream.endpoint_url),
             response.status_code,
             body_hash,
+            error_code or "unclassified",
         )
         if settings.ssf_log_receiver_error_body:
             logger.debug(
@@ -158,6 +193,8 @@ async def push_signed_set(stream: Stream, token: str, event_uri: str) -> bool:
             )
         elif logger.isEnabledFor(logging.DEBUG):
             logger.debug("Receiver error body_hash=%s body_len=%d", body_hash, len(response.content))
+        if response.status_code == 400:
+            raise ReceiverRejectedSET(error_code or "http_400")
         return False
 
     logger.info(
@@ -204,13 +241,15 @@ async def push_verification_set(stream: Stream, state: str | None = None) -> boo
         return False
 
     if not (200 <= response.status_code < 300):
+        error_code = _receiver_error_code(response.status_code, response.content)
         body_hash = hashlib.sha256(response.content).hexdigest()[:8]
         logger.warning(
-            "Receiver rejected verification SET aud=%s endpoint_host=%s status_code=%s body_hash=%s",
+            "Receiver rejected verification SET aud=%s endpoint_host=%s status_code=%s body_hash=%s receiver_error=%s",
             sanitize_for_log(stream.aud),
             _safe_host(stream.endpoint_url),
             response.status_code,
             body_hash,
+            error_code or "unclassified",
         )
         if settings.ssf_log_receiver_error_body:
             logger.debug(

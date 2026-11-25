@@ -619,3 +619,24 @@ async def test_unreadable_payload_is_blocked_and_operator_can_retry_or_discard(q
     assert status["blocked"] == 1
     assert await database.delete_blocked_outbox() == 1
     assert (await database.get_outbox_status())["blocked"] == 0
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("reason", ["invalid_request", "http_400"])
+async def test_receiver_rejection_blocks_until_operator_requeues(queued_stream, monkeypatch, reason):
+    db_path, stream = queued_stream
+    await _enqueue(stream)
+    push = AsyncMock(side_effect=[outbox.ReceiverRejectedSET(reason), True])
+    monkeypatch.setattr(outbox, "push_signed_set", push)
+
+    assert await outbox.deliver_pending() == 1
+    assert await outbox.deliver_pending() == 0
+    async with aiosqlite.connect(db_path) as db:
+        cursor = await db.execute("SELECT status, last_error FROM set_outbox")
+        assert await cursor.fetchone() == ("blocked", f"receiver_{reason}")
+    assert (await database.get_outbox_status())["stored"] == 1
+
+    assert await database.requeue_blocked_outbox() == 1
+    assert await outbox.deliver_pending() == 1
+    assert (await database.get_outbox_status())["stored"] == 0
+    assert push.await_args_list[0] == push.await_args_list[1]
