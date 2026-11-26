@@ -63,17 +63,8 @@ def map_authentik_event(payload: dict[str, Any]) -> list[MappedEvent]:
         logger.info("Skipping Authentik event action=%s reason=login_failed", action)
         return []
     if action == "authentik.core.auth.logout":
-        return [
-            MappedEvent(
-                uri=SESSION_REVOKED,
-                payload={
-                    "event_timestamp": _event_timestamp(),
-                    "initiating_entity": "policy",
-                    "reason_admin": {"en": "Session revoked in Authentik"},
-                },
-                txn=txn,
-            )
-        ]
+        logger.info("Skipping Authentik event action=%s reason=local_logout", action)
+        return []
     if action == "authentik.core.user.delete":
         logger.info("Skipping Authentik event action=%s reason=event_not_supported", action)
         return []
@@ -100,11 +91,17 @@ def map_authentik_event(payload: dict[str, Any]) -> list[MappedEvent]:
             )
         )
 
-    if "is_active" in changed_fields:
-        logger.info(
-            "Skipping Authentik account state change action=%s reason=event_not_supported is_active=%s",
-            action,
-            context.get("is_active"),
+    if "is_active" in changed_fields and context.get("is_active") is False:
+        events.append(
+            MappedEvent(
+                uri=SESSION_REVOKED,
+                payload={
+                    "event_timestamp": _event_timestamp(),
+                    "initiating_entity": "policy",
+                    "reason_admin": {"en": "Account disabled in Authentik"},
+                },
+                txn=txn,
+            )
         )
 
     if not events:

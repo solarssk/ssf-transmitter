@@ -1,0 +1,32 @@
+# Paste as the Authentik notification transport's body mapping expression.
+from authentik.core.models import User
+
+
+def build_body(event):
+    context = event.context or {}
+    user = event.user or {}
+    action = "ignored"
+    mapped_context = {}
+    if event.action == "model_updated":
+        model = context.get("model", {})
+        if model.get("app") == "authentik_core" and model.get("model_name") == "user":
+            target = User.objects.filter(pk=model.get("pk")).first()
+            # Never substitute the administrator (event.user) for the target.
+            if target is not None and target.is_active is False:
+                user = {"email": target.email, "username": target.username}
+                action = "authentik.core.user.write"
+                mapped_context = {"changed_fields": ["is_active"], "is_active": False}
+    elif event.action == "user_write" and context.get("created") is False and "password" in context:
+        action = "authentik.core.user.write"
+        mapped_context = {"changed_fields": ["password"]}
+    return {
+        "body": {
+            "action": action,
+            "user": {"email": user.get("email", ""), "username": user.get("username", "")},
+            "context": mapped_context,
+            "pk": str(event.pk),
+        }
+    }
+
+
+return build_body(notification.event)

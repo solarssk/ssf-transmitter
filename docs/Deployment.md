@@ -98,7 +98,7 @@ Create a **Generic Webhook** notification transport:
 |---|---|
 | URL | `http://authentik-ssf:8000/webhook/authentik` |
 | Header | `Authorization: Bearer <SSF_WEBHOOK_TOKEN>` |
-| Events | `authentik.core.auth.logout`, `authentik.core.user.write` |
+| Events | `model_updated` (user disablement), `user_write` (password change); use [the body mapping](Event-Mapping.md) |
 
 Use the Docker service name (`authentik-ssf`) so traffic stays on the internal network.
 

@@ -360,7 +360,7 @@ and deployment requirements.
 | Event URI | Triggered by |
 |---|---|
 | `https://schemas.openid.net/secevent/ssf/event-type/verification` | Stream registration (`POST /ssf/streams`) |
-| `https://schemas.openid.net/secevent/caep/event-type/session-revoked` | Authentik logout |
+| `https://schemas.openid.net/secevent/caep/event-type/session-revoked` | Explicit Authentik account disablement |
 | `https://schemas.openid.net/secevent/caep/event-type/credential-change` | Password change (`user.write` with `password` in `changed_fields`) |
 
 RISC lifecycle events (`account-disabled`, `account-enabled`, `account-purged`) are **not** supported in v0.5.10 — see [Event-Mapping.md](Event-Mapping.md).

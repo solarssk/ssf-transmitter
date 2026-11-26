@@ -199,7 +199,13 @@ def test_email_not_in_logs_by_default(client: TestClient, caplog):
     import logging
 
     body = json.dumps(
-        {"body": {"action": "authentik.core.auth.logout", "user": {"email": "secret@example.com"}}}
+        {
+            "body": {
+                "action": "authentik.core.user.write",
+                "context": {"changed_fields": ["is_active"], "is_active": False},
+                "user": {"email": "secret@example.com"},
+            }
+        }
     ).encode()
     with caplog.at_level(logging.INFO, logger="app.routes.webhook"):
         client.post("/webhook/authentik", content=body, headers=_signed_headers(body))

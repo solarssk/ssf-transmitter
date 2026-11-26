@@ -8,8 +8,15 @@ from app.events.mapper import (
 )
 
 
-def test_maps_logout_to_session_revoked():
-    events = map_authentik_event({"body": {"action": "authentik.core.auth.logout"}})
+def test_maps_disabled_account_to_session_revoked():
+    events = map_authentik_event(
+        {
+            "body": {
+                "action": "authentik.core.user.write",
+                "context": {"changed_fields": ["is_active"], "is_active": False},
+            }
+        }
+    )
 
     assert len(events) == 1
     assert events[0].uri == SESSION_REVOKED
@@ -32,7 +39,8 @@ def test_maps_user_write_password_and_disabled_to_multiple_events():
         }
     )
 
-    assert len(events) == 1
+    assert len(events) == 2
+    assert events[1].uri == SESSION_REVOKED
     assert events[0].uri == CREDENTIAL_CHANGE
     assert events[0].payload["credential_type"] == "password"
     assert events[0].payload["change_type"] == "update"
@@ -127,12 +135,19 @@ def test_multiple_events_from_one_webhook_share_txn():
         }
     )
 
-    assert len(events) == 1
-    assert events[0].txn == "event-uuid-abc"
+    assert len(events) == 2
+    assert all(e.txn == "event-uuid-abc" for e in events)
 
 
 def test_txn_is_none_when_no_source_event_id():
-    events = map_authentik_event({"body": {"action": "authentik.core.auth.logout"}})
+    events = map_authentik_event(
+        {
+            "body": {
+                "action": "authentik.core.user.write",
+                "context": {"changed_fields": ["is_active"], "is_active": False},
+            }
+        }
+    )
     assert events[0].txn is None
 
 
@@ -173,3 +188,29 @@ def test_mapped_event_is_frozen():
     event = MappedEvent(uri="https://example.com/event", payload={}, txn="t1")
     with pytest.raises((AttributeError, TypeError)):
         event.uri = "other"  # type: ignore[misc]
+
+
+def test_local_logout_never_revokes_apple_sessions():
+    assert (
+        map_authentik_event({"body": {"action": "authentik.core.auth.logout", "user": {"email": "user@example.com"}}})
+        == []
+    )
+
+
+def test_disabled_state_must_be_explicit_boolean_false():
+    for state in [None, True, 0, "false", "False", [], {}]:
+        assert (
+            map_authentik_event(
+                {
+                    "body": {
+                        "action": "authentik.core.user.write",
+                        "context": {"changed_fields": ["is_active"], "is_active": state},
+                    }
+                }
+            )
+            == []
+        )
+
+
+def test_disabled_state_without_changed_field_is_ignored():
+    assert map_authentik_event({"body": {"action": "authentik.core.user.write", "context": {"is_active": False}}}) == []

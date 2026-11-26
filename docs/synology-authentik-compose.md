@@ -151,7 +151,7 @@ If `SSF_HOST_PORT` changes, update the Nginx Proxy Manager port too.
 |---|---|
 | URL | `http://authentik-ssf:8000/webhook/authentik` |
 | Header Mapping | `Authorization` → `Bearer <SSF_WEBHOOK_TOKEN>` |
-| Events | `logout`, `user.write` |
+| Events | `model_updated` (user disablement), `user_write` (password change); see [Event-Mapping.md](Event-Mapping.md) |
 
 **Do not use HMAC** unless you set `SSF_WEBHOOK_AUTH_MODE=hmac` and `SSF_WEBHOOK_SECRET`.
 
