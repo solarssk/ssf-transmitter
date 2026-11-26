@@ -9,6 +9,9 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Fixed
+- Stop turning ordinary Authentik logout into account-wide Apple session revocation. Emit `session-revoked` only for an explicitly disabled account (`is_active=false`); retain password `credential-change`. Update the Authentik body mapping and subscriptions as described in `docs/Event-Mapping.md` to identify the affected user rather than the administrator.
+
 ---
 
 ## [0.6.0] — 2026-11-25 — Validated Apple SCIM and SSF integration

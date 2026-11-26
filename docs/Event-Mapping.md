@@ -1,56 +1,45 @@
 # Event Mapping
 
-Authentik sends webhook notifications to `POST /webhook/authentik`. The transmitter maps supported actions to SSF Security Event Tokens (SETs), encrypts them in the durable outbox, then delivers them asynchronously to the active stream receiver.
+Authentik notifications reach `POST /webhook/authentik`. Supported security events are signed, encrypted in the durable outbox, and delivered asynchronously to the active receiver.
 
-## Currently emitted (v0.5.9)
+## Account policy
 
-| Authentik event | SSF event URI |
+| Normalized webhook | Result |
 |---|---|
-| `authentik.core.auth.logout` | `https://schemas.openid.net/secevent/caep/event-type/session-revoked` |
-| Password change (`authentik.core.user.write` with `password` in `changed_fields`) | `https://schemas.openid.net/secevent/caep/event-type/credential-change` |
+| `authentik.core.auth.logout` | Ignored: ending a local session must not revoke every Apple device session |
+| `authentik.core.user.write`, `is_active` in `context.changed_fields`, `context.is_active` exactly boolean `false` | CAEP `session-revoked` for the affected account |
+| `authentik.core.user.write`, `password` in `context.changed_fields` | CAEP `credential-change` |
+| Account enabled, missing/ambiguous state, deletion, failed login, unsupported action | No event |
 
-These match `app/models.py::SUPPORTED_EVENT_URIS` (excluding verification, which is sent only during stream registration).
+Account disablement revokes sessions; this is not an account-deletion or access-denial protocol. Optional SCIM independently propagates account state. Re-enabling an account does not emit a session-revocation signal. No explicit "revoke all sessions" action is inferred from logout. Password and disablement in one normalized event produce both supported event types.
 
-## Received but not emitted
-
-The webhook may receive these Authentik actions, but **no SET is produced** (`app/events/mapper.py` logs and returns an empty list):
-
-| Authentik event | Behaviour |
-|---|---|
-| `authentik.core.user.delete` | Skipped (`event_not_supported`) |
-| `authentik.core.user.write` with `is_active` in `changed_fields` | Skipped (`event_not_supported`) |
-| `authentik.core.auth.login_failed` | Skipped |
-| Other unmapped actions | Logged as unmapped; no SET |
-
-Do **not** subscribe to `authentik.core.user.delete` expecting account-purged delivery. RISC lifecycle URIs (`account-disabled`, `account-enabled`, `account-purged`) are **not** in `SUPPORTED_EVENT_URIS` and cannot be requested in `events_requested`.
-
-## Webhook responses
-
-| Response | Reason |
-|---|---|
-| `{"status":"ignored","reason":"unmapped_event"}` | Action not mapped (e.g. `user.delete`, `is_active` change) |
-| `{"status":"ignored","reason":"missing_email"}` | User has no email |
-| `{"status":"ignored","reason":"no_enabled_stream"}` | No active stream configured |
-| `{"status":"accepted","queued":1}` | Matching SET was committed to the encrypted outbox; receiver delivery is asynchronous |
-| `{"status":"accepted","queued":0}` | The stream filtered out every mapped SET; nothing was queued |
+The subject is the affected user's email. `event.user` can be the administrator who edited another account: never use that administrator as the subject of a target-user disablement.
 
 ## Authentik configuration
 
-**Notification transport:** Generic Webhook
+1. Keep the Generic Webhook transport URL and its existing Authorization header mapping unchanged.
+2. Copy [webhook-body.py.txt](../integrations/authentik/webhook-body.py.txt) into the transport's **body mapping expression**. This is an Authentik expression, not a standalone Python program.
+3. Subscribe to native `model_updated` events for `authentik_core.user`, plus native `user_write` for password changes. Remove the ordinary `logout` subscription. A notification rule with multiple event matchers must use **any/OR**, not all/AND.
+4. Test the mapping before enabling the rule. On `model_updated`, it resolves the target from `context.model.pk`, verifies the model type, and emits a normalized disablement only when that target is currently inactive. A subsequent update of an already inactive account can repeat the revocation; this is not a reconstructed historical state transition. If the target no longer exists or has been re-enabled before processing, no disablement is emitted.
+5. Native `user_write` password events are normalized only when `created` is exactly false and the password field is present. Its value is never forwarded. This covers the observed self-service password-change event; do not assume every administrative password-reset path emits the same native event.
 
-- URL: `http://authentik-ssf:8000/webhook/authentik` (internal Docker DNS)
-- Header Mapping: `Authorization: Bearer <SSF_WEBHOOK_TOKEN>`
+The existing deployment body mapping forwards raw context without `changed_fields`; it must be updated for these native events. Updating only the service image cannot establish the native-event wiring. Older images ignore normalized account disablement, so deploy the updated service before relying on this behavior. Removing logout subscription immediately prevents the old account-wide logout behavior.
 
-**Subscribe to:**
+Example normalized account-disablement body (the user's email belongs to the disabled target, not the administrator):
 
-- `authentik.core.auth.logout`
-- `authentik.core.user.write` (password changes only; `is_active` changes are ignored)
+```json
+{"body":{"action":"authentik.core.user.write","pk":"source-event-id","user":{"email":"target@example.com"},"context":{"changed_fields":["is_active"],"is_active":false}}}
+```
 
-## SET structure
+## Verification
 
-- Signed RS256 JWT (`typ: secevent+jwt`)
-- `iss` = `SSF_ISSUER` (should match `SSF_BASE_URL`)
-- `sub_id` = `{"format":"email","email":"<user>"}` for Authentik events
-- CAEP events (`session-revoked`, `credential-change`) use an empty `{}` in the `events` body
+Use a dedicated account. An ordinary logout must return `ignored/unmapped_event`, with no new outbox item even when a stream is enabled. A disablement must queue `session-revoked` for the disabled subject. An enablement must not queue it. Check receiver acceptance and the actual device prompt separately. A live Apple test confirmed device reauthentication; iCloud.com browser logout is not guaranteed by that result.
 
-Full API details: [API.md](API.md)
+## Responses and SETs
+
+- `ignored/unmapped_event`: unsupported or deliberately ignored action.
+- `ignored/missing_email`: a mapped event has no usable subject email.
+- `ignored/no_enabled_stream`: a mapped event has no active receiver.
+- `accepted/queued`: matching events committed to the outbox, not receiver acceptance; zero is possible when filtered.
+
+SETs use RS256, `typ: secevent+jwt`, the configured receiver-expected `iss`, and email `sub_id`. Event bodies include event time, initiating entity and an administrative reason. RISC account lifecycle URIs remain unsupported. See [API.md](API.md) and [Apple issuer validation](Apple-SSF-Validation.md).

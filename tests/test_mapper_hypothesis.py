@@ -152,8 +152,14 @@ def test_changed_fields_key_with_wrong_type_never_raises(changed_fields):
 
 
 @given(txn=st.text(min_size=1, max_size=64))
-def test_logout_always_maps_to_exactly_one_session_revoked_event(txn: str):
-    payload = {"body": {"action": "authentik.core.auth.logout", "pk": txn}}
+def test_disabled_account_maps_to_exactly_one_session_revoked_event(txn: str):
+    payload = {
+        "body": {
+            "action": "authentik.core.user.write",
+            "context": {"changed_fields": ["is_active"], "is_active": False},
+            "pk": txn,
+        }
+    }
     events = map_authentik_event(payload)
     assert len(events) == 1
     assert events[0].uri == SESSION_REVOKED

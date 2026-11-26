@@ -54,7 +54,7 @@
 
 ## What it does
 
-Standalone service that sits next to Authentik and forwards user security events (logout, password change) to receivers implementing the [OpenID Shared Signals Framework](https://openid.net/specs/openid-sharedsignals-framework-1_0.html). One container supports one active SSF stream; registering a new stream replaces the existing one. Multi-stream support (fan-out to multiple receivers) is planned for v1.1. Primary receiver: Apple Business Manager CAEP.
+Standalone service that sits next to Authentik and forwards user security events (account disablement, password change) to receivers implementing the [OpenID Shared Signals Framework](https://openid.net/specs/openid-sharedsignals-framework-1_0.html). One container supports one active SSF stream; registering a new stream replaces the existing one. Multi-stream support (fan-out to multiple receivers) is planned for v1.1. Primary receiver: Apple Business Manager CAEP.
 
 Events are signed as RS256 JWTs (Security Event Tokens) and pushed over HTTPS. No admin panel: all configuration is environment variables.
 
@@ -67,7 +67,7 @@ flowchart LR
     C -->|"HTTPS POST"| D(("📡 SSF receiver\ne.g. Apple Business Manager"))
 ```
 
-A logout or password change in Authentik fires a webhook; the payload is mapped to a CAEP `session-revoked` or `credential-change` event, signed as a JWT, encrypted in a durable SQLite outbox, and delivered asynchronously to the enabled stream's receiver. Optionally, a separate background loop keeps an Apple Business Manager user directory in sync via SCIM: see [docs/Apple-SCIM-Sync.md](docs/Apple-SCIM-Sync.md).
+An account disablement or password change in Authentik fires a webhook; the payload is mapped to a CAEP `session-revoked` or `credential-change` event, signed as a JWT, encrypted in a durable SQLite outbox, and delivered asynchronously to the enabled stream's receiver. Optionally, a separate background loop keeps an Apple Business Manager user directory in sync via SCIM: see [docs/Apple-SCIM-Sync.md](docs/Apple-SCIM-Sync.md).
 
 ## Features
 

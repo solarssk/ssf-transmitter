@@ -182,14 +182,27 @@ def test_patch_stream_404_when_none_configured(client: httpx.Client):
 
 
 def test_webhook_requires_auth(client: httpx.Client):
-    resp = client.post("/webhook/authentik", json={"body": {"action": "authentik.core.auth.logout"}})
+    resp = client.post(
+        "/webhook/authentik",
+        json={
+            "body": {
+                "action": "authentik.core.user.write",
+                "context": {"changed_fields": ["is_active"], "is_active": False},
+            }
+        },
+    )
     assert resp.status_code == 401
 
 
 def test_webhook_rejects_wrong_token(client: httpx.Client):
     resp = client.post(
         "/webhook/authentik",
-        json={"body": {"action": "authentik.core.auth.logout"}},
+        json={
+            "body": {
+                "action": "authentik.core.user.write",
+                "context": {"changed_fields": ["is_active"], "is_active": False},
+            }
+        },
         headers={"Authorization": "Bearer not-the-right-token"},
     )
     assert resp.status_code == 401
@@ -214,7 +227,7 @@ def test_webhook_with_valid_auth_and_unmapped_event_is_ignored(client: httpx.Cli
     assert resp.json() == {"status": "ignored", "reason": "unmapped_event"}
 
 
-def test_webhook_logout_with_no_stream_configured_is_ignored(client: httpx.Client):
+def test_webhook_account_disable_with_no_stream_configured_is_ignored(client: httpx.Client):
     """A mapped, well-formed event with no active stream to deliver to must not error.
 
     extract_email() is checked before the stream lookup regardless of event
@@ -225,7 +238,8 @@ def test_webhook_logout_with_no_stream_configured_is_ignored(client: httpx.Clien
         "/webhook/authentik",
         json={
             "body": {
-                "action": "authentik.core.auth.logout",
+                "action": "authentik.core.user.write",
+                "context": {"changed_fields": ["is_active"], "is_active": False},
                 "pk": "e2e-test-txn",
                 "user": {"email": "e2e-test-user@example.test"},
             }

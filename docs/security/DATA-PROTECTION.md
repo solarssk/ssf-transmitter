@@ -19,7 +19,7 @@ chosen and operated by whoever deploys this service.
 
 | Field | Purpose | Where it goes | Sensitivity |
 |---|---|---|---|
-| Email address (webhook path) | Subject identifier (`sub_id.format: email`) in the signed SET pushed for a logout / password-change event | Read from the Authentik webhook body, embedded in the signed SET, encrypted in the SQLite outbox until delivery, then sent to the configured receiver over HTTPS | Personal data |
+| Email address (webhook path) | Subject identifier (`sub_id.format: email`) in the signed SET pushed for an account-disablement / password-change event | Read from the Authentik webhook body, embedded in the signed SET, encrypted in the SQLite outbox until delivery, then sent to the configured receiver over HTTPS | Personal data |
 | Email, name, username, Authentik user ID (as `externalId`), account active/inactive status (Apple SCIM sync path, optional) | User directory sync: creates/updates the matching SCIM User resource at the receiver (`app/scim/authentik.py::_map_to_scim`) | Read from Authentik's user API, sent to Apple's SCIM API over HTTPS | Personal data |
 | Pseudonymised email token (`[pii:<sha256[:8]>]`) | Log correlation without exposing the real address | Application logs only (stdout/stderr) | Pseudonymised (see [Logs](#logs)) |
 

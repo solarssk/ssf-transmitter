@@ -23,7 +23,13 @@ WEBHOOK_SECRET = b"test_secret_min_32_chars_1234567890"
 WEBHOOK_URL = "/webhook/authentik"
 
 SAMPLE_BODY = json.dumps(
-    {"body": {"action": "authentik.core.auth.logout", "user": {"email": "u@example.com"}}}
+    {
+        "body": {
+            "action": "authentik.core.user.write",
+            "context": {"changed_fields": ["is_active"], "is_active": False},
+            "user": {"email": "u@example.com"},
+        }
+    }
 ).encode()
 
 

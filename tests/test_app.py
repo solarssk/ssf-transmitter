@@ -182,14 +182,27 @@ def test_webhook_rejects_unsigned_request_by_default(client: TestClient):
     """Unsigned webhook requests are rejected with 401 (fail-closed by default)."""
     response = client.post(
         "/webhook/authentik",
-        json={"body": {"action": "authentik.core.auth.logout", "user": {"email": "u@example.com"}}},
+        json={
+            "body": {
+                "action": "authentik.core.user.write",
+                "context": {"changed_fields": ["is_active"], "is_active": False},
+                "user": {"email": "u@example.com"},
+            }
+        },
     )
     assert response.status_code == 401
 
 
 def test_webhook_rejects_invalid_hmac(client: TestClient):
     """Webhook requests with a present but invalid HMAC signature are rejected with 401."""
-    body = json.dumps({"body": {"action": "authentik.core.auth.logout"}}).encode()
+    body = json.dumps(
+        {
+            "body": {
+                "action": "authentik.core.user.write",
+                "context": {"changed_fields": ["is_active"], "is_active": False},
+            }
+        }
+    ).encode()
     response = client.post(
         "/webhook/authentik",
         content=body,
@@ -217,7 +230,14 @@ def test_webhook_ignores_login_failed_event(client: TestClient):
 
 def test_webhook_ignores_event_with_no_email(client: TestClient):
     """A mapped event with no user email is ignored — cannot build a SET without a subject email."""
-    body = json.dumps({"body": {"action": "authentik.core.auth.logout"}}).encode()
+    body = json.dumps(
+        {
+            "body": {
+                "action": "authentik.core.user.write",
+                "context": {"changed_fields": ["is_active"], "is_active": False},
+            }
+        }
+    ).encode()
 
     response = client.post("/webhook/authentik", content=body, headers=signed_headers(body))
 
@@ -229,7 +249,13 @@ def test_webhook_ignores_event_when_no_stream_configured(client: TestClient):
     """A mapped event with an email but no SSF stream configured is ignored, not delivered."""
     client.delete("/ssf/streams", headers=MGMT_HEADERS)
     body = json.dumps(
-        {"body": {"action": "authentik.core.auth.logout", "user": {"email": "user@example.com"}}}
+        {
+            "body": {
+                "action": "authentik.core.user.write",
+                "context": {"changed_fields": ["is_active"], "is_active": False},
+                "user": {"email": "user@example.com"},
+            }
+        }
     ).encode()
 
     response = client.post("/webhook/authentik", content=body, headers=signed_headers(body))
@@ -251,7 +277,8 @@ def test_webhook_durably_queues_mapped_event(client: TestClient, monkeypatch):
     body = json.dumps(
         {
             "body": {
-                "action": "authentik.core.auth.logout",
+                "action": "authentik.core.user.write",
+                "context": {"changed_fields": ["is_active"], "is_active": False},
                 "user": {"email": "user@example.com"},
             },
         }
@@ -303,7 +330,13 @@ def test_webhook_returns_retryable_error_if_stream_changes_during_queueing(clien
 
     monkeypatch.setattr("app.routes.webhook.enqueue_events", stale_stream)
     body = json.dumps(
-        {"body": {"action": "authentik.core.auth.logout", "user": {"email": "user@example.com"}}}
+        {
+            "body": {
+                "action": "authentik.core.user.write",
+                "context": {"changed_fields": ["is_active"], "is_active": False},
+                "user": {"email": "user@example.com"},
+            }
+        }
     ).encode()
 
     response = client.post("/webhook/authentik", content=body, headers=signed_headers(body))
@@ -322,7 +355,13 @@ def test_webhook_returns_retryable_error_if_outbox_is_full(client: TestClient, m
 
     monkeypatch.setattr("app.routes.webhook.enqueue_events", full_queue)
     body = json.dumps(
-        {"body": {"action": "authentik.core.auth.logout", "user": {"email": "user@example.com"}}}
+        {
+            "body": {
+                "action": "authentik.core.user.write",
+                "context": {"changed_fields": ["is_active"], "is_active": False},
+                "user": {"email": "user@example.com"},
+            }
+        }
     ).encode()
 
     response = client.post("/webhook/authentik", content=body, headers=signed_headers(body))
@@ -398,3 +437,18 @@ def test_openapi_docs_available_when_enabled(monkeypatch):
     assert docs.status_code == 200
     assert schema.status_code == 200
     assert schema.json()["info"]["version"] == "dev"
+
+
+def test_local_logout_does_not_queue_with_enabled_stream(client: TestClient, monkeypatch):
+    create_stream(client)
+
+    async def unexpected_enqueue(*args, **kwargs):
+        raise AssertionError("Ordinary logout must not reach the outbox")
+
+    monkeypatch.setattr("app.routes.webhook.enqueue_events", unexpected_enqueue)
+    body = json.dumps(
+        {"body": {"action": "authentik.core.auth.logout", "user": {"email": "user@example.com"}}}
+    ).encode()
+    response = client.post("/webhook/authentik", content=body, headers=signed_headers(body))
+    assert response.status_code == 200
+    assert response.json() == {"status": "ignored", "reason": "unmapped_event"}
