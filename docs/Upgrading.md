@@ -1,19 +1,22 @@
 # Upgrading
 
-## v0.6.0 — Validated Apple SCIM and SSF integration (from 0.5.19)
+## v0.6.1 — Account-disablement policy (from 0.6.0)
 
-[Release notes for v0.6.0](https://github.com/solarssk/ssf-transmitter/releases/tag/v0.6.0)
+[Release notes for v0.6.1](https://github.com/solarssk/ssf-transmitter/releases/tag/v0.6.1)
 
-### Preserve your data
+This release stops ordinary Authentik logout from requesting Apple-wide session revocation. To deliver account-disablement and password-change events from native Authentik notifications, update both the service and its external webhook mapping.
 
-Back up `/app/data` and `/app/keys`. Preserve the signing key, secrets, and encryption settings.
+### Preserve data and review queued events
+
+Back up `/app/data`, `/app/keys`, and your environment configuration. Preserve the issuer, public base URL, signing keys, receiver token, and encryption settings.
 
 - Do not add or rotate `SSF_TOKEN_ENCRYPTION_KEY` during this upgrade.
 - If that key is unset, preserve `SSF_MANAGEMENT_TOKEN`: it supplies the encryption-key source.
+- Check authenticated `GET /ssf/delivery/status` before redeploying. Existing queued JWTs retain their original event and claims; the new mapping does not rewrite them. Review any old logout events before allowing them to deliver. Use [queue controls](API.md#get-ssfdeliverystatus) only after deciding which stored events should be retained or discarded.
 
-### Deploy 0.6.0
+### Deploy 0.6.1
 
-Pin the image to `0.6.0`, then pull and restart the service:
+Pin your image to `0.6.1`, then pull and restart only the SSF service:
 
 ```bash
 docker compose pull ssf-transmitter
@@ -21,27 +24,41 @@ docker compose up -d ssf-transmitter
 docker compose logs ssf-transmitter --tail 50
 ```
 
-### Verify the service
+Keep one container/worker for the integration. Upgrading from 0.6.0 needs no database migration or new required runtime environment variables.
 
-1. Check startup and authenticated `GET /ssf/status`.
-2. Check `GET /ssf/delivery/status` for pending or blocked deliveries.
-3. Confirm a normal scheduled SCIM cycle.
-4. Test a fresh event with a dedicated account; check receiver acceptance separately from device behavior.
+### Update Authentik event delivery
 
-Keep one container/worker for the integration. This upgrade from 0.5.19 needs no database migration or new required variables. A live test prompted reauthentication on an iPhone; iCloud.com retained its browser session.
+1. Keep the Generic Webhook transport URL and Authorization header mapping unchanged.
+2. Replace the body mapping with [webhook-body.py.txt](../integrations/authentik/webhook-body.py.txt).
+3. Subscribe to native `model_updated` events for `authentik_core.user`, plus `user_write` for self-service password changes. Match the notification policies with **any/OR**.
+4. Remove the ordinary `logout` subscription. Existing 0.6.0 deployments can do this before the image update to stop global logout requests immediately.
+5. Read [Event Mapping](Event-Mapping.md) for target identity, delayed-event behavior, and administrative password-reset limitations. The new image alone does not configure Authentik.
 
-### Review changes that need operator attention
+The body mapping looks up the edited account by model ID; the administrator who performed the edit is not the subject. It checks current inactive state rather than reconstructing a historical state transition. Further edits to an inactive account may repeat revocation; a target already re-enabled before processing produces no disablement event.
 
-| Area | What to check |
+### Verify after deployment
+
+| Check | Expected result |
 |---|---|
-| SCIM outcomes | HTTP 401/403/429 stops a cycle. Inspect partial/failed status, skipped accounts, and stop reasons. Honor the `Retry-After` cooldown. |
-| Source identities | Duplicate source identities stop writes. Correct the source instead of bypassing validation. |
-| Apple email updates | When Apple omits `emails`, the sync manages the mapped address through `userName`. |
-| Issuer | Verify [Apple's expected issuer](Apple-SSF-Validation.md). Only if needed, set the exact `SSF_ISSUER` (including its trailing slash) and `SSF_ALLOW_CUSTOM_ISSUER=true`. Keep `SSF_BASE_URL` and public routes unchanged. |
-| Blocked SETs | Issuer corrections affect newly signed tokens. Retries retain old claims; review blocked events before retrying, discarding, or regenerating them. |
+| Startup and `GET /ssf/status` | Healthy service and enabled stream |
+| Ordinary logout on a dedicated account | No new SSF delivery |
+| Disable that account in Authentik | `session-revoked` queued for the disabled user, then accepted by Apple |
+| Re-enable the account | No session-revocation SET |
+| Self-service password change | `credential-change` for that account |
+| Scheduled SCIM sync | Inspect status, errors, conflicts, skipped counts, and delivery queue health |
 
-For versions before 0.5.19, review the historical changes in [CHANGELOG.md](../CHANGELOG.md), especially the encrypted outbox and webhook response changes introduced in 0.5.17.
+Check device behavior separately from HTTP 202 acceptance. Earlier tests confirmed an iPhone reauthentication prompt; immediate iCloud.com browser logout is not established. The new native disablement-to-device path requires a dedicated-account live check after wiring the notification rules.
+
+For SCIM deactivation, disable the account while it remains in the sync scope with its email intact. Confirm Apple's state before removing group membership or deleting the source account. See [SCIM operations](Apple-SCIM-Sync.md).
+
+### Repository automation
+
+The AI reviewer and required approvals affect repository maintenance only. They do not change your container configuration or perform a deployment. See [Automated PR review](AI-Review.md).
 
 ## Rollback
 
-Stop the service, retain a backup of the current SQLite data, keys, and configuration, then restore the previous image tag (`0.5.19`). Keep the same data and encryption-key source. Restoring an older database backup loses events accepted after that backup. A rollback restores the previous SCIM behavior, including its known email-update and error-reporting limitations. Do not downgrade below 0.5.17 with queued deliveries: those versions do not deliver the outbox.
+Stop the service, retain a backup of current data and keys, then restore the previous image tag (`0.6.0`). Preserve the same encryption-key source and SQLite volume. Restoring an older database backup loses events accepted after that backup.
+
+The old image ignores normalized disablement events. Keep ordinary logout unsubscribed during rollback; restoring the old logout mapping restores account-wide revocation on local logout. Do not downgrade below 0.5.17 with queued deliveries: those versions do not deliver the outbox.
+
+For a starting version before 0.6.0, also review [historical changes](../CHANGELOG.md) and [Apple issuer validation](Apple-SSF-Validation.md).

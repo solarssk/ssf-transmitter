@@ -9,6 +9,12 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+---
+
+## [0.6.1] — 2026-11-27 — Revoke Apple sessions only for account disablement
+
+Ordinary Authentik logout no longer revokes Apple sessions on other devices. Explicit account disablement maps to `session-revoked`; password changes retain `credential-change`. Update the Authentik body mapping and event subscriptions when upgrading. No database migration or new required runtime settings. The native block-to-device flow still needs a dedicated-account check after deployment; earlier device tests confirmed SET acceptance and reauthentication, not the new native-event wiring.
+
 ### Added
 - Add commit-specific automated Claude PR review with no approval on provider failure, incomplete coverage, unreadable changes, or stale commits. Repository setup and staged branch-protection activation are documented separately; runtime configuration is unchanged.
 
@@ -17,6 +23,9 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ### Fixed
 - Stop turning ordinary Authentik logout into account-wide Apple session revocation. Emit `session-revoked` only for an explicitly disabled account (`is_active=false`); retain password `credential-change`. Update the Authentik body mapping and subscriptions as described in `docs/Event-Mapping.md` to identify the affected user rather than the administrator.
+
+### Changed
+- Update FastAPI 0.162.5 → 0.165.0 and Ruff 0.17.5 → 0.17.6; refresh pinned uv, GitHub Actions, and the isolated fuzz builder image.
 
 ---
 

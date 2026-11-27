@@ -35,4 +35,4 @@ Start with the task you need to complete. These files are maintained in the repo
 
 Use the [contribution guide](../.github/CONTRIBUTING.md), [dependency maintenance guide](Dependencies.md), [test guide](../tests/README.md), and [maintenance scripts](../scripts/README.md). Authentik expressions live under [integrations](../integrations/README.md).
 
-**Current stable release:** `v0.6.0` — [Validated Apple SCIM and SSF integration](https://github.com/solarssk/ssf-transmitter/releases/tag/v0.6.0)
+**Current stable release:** `v0.6.1` — [Revoke Apple sessions only for account disablement](https://github.com/solarssk/ssf-transmitter/releases/tag/v0.6.1)

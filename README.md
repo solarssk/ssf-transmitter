@@ -110,11 +110,11 @@ A **stream** is the receiver configuration stored in SQLite: receiver URL, beare
 
 ## Upgrading
 
-**Upgrading from v0.5.19?** See [docs/Upgrading.md](docs/Upgrading.md).
+**Upgrading from v0.6.0?** Follow [the upgrade procedure](docs/Upgrading.md).
 
-- Pin `0.6.0` and preserve SQLite data, signing keys, and encryption settings.
-- Check SCIM partial/failed results and delivery queue health after redeploying.
-- Validate Apple's expected issuer before changing it. Device reauthentication was tested; immediate iCloud.com browser logout is not confirmed.
+- Pin `0.6.1` and preserve data, signing keys, and encryption settings.
+- Update the Authentik body mapping and subscriptions; remove ordinary logout. The image update alone does not configure these.
+- Review queued events and verify account disablement with a dedicated account. Immediate iCloud.com browser logout is not established.
 
 ## Public endpoints
 

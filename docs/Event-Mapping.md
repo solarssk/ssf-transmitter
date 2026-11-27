@@ -17,7 +17,7 @@ The subject is the affected user's email. `event.user` can be the administrator 
 
 ## Configure Authentik
 
-The policy below is implemented on `main` for the next release after 0.6.0. The published 0.6.0 image still maps ordinary logout to session revocation. To stop that behavior before upgrading, remove the logout subscription.
+This policy applies from 0.6.1. The 0.6.0 image maps ordinary logout to session revocation. Remove the logout subscription to stop that behavior before upgrading, then follow [the upgrade procedure](Upgrading.md).
 
 ### Install the mapping
 
