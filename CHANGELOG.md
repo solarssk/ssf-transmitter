@@ -9,6 +9,9 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Documentation
+- Reorganize operator guides and SCIM troubleshooting, add task-based documentation and developer-directory indexes, and correct stale event, image-tag, and tooling descriptions. Include Apple issuer validation and dependency maintenance in the Wiki sync.
+
 ### Fixed
 - Stop turning ordinary Authentik logout into account-wide Apple session revocation. Emit `session-revoked` only for an explicitly disabled account (`is_active=false`); retain password `credential-change`. Update the Authentik body mapping and subscriptions as described in `docs/Event-Mapping.md` to identify the affected user rather than the administrator.
 

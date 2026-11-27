@@ -1,21 +1,36 @@
-# Documentation index
+# Operator documentation
 
-These files are the **source of truth** for operator documentation. Copy or sync them to the [GitHub Wiki](https://github.com/solarssk/ssf-transmitter/wiki) when pages drift.
+Start with the task you need to complete. These files are maintained in the repository; selected guides are mirrored automatically to the [GitHub Wiki](https://github.com/solarssk/ssf-transmitter/wiki).
 
-| Topic | File |
+## Install or upgrade
+
+| Task | Guide |
 |---|---|
-| Deployment (Docker, NPM, Authentik) | [Deployment.md](Deployment.md) |
-| Synology + Authentik compose (step-by-step) | [synology-authentik-compose.md](synology-authentik-compose.md) |
-| All environment variables | [Configuration.md](Configuration.md) |
-| Upgrading (especially v0.5.9+) | [Upgrading.md](Upgrading.md) |
-| Authentik → SSF event mapping | [Event-Mapping.md](Event-Mapping.md) |
-| Keys, tokens, rotation | [Key-Management.md](Key-Management.md) |
-| Apple SCIM directory sync | [Apple-SCIM-Sync.md](Apple-SCIM-Sync.md) |
-| Production security checklist | [security/Security-Notes.md](security/Security-Notes.md) |
-| Data protection (GDPR) | [security/DATA-PROTECTION.md](security/DATA-PROTECTION.md) |
-| Common errors | [Troubleshooting.md](Troubleshooting.md) |
-| HTTP API reference | [API.md](API.md) |
-| Threat model | [../SECURITY.md](../SECURITY.md) |
-| Changelog | [../CHANGELOG.md](../CHANGELOG.md) |
+| Deploy the container and reverse proxy | [Deployment](Deployment.md) |
+| Add the service to Synology and Authentik | [Synology walkthrough](synology-authentik-compose.md) |
+| Upgrade an existing installation | [Upgrade and rollback](Upgrading.md) |
+| Configure environment variables | [Configuration reference](Configuration.md) |
+
+## Connect Authentik and Apple
+
+| Task | Guide |
+|---|---|
+| Choose which events revoke Apple sessions | [Event mapping and Authentik setup](Event-Mapping.md) |
+| Check Apple's expected issuer and SET acceptance | [Apple SSF validation](Apple-SSF-Validation.md) |
+| Synchronize Apple accounts | [Apple SCIM setup and operations](Apple-SCIM-Sync.md) |
+
+## Operate and troubleshoot
+
+| Task | Guide |
+|---|---|
+| Diagnose startup, delivery, or SCIM errors | [Troubleshooting](Troubleshooting.md) |
+| Call management and delivery endpoints | [HTTP API reference](API.md) |
+| Back up or rotate keys and tokens | [Key management](Key-Management.md) |
+| Review production hardening and stored data | [Security documentation](security/README.md) |
+| Review release changes | [Changelog](../CHANGELOG.md) |
+
+## Contribute
+
+Use the [contribution guide](../.github/CONTRIBUTING.md), [dependency maintenance guide](Dependencies.md), [test guide](../tests/README.md), and [maintenance scripts](../scripts/README.md). Authentik expressions live under [integrations](../integrations/README.md).
 
 **Current stable release:** `v0.6.0` — [Validated Apple SCIM and SSF integration](https://github.com/solarssk/ssf-transmitter/releases/tag/v0.6.0)

@@ -78,7 +78,7 @@ Returns the public JWKS used to verify RS256-signed SET JWTs. Public — no auth
 
 ## Stream Management
 
-SSF Transmitter 1.0 supports **one active stream per container**. Registering a new stream replaces the existing stream. Multi-stream support is planned for v1.1.
+SSF Transmitter supports **one active stream per container**. Registering a new stream replaces the existing stream. Multi-stream support is planned for v1.1.
 
 All stream management endpoints require `Authorization: Bearer <SSF_MANAGEMENT_TOKEN>`.
 
@@ -363,7 +363,7 @@ and deployment requirements.
 | `https://schemas.openid.net/secevent/caep/event-type/session-revoked` | Explicit Authentik account disablement |
 | `https://schemas.openid.net/secevent/caep/event-type/credential-change` | Password change (`user.write` with `password` in `changed_fields`) |
 
-RISC lifecycle events (`account-disabled`, `account-enabled`, `account-purged`) are **not** supported in v0.5.10 — see [Event-Mapping.md](Event-Mapping.md).
+RISC lifecycle events (`account-disabled`, `account-enabled`, `account-purged`) are **not** supported — see [Event-Mapping.md](Event-Mapping.md).
 
 ---
 
@@ -378,7 +378,7 @@ Each pushed SET is an RS256 JWT with `typ: secevent+jwt`. Relevant claims:
 | `sub_id` | `{"format": "email", "email": "<user>"}` for Authentik-derived events |
 | `events` | Map of event URI → event-specific body |
 
-**CAEP** events (`session-revoked`, `credential-change`) use an empty `{}` event body.
+**CAEP** events include `event_timestamp`, `initiating_entity`, and `reason_admin`. Credential changes also include `credential_type` and `change_type`. See [event mapping](Event-Mapping.md) for emission rules.
 
 Verification SETs use `sub_id` with `format: opaque` (stream UUID) instead.
 

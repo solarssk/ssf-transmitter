@@ -1,8 +1,17 @@
 # Apple SCIM Sync
 
-Optional directory sync from Authentik to Apple Business Manager (ABM). SSF/CAEP event forwarding works without SCIM.
+Optional directory sync from Authentik to Apple Business Manager (ABM).
+SSF/CAEP event forwarding works without SCIM.
 
-## Required variables
+Start with [setup](#setup), [authorize the connection](#oauth-authorization),
+and [verify a sync](#admin-endpoints-v059). For day-to-day operation, see
+[results](#read-the-sync-result), [failure recovery](#failure-recovery), and
+[alerts](#alerts). The [reference section](#apple-directory-reference) explains
+the directory lookup and write limitations.
+
+## Setup
+
+### Required variables
 
 ```env
 APPLE_SCIM_CLIENT_ID=SCIM.xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
@@ -13,7 +22,7 @@ AUTHENTIK_TOKEN=<Authentik API token>
 
 Generate the client secret in ABM under **Settings → Directory Sync**. It expires every 6, 9, or 12 months — update `stack.env` and redeploy.
 
-## Optional
+### Optional variables
 
 | Variable | Description |
 |---|---|
@@ -23,88 +32,60 @@ Generate the client secret in ABM under **Settings → Directory Sync**. It expi
 | `APPLE_SCIM_UPDATE_MODE` | Which fields a sync writes back to Apple (default `patch_all`) — see below |
 | `APPLE_SCIM_ALLOW_USERNAME_RECOVERY` | Allow username-only linking of existing Apple accounts without `externalId` (default `false`) — see below |
 
-### Existing Apple accounts
+### Group filtering (recommended)
 
-The sync matches existing accounts by Authentik `externalId`. A matching Apple
-username alone does not establish ownership: by default, an account without
-`externalId` is reported as a conflict and is not created or updated. A
-matching username with a different `externalId` is always a conflict, even
-when username recovery is enabled. Already linked accounts are unaffected.
-
-To recover unlinked accounts, first verify that **every** matching Apple
-account in the configured sync scope belongs to the corresponding Authentik
-user. If necessary, restrict the scope with `APPLE_SCIM_GROUP_ID`. Then set
-`APPLE_SCIM_ALLOW_USERNAME_RECOVERY=true` and redeploy. This opts in all
-matching unlinked accounts in that scope, not one selected account; a
-username match alone is not proof of ownership. After the intended links
-have been established, set the option back to `false` and redeploy.
-
-The transmitter attempts to write the missing `externalId`, reads the Apple
-account back to confirm its identity and linkage, and stops further updates
-for that account during the run if either step fails. This recovery flow has
-not been verified on a live unlinked Apple account. A failed or ambiguous
-lookup is reported rather than used to select the first result.
-
-### `APPLE_SCIM_UPDATE_MODE`
-
-When Apple omits `emails` from its response and the mapped email matches the mapped
-`userName`, the sync manages that address through `userName`. Fields returned by Apple
-and separately mapped email addresses are still compared independently.
-
-Controls which user fields a sync is allowed to write to Apple. Leave this at
-the default unless you have a specific reason to narrow it (e.g. isolating
-which field an Apple `400` response is coming from).
-
-| Value | Writes |
-|---|---|
-| `patch_all` (default) | Only changed syncable fields (`externalId`, `userName`, name, emails, `active`) via `PATCH` |
-| `replace_all` | A full `PUT` with `userName`, name, emails and `active`, excluding `externalId` |
-| `external_id_only` | Only `externalId` (identity linkage) |
-| `emails_only` | Only the email address |
-| `username_only` | Only `userName` |
-
-When username-only recovery is explicitly enabled, the sync attempts a
-separate `externalId` repair in **every** mode, including the narrow modes.
-
-These modes describe the requests the transmitter attempts, not a fully
-verified Apple contract. Apple has rejected a `PATCH` to the whole `name`
-attribute, so the default mode sends only changed `name.givenName` and
-`name.familyName` subattributes. In live validation on a dedicated account on 2026-11-25, Apple accepted and
-stored changes to each name separately, both changed names in one PATCH,
-`userName`, `active` (deactivation and reactivation), and a combined given-name
-and active-state change. Each test included GET verification and restoration;
-two subsequent full syncs of the five-user source scope reported unchanged
-accounts and no errors. This is evidence for that tenant and account, not a
-complete Apple compatibility guarantee. Empty values, account creation,
-externalId reassignment, independent email attributes, and full PUT were not
-validated by these tests. The tested Apple tenant did not advertise ETag
-support, so a concurrent change to the same field can be overwritten between
-the sync's read and write. A `PATCH` to `emails` replaces the whole email
-array and may remove additional addresses; `replace_all` can also overwrite
-other attributes. Do not probe alternative updates against production
-accounts; use an approved, isolated test account and verify the resulting
-record.
-
-**A narrow mode (anything but `patch_all`/`replace_all`) can permanently
-undersync a user.** If a user's email (say) differs from Apple's record but
-`APPLE_SCIM_UPDATE_MODE=external_id_only`, that email difference is outside
-what the configured mode will ever write — it does not get retried forever,
-but it also never gets fixed automatically. `POST /apple-scim/sync`'s
-response and the sync-done log line report this as `out_of_scope_diffs`; a
-non-zero count also triggers a one-time `WARNING` log after the sync:
-
-```
-Apple SCIM: ⚠️  N user(s) have a field diff outside update_mode=... scope and will stay stale — widen APPLE_SCIM_UPDATE_MODE or fix manually in Apple Business Manager
+```env
+APPLE_SCIM_GROUP_ID=11111111-2222-4333-8444-555555555555
 ```
 
-To resolve it: either widen `APPLE_SCIM_UPDATE_MODE` back to `patch_all` (or
-`replace_all`) so the next sync writes the missing field, or edit the
-user's record directly in Apple Business Manager.
+1. Create an Authentik group (e.g. **Apple Accounts**).
+2. Add only users who should receive Apple Managed Accounts.
+3. Exclude break-glass, service, and local-only accounts.
+
+Replace the example UUID with your Authentik group UUID. If
+`APPLE_SCIM_GROUP_ID` is empty, all internal accounts are considered, including
+inactive accounts. Service accounts are excluded.
+
+Removing a user from the configured group or deleting them from Authentik does
+not deactivate their Apple account: records outside the source scope remain
+untouched. To deactivate an Apple account through SCIM, disable the Authentik
+user while they are still in scope and still have an email address. Confirm
+that the inactive state reached Apple before removing the user from the group
+or deleting them.
 
 ## OAuth authorization
 
 1. Open `GET /apple-scim/authorize` in a browser (public — no management token).
 2. Complete Apple OAuth; callback is `GET /apple-scim/callback` (CSRF-protected via state TTL since v0.5.9).
+
+## Admin endpoints (v0.5.9+)
+
+Require `Authorization: Bearer <SSF_MANAGEMENT_TOKEN>`:
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /apple-scim/status` | SCIM connection status |
+| `POST /apple-scim/sync` | Trigger manual sync |
+
+### Read the sync result
+
+HTTP `200` means the sync returned an outcome, not that every account was
+synchronized. Inspect the body status and counters:
+
+| Status | Meaning |
+|---|---|
+| `ok` | Complete outcome with no errors, conflicts, out-of-scope differences, or stop reason |
+| `partial` | Some accounts succeeded or were unchanged, but problems remain |
+| `failed` | No accounts completed successfully |
+
+Identity mismatches and unlinked accounts requiring review count as
+`conflicts`; failed lookups or unverified links count as `errors`. Account
+names are omitted from the response and masked in logs unless PII logging is
+explicitly enabled.
+
+Monitoring must inspect these counters and the status, rather than HTTP 200
+alone. See the [API response reference](API.md#post-apple-scimsync) for all
+fields.
 
 ## Concurrent syncs and authorization
 
@@ -129,20 +110,115 @@ Run only one container for this Apple connection; overriding the command to
 use multiple workers or running overlapping containers can still cause races.
 The lock does not prevent changes by other SCIM clients or administrators.
 
-## Admin endpoints (v0.5.9+)
+## Alerts
 
-Require `Authorization: Bearer <SSF_MANAGEMENT_TOKEN>`:
+Set `APPLE_SCIM_ALERT_WEBHOOK_URL` to Ntfy, Slack, Discord, n8n, etc. The service POSTs JSON at most once per hour per alert type when re-authorization or secret expiry is needed.
 
-| Endpoint | Purpose |
-|---|---|
-| `GET /apple-scim/status` | SCIM connection status |
-| `POST /apple-scim/sync` | Trigger manual sync |
+**Do not commit webhook URLs** — keep them in `stack.env` only.
+
+## Failure recovery
 
 The sync first reads the Apple user listing. If a page fails, has malformed
 pagination or identity metadata, or cannot be reconciled with the other
 pages, the sync stops without creating or updating Apple users. Manual sync
 returns `502`; automatic sync logs the failure and tries again on the next
 scheduled cycle.
+
+### Authorization failures
+
+Apple HTTP 401 or 403 stops the current cycle immediately with
+`stopped_reason: authorization_failed`; no later accounts are touched. Check
+the Apple connection and permissions. There is no automatic replay of the
+failed write or forced refresh loop.
+
+### Rate limits and cooldown
+
+HTTP 429 stops with `rate_limited` and
+shares a directory cooldown between manual, scheduled, and post-authorization
+syncs in the single worker. `Retry-After` accepts seconds or an HTTP date;
+missing or invalid values use 60 seconds. Calls during the cooldown perform
+no Apple directory requests. The cooldown is in memory and resets on restart.
+`retry_after_seconds` reports the remaining delay, and `skipped` counts users
+whose reconciliation was not attempted (excluding the user whose request
+failed). The scheduler retains its configured interval and skips a cycle if
+the cooldown has not expired.
+
+### Timeouts and other account errors
+
+Other per-account errors, including timeouts and 5xx responses, retain earlier
+successes and are counted without automatically replaying writes. A timeout
+can mean the write reached Apple; inspect the next directory read before
+retrying. Live validation of profile fields still requires an isolated test
+account and read-after-write verification as described in [Live validation and write limits](#live-validation-and-write-limits).
+
+## Existing Apple accounts
+
+The sync matches existing accounts by Authentik `externalId`. A matching Apple
+username alone does not establish ownership: by default, an account without
+`externalId` is reported as a conflict and is not created or updated. A
+matching username with a different `externalId` is always a conflict, even
+when username recovery is enabled. Already linked accounts are unaffected.
+
+To recover unlinked accounts, first verify that **every** matching Apple
+account in the configured sync scope belongs to the corresponding Authentik
+user. If necessary, restrict the scope with `APPLE_SCIM_GROUP_ID`. Then set
+`APPLE_SCIM_ALLOW_USERNAME_RECOVERY=true` and redeploy. This opts in all
+matching unlinked accounts in that scope, not one selected account; a
+username match alone is not proof of ownership. After the intended links
+have been established, set the option back to `false` and redeploy.
+
+The transmitter attempts to write the missing `externalId`, reads the Apple
+account back to confirm its identity and linkage, and stops further updates
+for that account during the run if either step fails. This recovery flow has
+not been verified on a live unlinked Apple account. A failed or ambiguous
+lookup is reported rather than used to select the first result.
+
+## Update modes
+
+### Email mapping
+
+When Apple omits `emails` from its response and the mapped email matches the mapped
+`userName`, the sync manages that address through `userName`. Fields returned by Apple
+and separately mapped email addresses are still compared independently.
+
+### `APPLE_SCIM_UPDATE_MODE`
+
+Controls which user fields a sync is allowed to write to Apple. Leave this at
+the default unless you have a specific reason to narrow it (e.g. isolating
+which field an Apple `400` response is coming from).
+
+| Value | Writes |
+|---|---|
+| `patch_all` (default) | Only changed syncable fields (`externalId`, `userName`, name, emails, `active`) via `PATCH` |
+| `replace_all` | A full `PUT` with `userName`, name, emails and `active`, excluding `externalId` |
+| `external_id_only` | Only `externalId` (identity linkage) |
+| `emails_only` | Only the email address |
+| `username_only` | Only `userName` |
+
+When username-only recovery is explicitly enabled, the sync attempts a
+separate `externalId` repair in **every** mode, including the narrow modes.
+
+### Differences outside the selected mode
+
+**A narrow mode (anything but `patch_all`/`replace_all`) can permanently
+undersync a user.** If a user's email (say) differs from Apple's record but
+`APPLE_SCIM_UPDATE_MODE=external_id_only`, that email difference is outside
+what the configured mode will ever write — it does not get retried forever,
+but it also never gets fixed automatically. `POST /apple-scim/sync`'s
+response and the sync-done log line report this as `out_of_scope_diffs`; a
+non-zero count also triggers a one-time `WARNING` log after the sync:
+
+```
+Apple SCIM: ⚠️  N user(s) have a field diff outside update_mode=... scope and will stay stale — widen APPLE_SCIM_UPDATE_MODE or fix manually in Apple Business Manager
+```
+
+To resolve it: either widen `APPLE_SCIM_UPDATE_MODE` back to `patch_all` (or
+`replace_all`) so the next sync writes the missing field, or edit the
+user's record directly in Apple Business Manager.
+
+## Apple directory reference
+
+### Listing and identity lookups
 
 In one Apple directory, `startIndex` was one more than the number of returned
 users, `itemsPerPage` echoed the requested `count`, and `totalResults` was the
@@ -160,13 +236,17 @@ This fallback makes two filtered requests per Authentik user and one request
 per distinct matched Apple ID, so larger syncs can take longer. A successful
 create also needs follow-up lookups.
 
+### Identity linkage and create verification
+
 The Apple `externalId` retains the Authentik identifier between syncs; the
 service does not store a separate local user-to-user mapping. Newly created
 users are read back and checked against both filters and the ID returned by
 Apple. If this verification fails, the sync reports an error even though Apple
 may already have created the account.
 
-**Limitation:** individual lookups rely on Apple returning all matches to each
+### Filter completeness limits
+
+Individual lookups rely on Apple returning all matches to each
 exact filter. If Apple silently hides a duplicate or an existing match, the
 client cannot detect that from the observed metadata alone. The behavior was
 checked in a seven-user directory, not a larger one; queries combining multiple
@@ -180,54 +260,39 @@ before considering any account update. Existing `externalId` ownership and
 username-recovery rules still apply. Accounts present only in Apple remain
 untouched.
 
+### Source validation
+
 Before any Apple directory request, both listing modes reject missing source
 identities, repeated `externalId` values, and usernames that match after
 trimming and case normalization. The entire sync stops before writes; correct
 the source identities rather than choosing one account arbitrarily.
 
-An HTTP `200` sync response can still report nonzero `conflicts` or `errors`:
-identity mismatches and unlinked accounts requiring review count as conflicts;
-failed lookups or unverified links count as errors. Account names are omitted
-from the response and masked in logs unless PII logging is explicitly enabled.
-The body reports `status: ok` for a complete outcome, `partial` when some
-accounts succeeded or were unchanged but problems remain, and `failed` when
-none completed successfully. Conflicts and out-of-scope differences also
-prevent an `ok` outcome. Monitoring should inspect this status and counters,
-rather than HTTP 200 alone.
+### Live validation and write limits
 
-Apple HTTP 401 or 403 stops the current cycle immediately with
-`stopped_reason: authorization_failed`; no later accounts are touched. Check
-the Apple connection and permissions. There is no automatic replay of the
-failed write or forced refresh loop. HTTP 429 stops with `rate_limited` and
-shares a directory cooldown between manual, scheduled, and post-authorization
-syncs in the single worker. `Retry-After` accepts seconds or an HTTP date;
-missing or invalid values use 60 seconds. Calls during the cooldown perform
-no Apple directory requests. The cooldown is in memory and resets on restart.
-`retry_after_seconds` reports the remaining delay, and `skipped` counts users
-whose reconciliation was not attempted (excluding the user whose request
-failed). The scheduler retains its configured interval and skips a cycle if
-the cooldown has not expired.
+These modes describe the requests the transmitter attempts, not a fully
+verified Apple contract. Apple has rejected a `PATCH` to the whole `name`
+attribute, so the default mode sends only changed `name.givenName` and
+`name.familyName` subattributes.
 
-Other per-account errors, including timeouts and 5xx responses, retain earlier
-successes and are counted without automatically replaying writes. A timeout
-can mean the write reached Apple; inspect the next directory read before
-retrying. Live validation of profile fields still requires an isolated test
-account and read-after-write verification as described above.
+In live validation on a dedicated account on 2026-11-25, Apple accepted and
+stored changes to each name separately, both changed names in one PATCH,
+`userName`, `active` (deactivation and reactivation), and a combined given-name
+and active-state change. Each test included GET verification and restoration.
 
-## Group filtering (recommended)
+Two subsequent full syncs of the five-user source scope reported unchanged
+accounts and no errors. This is evidence for that tenant and account, not a
+complete Apple compatibility guarantee.
 
-```env
-APPLE_SCIM_GROUP_ID=978bff1a-5f55-4068-808c-45e09bb196d4
-```
+Empty values, account creation,
+externalId reassignment, independent email attributes, and full PUT were not
+validated by these tests.
 
-1. Create an Authentik group (e.g. **Apple Accounts**).
-2. Add only users who should receive Apple Managed Accounts.
-3. Exclude break-glass, service, and local-only accounts.
+The tested Apple tenant did not advertise ETag
+support, so a concurrent change to the same field can be overwritten between
+the sync's read and write. A `PATCH` to `emails` replaces the whole email
+array and may remove additional addresses; `replace_all` can also overwrite
+other attributes.
 
-If `APPLE_SCIM_GROUP_ID` is empty, all active internal users are considered (legacy behaviour).
-
-## Alerts
-
-Set `APPLE_SCIM_ALERT_WEBHOOK_URL` to Ntfy, Slack, Discord, n8n, etc. The service POSTs JSON at most once per hour per alert type when re-authorization or secret expiry is needed.
-
-**Do not commit webhook URLs** — keep them in `stack.env` only.
+Do not probe alternative updates against production
+accounts; use an approved, isolated test account and verify the resulting
+record.

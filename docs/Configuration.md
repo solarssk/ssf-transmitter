@@ -7,10 +7,13 @@ All settings are environment variables. Copy [`.env.example`](../.env.example) t
 | Variable | Description |
 |---|---|
 | `SSF_ISSUER` | Issuer used verbatim in JWT `iss` and SSF discovery (must be **HTTPS**). Must match the receiver’s expected value exactly, including a trailing slash. Usually `SSF_BASE_URL`; an Apple custom IdP connection may require its OIDC issuer instead. See [Apple issuer validation](Apple-SSF-Validation.md). |
-| `SSF_ALLOW_CUSTOM_ISSUER` | Set `true` after confirming the receiver requires an issuer different from `SSF_BASE_URL`; suppresses the mismatch/OIDC-path startup warnings. Defaults to `false`. |
 | `SSF_BASE_URL` | Public base URL where this service is reachable (must be **HTTPS**), e.g. `https://idp.example.com/shared-signals` |
 | `SSF_MANAGEMENT_TOKEN` | Bearer token for all `/ssf/*` and protected Apple SCIM admin endpoints (min 32 chars). Generate: `openssl rand -hex 32` |
 | `SSF_WEBHOOK_TOKEN` | Bearer token for Authentik webhook (`SSF_WEBHOOK_AUTH_MODE=bearer`, default). **Do not reuse** `SSF_MANAGEMENT_TOKEN`. |
+
+## Receiver issuer override
+
+`SSF_ALLOW_CUSTOM_ISSUER` is optional and defaults to `false`. Set it to `true` only after confirming that the receiver expects an issuer different from `SSF_BASE_URL`. It suppresses startup warnings; it does not validate the issuer with Apple. See [Apple issuer validation](Apple-SSF-Validation.md).
 
 ## Webhook authentication
 
@@ -81,6 +84,7 @@ Default `127.0.0.1` is correct only when nothing forwards `X-Forwarded-For` from
 | `APPLE_SCIM_CLIENT_SECRET` | SCIM client secret (expires every 6/9/12 months) |
 | `AUTHENTIK_URL` | Authentik base URL |
 | `AUTHENTIK_TOKEN` | Authentik API token |
+| `APPLE_SCIM_UPDATE_MODE` | Fields written to Apple; default `patch_all`. See [update modes](Apple-SCIM-Sync.md#apple_scim_update_mode). |
 | `APPLE_SCIM_GROUP_ID` | Optional Authentik group UUID — sync only group members |
 | `APPLE_SCIM_SYNC_INTERVAL` | Seconds between syncs (default `3600`) |
 | `APPLE_SCIM_ALLOW_USERNAME_RECOVERY` | Allow linking all matching Apple accounts without `externalId` by username (default `false`); verify ownership first |
