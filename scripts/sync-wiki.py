@@ -39,6 +39,8 @@ REPO_BLOB_BASE = "https://github.com/solarssk/ssf-transmitter/blob/main"
 MAPPING = {
     "docs/API.md": "API-Reference",
     "docs/Apple-SCIM-Sync.md": "Apple-SCIM-Sync",
+    "docs/Apple-SSF-Validation.md": "Apple-SSF-Validation",
+    "docs/Dependencies.md": "Dependencies",
     "docs/Configuration.md": "Configuration",
     "docs/Deployment.md": "Deployment",
     "docs/Event-Mapping.md": "Event-Mapping",

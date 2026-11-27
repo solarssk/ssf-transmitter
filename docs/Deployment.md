@@ -8,7 +8,7 @@ Published to two registries, built for both `linux/amd64` and `linux/arm64` (e.g
 
 ```text
 ghcr.io/solarssk/ssf-transmitter:0.6.0     # pinned release
-ghcr.io/solarssk/ssf-transmitter:latest      # tracks main
+ghcr.io/solarssk/ssf-transmitter:latest      # latest stable release
 
 docker.io/solarssk/ssf-transmitter:0.6.0   # same image, Docker Hub
 docker.io/solarssk/ssf-transmitter:latest
@@ -121,4 +121,4 @@ See [synology-authentik-compose.md](synology-authentik-compose.md) for a full Au
 
 ## Upgrading
 
-See [Upgrading.md](Upgrading.md) — especially if you are moving from `0.5.8` to `0.5.9+`.
+Follow the [current upgrade and rollback procedure](Upgrading.md). Preserve your existing volumes and encryption settings.

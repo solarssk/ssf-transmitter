@@ -76,7 +76,7 @@ An account disablement or password change in Authentik fires a webhook; the payl
 | 📡 | **SSF discovery and JWKS endpoints** | Standard `.well-known/ssf-configuration` and `jwks.json` so receivers can auto-discover and verify signatures. |
 | 🛠️ | **Stream management API** | Create, read, update, and delete the single active SSF stream over a management Bearer token. |
 | 🪝 | **Flexible webhook auth** | Bearer token (recommended) or legacy HMAC-SHA256 signature for the Authentik webhook. |
-| 🗺️ | **CAEP event mapping** | Logout and password-change Authentik events map to `session-revoked` and `credential-change` SETs. |
+| 🗺️ | **CAEP event mapping** | Account-disablement and password-change Authentik events map to `session-revoked` and `credential-change` SETs. |
 | ✍️ | **Durable RS256-signed SET delivery** | Matching SETs are encrypted in SQLite before acknowledgement, then delivered with retry and SSRF/DNS-rebinding checks. |
 | 🚦 | **Defense in depth** | Receiver hostname allowlist, in-app rate limiting, and standard HTTP security headers on every response. |
 | 🔒 | **Encrypted delivery data** | Queued signed SETs and receiver tokens are Fernet-encrypted at rest in SQLite; management and webhook tokens never touch disk. |
@@ -103,7 +103,8 @@ An account disablement or password change in Authentik fires a webhook; the payl
    - `SSF_MANAGEMENT_TOKEN`, `SSF_WEBHOOK_TOKEN`
    - `SSF_FORWARDED_ALLOW_IPS` (your reverse proxy subnet if behind NPM/Caddy)
 2. Add the service to Docker Compose. See [docs/Deployment.md](docs/Deployment.md) or [Synology guide](docs/synology-authentik-compose.md)
-3. Register the stream with your receiver using the SSF Config URL below
+3. Configure the [Authentik body mapping and event subscriptions](docs/Event-Mapping.md). Starting the container does not configure these automatically.
+4. Register the stream with your receiver using the SSF Config URL below
 
 A **stream** is the receiver configuration stored in SQLite: receiver URL, bearer token, requested events, and current status. If Apple Business Manager is already connected, you already have a stream.
 
@@ -148,7 +149,7 @@ See [SECURITY.md](SECURITY.md) for the full trust model and how to report a vuln
 | 🚀 [docs/Deployment.md](docs/Deployment.md) | Docker, Nginx Proxy Manager, Authentik setup |
 | 🖥️ [docs/synology-authentik-compose.md](docs/synology-authentik-compose.md) | Synology + Authentik, step-by-step |
 | ⚙️ [docs/Configuration.md](docs/Configuration.md) | Every environment variable |
-| ⬆️ [docs/Upgrading.md](docs/Upgrading.md) | Version-by-version upgrade walkthroughs |
+| ⬆️ [docs/Upgrading.md](docs/Upgrading.md) | Current upgrade and rollback procedure |
 | 🗺️ [docs/Event-Mapping.md](docs/Event-Mapping.md) | Authentik → SSF/CAEP event mapping |
 | 🔑 [docs/Key-Management.md](docs/Key-Management.md) | RSA key generation, backup, rotation |
 | 👥 [docs/Apple-SCIM-Sync.md](docs/Apple-SCIM-Sync.md) | Apple Business Manager directory sync |
@@ -167,7 +168,7 @@ Set `APPLE_SCIM_GROUP_ID` to an Authentik group UUID to sync only members of a d
 
 ## Development
 
-Requires **Python 3.14** and **uv 0.11.26** (matches CI and the Docker export stage).
+Requires **Python 3.14**. CI uses **uv 0.11.26**; the Docker export stage has its own pinned uv version. See [dependency tooling](docs/Dependencies.md) before regenerating the lock.
 
 ```bash
 uv sync --locked --all-extras

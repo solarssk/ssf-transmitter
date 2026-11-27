@@ -168,7 +168,7 @@ Back up `ssf-data` and `ssf-keys`, preserve secrets and encryption settings, the
 
 ## Image updates
 
-Pin `0.6.0` in production. `:latest` updates on every `main` push when you pull and redeploy.
+Pin `0.6.0` in production. `:latest` follows stable releases and changes when you pull and redeploy.
 
 Stable release tags (`v0.6.0`) update the `latest` Docker tag; pre-release tags do not.
 

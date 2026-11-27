@@ -8,7 +8,7 @@ OSS-Fuzz itself uses.
 
 ```text
 .clusterfuzzlite/
-├── Dockerfile   # OSS-Fuzz Python base builder image + this repo installed into it
+├── Dockerfile   # OSS-Fuzz Python builder with app/ and fuzz/ copied in
 └── build.sh     # installs atheris, compiles every fuzz/fuzz_*.py into a runnable fuzzer
 
 fuzz/
