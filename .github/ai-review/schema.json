@@ -1,0 +1,20 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "verdict": {"type": "string", "enum": ["approve", "comment"]},
+    "complete": {"type": "boolean"},
+    "reviewed_files": {"type": "array", "items": {"type": "string"}},
+    "summary": {"type": "string"},
+    "blocking_findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {"file": {"type": "string"}, "issue": {"type": "string"}},
+        "required": ["file", "issue"]
+      }
+    }
+  },
+  "required": ["verdict", "complete", "reviewed_files", "summary", "blocking_findings"]
+}

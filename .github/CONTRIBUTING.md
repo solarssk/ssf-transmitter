@@ -139,3 +139,7 @@ new environment variables, tokens or database migrations.
 ## Questions
 
 Open a GitHub issue, or reach **@solarssk**.
+
+## Automated review
+
+Same-repository owner and Dependabot PRs can be reviewed by the [AI reviewer](../docs/AI-Review.md). It approves only completed reviews of the current commit. Failures or findings do not grant approval. The maintainer still reviews and merges changes; this is an automated second identity, not a human review. Keep required review count at zero until the first live review is validated, then follow the documented rollout.
