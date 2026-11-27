@@ -38,6 +38,7 @@ REPO_BLOB_BASE = "https://github.com/solarssk/ssf-transmitter/blob/main"
 # repo-relative source path -> wiki page name (no .md)
 MAPPING = {
     "docs/API.md": "API-Reference",
+    "docs/AI-Review.md": "AI-Review",
     "docs/Apple-SCIM-Sync.md": "Apple-SCIM-Sync",
     "docs/Apple-SSF-Validation.md": "Apple-SSF-Validation",
     "docs/Dependencies.md": "Dependencies",

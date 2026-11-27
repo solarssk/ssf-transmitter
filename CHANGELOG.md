@@ -9,6 +9,9 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Added
+- Add commit-specific automated Claude PR review with no approval on provider failure, incomplete coverage, unreadable changes, or stale commits. Repository setup and staged branch-protection activation are documented separately; runtime configuration is unchanged.
+
 ### Documentation
 - Reorganize operator guides and SCIM troubleshooting, add task-based documentation and developer-directory indexes, and correct stale event, image-tag, and tooling descriptions. Include Apple issuer validation and dependency maintenance in the Wiki sync.
 

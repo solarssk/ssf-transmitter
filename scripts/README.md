@@ -7,6 +7,7 @@ Run these from the repository root. Release preparation changes files; inspect t
 | `generate-release-notes.py X.Y.Z` | Generate `.github/release-notes/vX.Y.Z.md` from the changelog |
 | `sync-release-docs.py` | Update current-release pointers; `--check` verifies them without writing |
 | `sync-wiki.py /path/to/wiki` | Copy the explicitly mapped guides into an existing wiki checkout |
+| `ai-review.py prepare` / `submit` | Validate review input and publish an immutable commit-specific verdict in Actions; see [review setup](../docs/AI-Review.md) |
 | `release-tag.sh` | Emergency signed-tag fallback; read its header before use |
 
 Follow the [release checklist](../AGENTS.md#cutting-a-release) for version, changelog, narrative upgrade instructions, and release PR requirements. The generators do not rewrite version-specific upgrade advice.

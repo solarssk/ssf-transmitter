@@ -31,6 +31,8 @@ Start with the task you need to complete. These files are maintained in the repo
 
 ## Contribute
 
+[Automated PR review](AI-Review.md) explains subscription setup, approval rules, and the branch-protection rollout.
+
 Use the [contribution guide](../.github/CONTRIBUTING.md), [dependency maintenance guide](Dependencies.md), [test guide](../tests/README.md), and [maintenance scripts](../scripts/README.md). Authentik expressions live under [integrations](../integrations/README.md).
 
 **Current stable release:** `v0.6.0` — [Validated Apple SCIM and SSF integration](https://github.com/solarssk/ssf-transmitter/releases/tag/v0.6.0)

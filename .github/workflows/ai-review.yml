@@ -1,0 +1,130 @@
+name: AI review
+
+# Use trusted base code only. Never check out or execute the pull request head.
+on:
+  # Intentional: base-only code, no PR checkout/execution; token use restricted to owner/Dependabot PRs.
+  pull_request_target: # zizmor: ignore[dangerous-triggers]
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Same-repository owner or Dependabot PR to review
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: ai-review-${{ github.event.pull_request.number || inputs.pr_number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    name: AI review
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    if: >-
+      (github.event_name == 'pull_request_target' &&
+       !github.event.pull_request.draft &&
+       github.event.pull_request.head.repo.full_name == github.repository &&
+       github.event.pull_request.base.ref == github.event.repository.default_branch &&
+       (github.event.pull_request.user.login == github.repository_owner ||
+        github.event.pull_request.user.login == 'dependabot[bot]')) ||
+      (github.event_name == 'workflow_dispatch' &&
+       github.ref == format('refs/heads/{0}', github.event.repository.default_branch) &&
+       github.actor_id == github.event.repository.owner.id)
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Resolve the base commit
+        id: target
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          OWNER_ID: ${{ github.event.repository.owner.id }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+        run: |
+          set -euo pipefail
+          [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]
+          [[ "$TRIGGERING_ACTOR" =~ ^[A-Za-z0-9-]+$ || "$TRIGGERING_ACTOR" == 'dependabot[bot]' ]]
+          TARGET="$RUNNER_TEMP/review-target.json"
+          gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" > "$TARGET"
+          jq -e --arg repo "$GITHUB_REPOSITORY" --arg owner "$GITHUB_REPOSITORY_OWNER" --arg branch "$DEFAULT_BRANCH" '
+            .state == "open" and .draft == false and
+            .head.repo.full_name == $repo and .base.repo.full_name == $repo and .base.ref == $branch and
+            (.user.login == $owner or .user.login == "dependabot[bot]") and
+            (.base.sha | test("^[a-f0-9]{40}$"))
+          ' "$TARGET" >/dev/null
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            [[ "$(gh api "users/${TRIGGERING_ACTOR}" --jq .id)" == "$OWNER_ID" ]]
+          fi
+          echo "base_sha=$(jq -r .base.sha "$TARGET")" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for further pushes
+        run: sleep 30
+
+      - name: Check out only the base commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.target.outputs.base_sha }}
+          persist-credentials: false
+
+      - name: Prepare and validate the complete diff
+        id: prepare
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          CHECKOUT_SHA: ${{ steps.target.outputs.base_sha }}
+        run: python3 scripts/ai-review.py prepare
+
+      - name: Load reviewer configuration
+        id: config
+        env:
+          CLAUDE_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "$CLAUDE_TOKEN" ]; then
+            echo 'Configure the repository CLAUDE_CODE_OAUTH_TOKEN secret. No approval issued.'
+            exit 1
+          fi
+          DELIM="EOF_$(openssl rand -hex 12)"
+          {
+            echo "prompt<<${DELIM}"
+            cat .github/ai-review/prompt.md
+            echo
+            echo "$DELIM"
+            echo "schema=$(jq -c . .github/ai-review/schema.json)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Review the complete diff
+        id: model
+        continue-on-error: true
+        timeout-minutes: 15
+        uses: anthropics/claude-code-action@acfe7992852970efb4fee683d63d628e3e52df67 # v1.0.286
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ github.token }}
+          allowed_bots: dependabot[bot]
+          prompt: ${{ steps.config.outputs.prompt }}
+          claude_args: >-
+            --model claude-sonnet-5-5
+            --max-turns 20
+            --tools "Read,Grep,Glob"
+            --permission-mode dontAsk
+            --allowedTools "Read(./**)"
+            --disallowedTools "mcp__*"
+            --strict-mcp-config
+            --json-schema '${{ steps.config.outputs.schema }}'
+
+      - name: Publish the review of the exact commit
+        if: ${{ !cancelled() && steps.prepare.outcome == 'success' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          MODEL_OUTCOME: ${{ steps.model.outcome }}
+          STRUCTURED: ${{ steps.model.outputs.structured_output }}
+        run: python3 scripts/ai-review.py submit
