@@ -9,7 +9,8 @@ from pathlib import Path
 import pytest
 
 SPEC = importlib.util.spec_from_file_location("review", Path(__file__).resolve().parents[1] / "scripts/ai-review.py")
-assert SPEC and SPEC.loader
+assert SPEC is not None
+assert SPEC.loader is not None
 review = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(review)
 
@@ -53,8 +54,9 @@ def test_complete_clean_review_can_approve():
 
 @pytest.mark.parametrize("outcome", ["", "failure", "cancelled", "skipped"])
 def test_provider_failure_is_never_an_approval(outcome):
+    raw = result()
     with pytest.raises(ValueError):
-        review.verdict(result(), ["app/main.py"], outcome)
+        review.verdict(raw, ["app/main.py"], outcome)
 
 
 @pytest.mark.parametrize("raw", ["", "{}", "[]", "null", "not json"])
@@ -76,8 +78,9 @@ def test_invalid_provider_result_is_rejected(raw):
     ],
 )
 def test_incomplete_or_unsafe_review_is_rejected(changes):
+    raw = result(**changes)
     with pytest.raises(ValueError):
-        review.verdict(result(**changes), ["app/main.py"], "success")
+        review.verdict(raw, ["app/main.py"], "success")
 
 
 def test_findings_override_approve_verdict():
@@ -122,8 +125,9 @@ def test_unreadable_or_incomplete_diff_is_rejected(files, count):
 
 def test_diff_limit_is_enforced(monkeypatch):
     monkeypatch.setattr(review, "MAX_DIFF_BYTES", 1)
+    files = [file_patch()]
     with pytest.raises(ValueError):
-        review.build_diff([file_patch()], 1)
+        review.build_diff(files, 1)
 
 
 def test_prepare_dismisses_old_approval_before_unreadable_diff(monkeypatch):
@@ -172,6 +176,7 @@ def test_submit_binds_approval_to_exact_head(monkeypatch, tmp_path):
     def fake_api(path, method="GET", body=None):
         if method == "POST":
             posts.append(body)
+            return {"id": 123}
         return pr()
 
     monkeypatch.setattr(review, "api", fake_api)
@@ -243,3 +248,54 @@ def test_closed_pr_between_validation_and_post_is_not_approved(monkeypatch, tmp_
     monkeypatch.setattr(review, "api", fake_api)
     with pytest.raises(ValueError, match="changed before publication"):
         review.submit()
+
+
+@pytest.mark.parametrize("failure", ["base", "ineligible"])
+def test_prepare_dismisses_previous_approval_before_guard_failure(monkeypatch, failure):
+    calls = []
+    current = pr(draft=True) if failure == "ineligible" else pr()
+    monkeypatch.setenv("CHECKOUT_SHA", "c" * 40)
+    monkeypatch.setattr(review, "api", lambda path: current)
+    monkeypatch.setattr(review, "dismiss", lambda head: calls.append(head))
+    with pytest.raises(ValueError, match="ineligible or base checkout changed"):
+        review.prepare()
+    assert calls == ["a" * 40]
+
+
+@pytest.mark.parametrize("failure", ["head", "base", "closed", "read"])
+def test_post_publication_target_failure_withdraws_exact_new_approval(monkeypatch, tmp_path, failure):
+    monkeypatch.setattr(review, "STATE", tmp_path)
+    files = [file_patch()]
+    import hashlib
+
+    digest = hashlib.sha256(review.build_diff(files, 1).encode()).hexdigest()
+    (tmp_path / "target.json").write_text(
+        json.dumps({**review.snapshot(pr()), "files": ["app/main.py"], "digest": digest})
+    )
+    monkeypatch.setenv("STRUCTURED", result())
+    monkeypatch.setenv("MODEL_OUTCOME", "success")
+    monkeypatch.setattr(review, "pages", lambda path: files)
+    changed = pr()
+    if failure in {"head", "base"}:
+        changed[failure]["sha"] = "c" * 40
+    elif failure == "closed":
+        changed["state"] = "closed"
+    reads = iter([pr(), pr(), changed])
+    calls = []
+
+    def fake_api(path, method="GET", body=None):
+        calls.append((method, path))
+        if method == "POST":
+            return {"id": 987}
+        if method == "PUT":
+            return {}
+        value = next(reads)
+        if failure == "read" and len(calls) == 4:
+            raise OSError("API read failed")
+        return value
+
+    monkeypatch.setattr(review, "api", fake_api)
+    with pytest.raises((ValueError, OSError)):
+        review.submit()
+    assert calls[-1] == ("PUT", "repos/solarssk/ssf-transmitter/pulls/12/reviews/987/dismissals")
+    assert sum(method == "POST" for method, _ in calls) == 1

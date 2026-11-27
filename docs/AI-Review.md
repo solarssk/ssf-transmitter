@@ -28,11 +28,11 @@ Approval requires all of the following:
 - The reviewer declared the review complete and listed every changed file.
 - The verdict is approve with no blocking findings.
 - The full file list and patches are readable, match GitHub's change counts, and fit the 100-file / 250,000-byte review limit.
-- The head commit, base commit, and complete diff are unchanged before publication.
+- The head commit, base commit, and complete diff are unchanged before publication. A post-publication check confirms the head and base again; if the target changed or cannot be checked, the publisher withdraws the exact approval it created.
 
 All changed patches, including lockfiles and tests, are included. Missing patches (including binary or empty-only changes), large changes, incomplete coverage, findings, malformed results, or provider failures produce no approval. The model's coverage declaration is not proof of perfect analysis; this remains an automated review with limited context, not an independent human audit.
 
-Starting a new review invalidates this reviewer's previous approval of the same head. A new push also dismisses approvals under branch protection. Reviews include the marker `[ssf-ai-review]` so other bots' reviews are not dismissed by this workflow.
+Once preparation reads the current head, it invalidates this reviewer's previous approval before checking eligibility and the base checkout. A new push also dismisses approvals under branch protection. Reviews include the marker `[ssf-ai-review]` so other bots' reviews are not dismissed by this workflow.
 
 ## Trust boundary
 
@@ -41,3 +41,5 @@ The workflow checks out only the base commit and fetches the PR patch as text. I
 PR content is untrusted input. Publication uses a separate deterministic script, validates the result, checks for credential-shaped text, and binds the review to the reviewed commit. Keep changes to this workflow, its prompt, schema, and publisher under close maintainer review.
 
 Implementation: [workflow](../.github/workflows/ai-review.yml), [publisher](../scripts/ai-review.py), and [regression tests](../tests/test_ai_review.py).
+
+GitHub review creation has no atomic base-commit condition. The post-publication check narrows the race window but cannot eliminate it, or prevent a brief approval before withdrawal. If withdrawal itself fails because GitHub is unavailable, inspect and dismiss the marked review before merging; the run fails and reports the need for inspection.

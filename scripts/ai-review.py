@@ -113,10 +113,10 @@ def build_diff(files: list[dict], expected_count: int) -> str:
 
 def prepare() -> None:
     pr = api(prefix())
-    if not eligible(pr) or snapshot(pr)["base"] != os.environ["CHECKOUT_SHA"]:
-        raise ValueError("PR is ineligible or base checkout changed")
     # Re-review failure must not leave an older approval of the same head alive.
     dismiss(pr["head"]["sha"])
+    if not eligible(pr) or snapshot(pr)["base"] != os.environ["CHECKOUT_SHA"]:
+        raise ValueError("PR is ineligible or base checkout changed")
     files = pages(prefix() + "/files")
     diff = build_diff(files, pr["changed_files"])
     if snapshot(api(prefix())) != snapshot(pr):
@@ -188,11 +188,25 @@ def submit() -> bool:
     final = api(prefix())
     if not eligible(final) or snapshot(final) != snapshot(current):
         raise ValueError("PR changed before publication")
-    api(
+    posted = api(
         prefix() + "/reviews",
         "POST",
         {"commit_id": target["head"], "event": "APPROVE" if approve else "COMMENT", "body": body},
     )
+    if approve:
+        # GitHub has no base-SHA precondition on review creation. Revoke this exact
+        # review if a concurrent change or failed read prevents confirmation.
+        try:
+            published = api(prefix())
+            if not eligible(published) or snapshot(published) != snapshot(current):
+                raise ValueError("PR changed during publication")
+        except ValueError, KeyError, OSError, TypeError:
+            api(
+                prefix() + f"/reviews/{posted['id']}/dismissals",
+                "PUT",
+                {"message": "Unable to confirm the reviewed target after publication; approval withdrawn."},
+            )
+            raise
     return approve
 
 
@@ -206,7 +220,7 @@ def main() -> int:
         raise ValueError("Expected prepare or submit")
     except ValueError, KeyError, OSError, TypeError:
         # Never echo raw provider/API errors or untrusted model output into public logs.
-        print("AI review incomplete, unsafe, stale, or failed; no approval was issued.", file=sys.stderr)
+        print("AI review validation failed. Inspect the run and any review it published.", file=sys.stderr)
         return 1
 
 
