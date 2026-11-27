@@ -4,7 +4,7 @@ This service runs as a fourth container next to PostgreSQL, Authentik `server`, 
 
 Keep hostnames and secrets in `stack.env`. **Never commit** `stack.env` or paste secrets into compose YAML.
 
-**Current release:** `ghcr.io/solarssk/ssf-transmitter:0.6.0` (or `docker.io/solarssk/ssf-transmitter:0.6.0` — same image, public, no registry login needed; see below)
+**Current release:** `ghcr.io/solarssk/ssf-transmitter:0.6.1` (or `docker.io/solarssk/ssf-transmitter:0.6.1` — same image, public, no registry login needed; see below)
 
 See also: [Deployment.md](Deployment.md), [Upgrading.md](Upgrading.md), [Configuration.md](Configuration.md).
 
@@ -81,11 +81,11 @@ Match your Docker bridge subnet. Example below uses `172.16.3.0/24`. If NPM uses
 
 ## Service block
 
-Swap `image:` to `docker.io/solarssk/ssf-transmitter:0.6.0` for the public, no-login Docker Hub image (see [Registry access](#registry-access) above).
+Swap `image:` to `docker.io/solarssk/ssf-transmitter:0.6.1` for the public, no-login Docker Hub image (see [Registry access](#registry-access) above).
 
 ```yaml
   ssf-transmitter:
-    image: ghcr.io/solarssk/ssf-transmitter:0.6.0
+    image: ghcr.io/solarssk/ssf-transmitter:0.6.1
     container_name: authentik-ssf
     restart: unless-stopped
     networks:
@@ -162,15 +162,21 @@ If `SSF_HOST_PORT` changes, update the Nginx Proxy Manager port too.
 | SSF Config | `https://idp.example.com/shared-signals/.well-known/ssf-configuration` |
 | OpenID Config | `https://idp.example.com/application/o/apple-id/.well-known/openid-configuration` |
 
-## Upgrading from 0.5.19
+## Upgrading from 0.6.0
 
-Back up `ssf-data` and `ssf-keys`, preserve secrets and encryption settings, then pin `0.6.0` and redeploy only the SSF service. Check startup, `/ssf/delivery/status`, and the next SCIM cycle: partial/failed outcomes and skipped accounts need attention. No database migration or new required settings. Review [Upgrading.md](Upgrading.md) and [Apple SSF validation](Apple-SSF-Validation.md) before changing an issuer or retrying blocked events. Device reauthentication was tested; immediate iCloud.com browser logout is not confirmed.
+Back up `ssf-data`, `ssf-keys`, and environment configuration. Preserve the existing issuer, secrets, and encryption settings; review pending and blocked SETs before redeploying.
+
+1. Pin `0.6.1` and redeploy only the SSF service.
+2. Update the [Authentik body mapping and event subscriptions](Event-Mapping.md). Remove `logout`; use user `model_updated` plus `user_write`, matched with any/OR.
+3. Check startup, `/ssf/delivery/status`, the next SCIM cycle, and account-disablement delivery for a dedicated test user.
+
+No database migration or new required runtime settings. The image does not update external Authentik rules. See [Upgrading.md](Upgrading.md) for the exact order, queued-event cautions, live-validation limits, and rollback behavior.
 
 ## Image updates
 
-Pin `0.6.0` in production. `:latest` follows stable releases and changes when you pull and redeploy.
+Pin `0.6.1` in production. `:latest` follows stable releases and changes when you pull and redeploy.
 
-Stable release tags (`v0.6.0`) update the `latest` Docker tag; pre-release tags do not.
+Stable release tags (`v0.6.1`) update the `latest` Docker tag; pre-release tags do not.
 
 ## Apple SCIM group filtering
 
