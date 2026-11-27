@@ -14,7 +14,7 @@ Do not turn on mandatory review before the first successful real review. Missing
 
 ## Read the review result
 
-Check both the **AI review** workflow run and the review attached to the current commit. A successful CI check alone does not establish that the bot approved the latest changes.
+Check both the **AI review** workflow run and the review attached to the current commit. A successful CI check alone does not establish that the bot approved the latest changes. After a new push, wait for a fresh review of that commit; an earlier approval does not cover the new diff.
 
 ## Run or retry a review
 
